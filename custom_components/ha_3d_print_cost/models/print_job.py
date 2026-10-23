@@ -80,8 +80,8 @@ class PrintJob:
 
     @property
     def energy_kwh(self) -> float:
-        """Energy consumed so far."""
-        return self.electricity.energy_kwh
+        """Energy consumed so far (power estimate until the meter confirms it)."""
+        return self.electricity.total_energy_kwh
 
     @property
     def energy_start(self) -> float | None:
@@ -102,9 +102,9 @@ class PrintJob:
         ``electricity_cost_complete`` is ``False``.
         """
         acc = self.electricity
-        if acc.cost == ZERO and acc.uncosted_energy_kwh > 0:
+        if acc.total_cost == ZERO and acc.total_uncosted_energy_kwh > 0:
             return None
-        return acc.cost
+        return acc.total_cost
 
     @property
     def electricity_cost_complete(self) -> bool:
@@ -202,7 +202,7 @@ class PrintJob:
         notes = self.electricity.notes
         if not self.electricity.cost_complete:
             notes.append(
-                f"{self.electricity.uncosted_energy_kwh:.4f} kWh consumed while the electricity price was unknown"
+                f"{self.electricity.total_uncosted_energy_kwh:.4f} kWh consumed while the electricity price was unknown"
             )
         if self.electricity.gap_seconds:
             notes.append(f"{round(self.electricity.gap_seconds)} s of the print had no fresh sample")

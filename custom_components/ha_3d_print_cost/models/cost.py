@@ -79,9 +79,24 @@ class ElectricityAccumulator:
 
     # ------------------------------------------------------------------ #
     @property
+    def total_energy_kwh(self) -> float:
+        """Booked energy plus the power estimate the meter has not confirmed yet."""
+        return self.energy_kwh + self.pending_kwh
+
+    @property
+    def total_cost(self) -> Decimal:
+        """Booked cost plus the cost of the pending estimate."""
+        return self.cost + self.pending_cost
+
+    @property
+    def total_uncosted_energy_kwh(self) -> float:
+        """Energy without a known price, pending estimate included."""
+        return self.uncosted_energy_kwh + self.pending_uncosted_kwh
+
+    @property
     def cost_complete(self) -> bool:
         """True when every kWh of the print has a known price."""
-        return self.uncosted_energy_kwh <= 1e-12
+        return self.total_uncosted_energy_kwh <= 1e-12
 
     @property
     def notes(self) -> list[str]:
@@ -131,8 +146,13 @@ class ElectricityAccumulator:
             # Meter momentarily unavailable: keep the estimate pending, the
             # next meter reading will cover the whole hole exactly.
             self._note("energy meter temporarily unavailable, its next reading covered the hole")
-        elif meter_now >= meter_prev:
+        elif meter_now > meter_prev:
             self._commit_meter(meter_now - meter_prev)
+        elif meter_now == meter_prev:
+            # Meter not advanced yet (coarse resolution, or a plug that only
+            # refreshes its counter every few minutes): keep the estimate
+            # pending, the next step of the meter replaces it.
+            pass
         else:
             # Meter reset (plug rebooted, daily counter...): use power.
             self.meter_resets += 1
@@ -144,7 +164,7 @@ class ElectricityAccumulator:
     def flush(self) -> None:
         """Commit a pending estimate (meter never came back before the end)."""
         if self.pending_kwh or self.pending_uncosted_kwh:
-            self._note("energy meter unavailable at the end of the print, power estimate used")
+            self._note("energy meter did not report the last part of the print, power estimate used")
             self._commit_pending()
 
     # ------------------------------------------------------------------ #

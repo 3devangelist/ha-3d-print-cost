@@ -160,3 +160,29 @@ def test_meter_lost_until_the_end_uses_power_estimate():
     acc.flush()
     assert acc.energy_kwh == pytest.approx(0.6)
     assert acc.notes
+
+
+def test_stale_meter_shows_power_estimate_until_it_steps():
+    # Plug that refreshes its counter rarely: 116 W, meter frozen for 50 min.
+    acc = ElectricityAccumulator()
+    for minute in range(0, 51, 1):
+        acc.add_sample(ElectricitySample(at(minute), power_w=116, energy_kwh=17.57, price_per_kwh=HC))
+    assert acc.energy_kwh == 0  # nothing confirmed by the meter
+    assert acc.total_energy_kwh == pytest.approx(0.116 * 50 / 60)
+    assert acc.total_cost == pytest.approx(Decimal(repr(0.116 * 50 / 60)) * HC, abs=Decimal("1e-9"))
+
+    # The meter finally steps: its exact delta replaces the estimate.
+    acc.add_sample(ElectricitySample(at(51), power_w=116, energy_kwh=17.67, price_per_kwh=HC))
+    assert acc.energy_kwh == pytest.approx(0.10)
+    assert acc.pending_kwh == 0
+    assert acc.total_energy_kwh == pytest.approx(0.10)
+
+
+def test_meter_frozen_for_the_whole_print_uses_power():
+    acc = ElectricityAccumulator()
+    for minute in range(0, 61, 5):
+        acc.add_sample(ElectricitySample(at(minute), power_w=120, energy_kwh=17.57, price_per_kwh=HC))
+    acc.flush()
+    assert acc.energy_kwh == pytest.approx(0.12)
+    assert acc.cost == pytest.approx(Decimal(repr(0.12)) * HC, abs=Decimal("1e-9"))
+    assert "energy meter did not report the last part of the print, power estimate used" in acc.notes
