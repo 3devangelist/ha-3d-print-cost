@@ -8,7 +8,9 @@ _[Version française](README.fr.md)_
 
 **What did that print actually cost?** This integration computes, for every
 Bambu Lab print, the **real electricity cost**, the **real filament cost** and
-the **total**, and exposes them as standard Home Assistant entities.
+the **total**, and exposes them as standard Home Assistant entities — for
+the **print in progress** and the **last print** only. Long-term history and
+statistics are deliberately left to other tools.
 
 ```text
 Flower Lamp — success — 3 h 31 min
@@ -37,7 +39,7 @@ already do well.
 5. [Electricity](#electricity)
 6. [Filament: HaspelSync and Spoolman](#filament-haspelsync-and-spoolman)
 7. [Entities](#entities)
-8. [Actions: history and G-code estimate](#actions-history-and-g-code-estimate)
+8. [Dashboard cards](#dashboard-cards)
 9. [Automations](#automations)
 10. [Troubleshooting](#troubleshooting)
 11. [Development](#development)
@@ -111,7 +113,6 @@ integration; a print in progress survives the reload.
 | Option                   | Default                              |                                                                      |
 | ------------------------ | ------------------------------------ | -------------------------------------------------------------------- |
 | Sampling interval        | 30 s                                 | samples are also taken on every state change of the watched entities |
-| Prints kept in history   | 100                                  | stored in `.storage/ha_3d_print_cost.<entry_id>`                     |
 | Currency                 | HA currency                          | used for units only, no conversion                                   |
 | Power integration method | left                                 | `left` suits step-like plug sensors, `trapezoidal` smooth ones       |
 | Filament fallback        | planned weight for successful prints | see below                                                            |
@@ -199,21 +200,12 @@ Bambu Lab device. Entity ids below assume a printer named _X2D_.
 `…_electricity_cost`, `…_filament_cost`, `…_energy`, `…_filament_weight`,
 `…_duration`, `…_result` (`success` / `cancelled` / `failed` / `unknown`).
 
-**History and G-code estimate**
+**Last print image**
 
-| Entity                              | Unit   |                                                                                |
-| ----------------------------------- | ------ | ------------------------------------------------------------------------------ |
-| `sensor.x2d_print_history`          | prints | stored prints; attributes `totals` and `jobs` (30 latest, not recorded)        |
-| `select.x2d_gcode_file`             |        | `.gcode` / `.gcode.3mf` files of the G-code folder (one option per plate)      |
-| `button.x2d_estimate_gcode`         |        | estimates the selected file                                                    |
-| `button.x2d_refresh_gcode_files`    |        | rescans the folder now (otherwise every 30 s)                                  |
-| `sensor.x2d_gcode_estimate`         | €      | last estimate (button or `estimate_cost` action); full detail in attributes    |
-
-The G-code folder is `/media/3d_prints` by default (*Options → Advanced*).
-The Media browser only accepts images, videos and audio, so put the sliced
-files there through the **Samba** `media` share (Bambu Studio can export
-straight to it), Studio Code Server or the File editor. Only this folder is
-scanned, never the whole media directory.
+`image.x2d_last_print_image` — copy of the ha-bambulab cover image taken when
+the print ended, so it still shows the right model once the next print has
+started. It is also the picture of `sensor.x2d_last_print_total_cost`
+(stored in `.storage/ha_3d_print_cost.<entry_id>.image`).
 
 **Event**
 
@@ -251,61 +243,23 @@ filaments:
 Per-print sensors have no `state_class` on purpose: they reset at every print
 and must not pollute long-term statistics or the Energy dashboard.
 
-No custom Lovelace card is shipped; everything works with native cards,
-Mushroom, Bubble Card or ApexCharts. A ready-made view is in
-[`examples/dashboard_view.yaml`](examples/dashboard_view.yaml).
+## Dashboard cards
 
-## Actions: history and G-code estimate
+No custom Lovelace card is shipped. [`examples/dashboard_cards.yaml`](examples/dashboard_cards.yaml)
+holds five ready-made cards built with [Bubble Card](https://github.com/Clooos/Bubble-Card)
+and native cards:
 
-Both actions only read data and return a response: run them from
-**Developer tools → Actions** (tick *Return response*) or from a script.
-`config_entry_id` is only needed when several printers are configured.
+| Card                   |                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| Current print — simple | thumbnail, name, cost so far, progress; electricity €, kWh, planned weight, duration      |
+| Last print — simple    | thumbnail, name, total; electricity €, filament €, kWh, g, duration, result               |
+| Current print — full   | + remaining time, cost per hour, tariff, progress bar, notes, power / cost graph          |
+| Last print — full      | + start / end time, per-spool detail, notes                                               |
+| Switchable             | one card showing the current print, with a button to flip to the last print and back     |
 
-### `ha_3d_print_cost.get_history`
-
-Returns the stored past prints (newest first, up to the history size set in
-the options) with their totals.
-
-```yaml
-action: ha_3d_print_cost.get_history
-data:
-  limit: 20          # optional
-  result: success    # optional: success | cancelled | failed | unknown
-```
-
-`totals.incomplete_jobs` counts prints whose total is unknown (e.g. no spool
-price): only their known parts are added, so the totals are then a minimum.
-
-### `ha_3d_print_cost.estimate_cost`
-
-Estimates the cost of a sliced file **before printing it**, from the slicer
-estimates written in the file (weight per filament, print time). G-code
-moves are never parsed.
-
-```yaml
-action: ha_3d_print_cost.estimate_cost
-data:
-  file_path: /media/3d_prints/flower_lamp.gcode.3mf
-  plate: 1              # only if the .3mf holds several sliced plates
-  spool_ids: [23, 45]   # optional, one Spoolman spool per filament, in slicer order
-  power_w: 150          # optional, overrides the measured average
-```
-
-- **Files**: `.gcode.3mf` from Bambu Studio / Orca Slicer (*Export plate
-  sliced file*) and plain `.gcode` (Bambu Studio, Orca, PrusaSlicer). The file
-  must be in an allowed folder: `/media` and `/config/www` by default (copy it
-  through the Samba `media` share), or one added to
-  `allowlist_external_dirs`. The result also updates
-  `sensor.x2d_gcode_estimate`.
-- **Filament**: priced with Spoolman. Without `spool_ids`, the spool loaded in
-  the AMS (via HaspelSync) with the same material **and** colour is used,
-  only when exactly one matches. Otherwise the cost stays unknown.
-- **Electricity**: average power of past successful prints (≥ 10 min) ×
-  slicer print time × **current** tariff. The future tariff is unknown, so
-  this part is an approximation. Real prints are still costed interval by
-  interval.
-- Any missing part leaves `total_cost` empty, with `partial_total_cost` and
-  `notes` explaining why.
+The totals sensors carry the print thumbnail as `entity_picture`, so Bubble
+Card shows it in place of the icon. The switchable card needs an
+`input_boolean` helper (see the comments in the file).
 
 ## Automations
 
@@ -372,8 +326,10 @@ systems sit behind adapters that are mocked in tests. Money is computed with
 
 - **v0.1** ✅ electricity cost per print, tariff changes, restart recovery, last print, event
 - **v0.2** ✅ HaspelSync + Spoolman, cost per spool, total cost, cancelled prints
-- **v0.3** 🚧 `get_history` and `estimate_cost` actions ✅; day/month statistics sensors, `recalculate_last_print`, `delete_print`
-- **v0.4** multi-printer statistics, cost per material / spool, cancellation rate, CSV/JSON export
+- **v0.3** 🚧 scope narrowed to the current and last print, last print thumbnail, example cards
+
+History, G-code estimates and statistics were removed: Home Assistant is not
+the right place for them. Use the `print_finished` event to feed another tool.
 
 ## License
 

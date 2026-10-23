@@ -6,12 +6,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
+from homeassistant.components.image import Image
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ha_3d_print_cost.adapters.haspelsync import parse_print_usage
 from custom_components.ha_3d_print_cost.const import (
+    CONF_COVER_IMAGE_ENTITY,
     CONF_ENERGY_ENTITY,
     CONF_FILAMENT_FALLBACK,
     CONF_HASPELSYNC_PRINTER_ID,
@@ -171,6 +173,49 @@ async def test_restart_during_print(hass: HomeAssistant, freezer: FrozenDateTime
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert float(hass.states.get("sensor.x2d_last_print_energy").state) == pytest.approx(0.3)
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+
+async def test_last_print_keeps_its_thumbnail(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, events, tmp_path
+) -> None:
+    hass.config.config_dir = str(tmp_path)  # the thumbnail is a real file
+    freezer.move_to("2026-10-23 14:00:00+00:00")
+    cover = "image.x2d_cover_image"
+    hass.states.async_set(cover, "2026-10-23T14:00:00+00:00", {"entity_picture": "/api/image_proxy/cover?token=a"})
+    set_states(hass, status="idle", energy="100000")
+    entry = make_entry(hass, **{CONF_COVER_IMAGE_ENTITY: cover})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("image.x2d_last_print_image").state == "unavailable"
+
+    await step(hass, freezer, 0, status="running", energy="100000")
+    current = hass.states.get("sensor.x2d_current_print_total_cost")
+    assert current.attributes["entity_picture"] == "/api/image_proxy/cover?token=a"
+
+    get_image = AsyncMock(return_value=Image("image/png", PNG))
+    with patch("custom_components.ha_3d_print_cost.coordinator.async_get_image", get_image):
+        await step(hass, freezer, 30, status="finish", energy="100150")
+        await hass.async_block_till_done(wait_background_tasks=True)  # finalisation writes the file
+    get_image.assert_awaited_once_with(hass, cover)
+    assert len(events) == 1
+
+    image = hass.states.get("image.x2d_last_print_image")
+    assert image.state == "2026-10-23T14:30:00+00:00"
+    last = hass.states.get("sensor.x2d_last_print_total_cost")
+    assert last.attributes["entity_picture"] == image.attributes["entity_picture"]
+    assert "entity_picture" not in hass.states.get("sensor.x2d_current_print_total_cost").attributes
+
+    # The copy survives a restart, whatever the printer shows next.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.last_image == PNG
+    assert hass.states.get("image.x2d_last_print_image").state == "2026-10-23T14:30:00+00:00"
+
+    await hass.config_entries.async_remove(entry.entry_id)
+    assert not list((tmp_path / ".storage").glob("*.image"))
 
 
 async def test_filament_cost_from_haspelsync_and_spoolman(

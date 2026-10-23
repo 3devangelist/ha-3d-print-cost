@@ -188,7 +188,7 @@ async def test_options_flow_changes_price_and_clears_energy(hass: HomeAssistant,
     result = await hass.config_entries.options.async_configure(result["flow_id"], {CONF_FILAMENT_FALLBACK: "none"})
     assert result["step_id"] == "behaviour"
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"update_interval": 20, "history_size": 50, "currency": "eur"}
+        result["flow_id"], {"update_interval": 20, "currency": "eur"}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     merged = {**entry.data, **entry.options}

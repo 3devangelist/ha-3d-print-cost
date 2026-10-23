@@ -88,6 +88,16 @@ Si une bobine n'a pas de prix, le coût filament et le total sont **inconnus**
 - **Dernier print** : `sensor.x2d_last_print_total_cost`, `…_electricity_cost`, `…_filament_cost`, `…_energy`, `…_filament_weight`, `…_duration`, `…_result` ;
 - **Événement** : `event.x2d_print_finished` (et l'événement bus `ha_3d_print_cost_print_finished`) ;
 - **Diagnostic** : `sensor.x2d_electricity_price`.
+- **Image du dernier print** : `image.x2d_last_print_image`, copie de la miniature ha-bambulab prise à la fin du print (elle reste correcte quand le print suivant démarre).
+
+Seuls le print en cours et le dernier print sont exposés : pas d'historique ni de statistiques dans Home Assistant.
+
+## Cartes de dashboard
+
+[`examples/dashboard_cards.yaml`](examples/dashboard_cards.yaml) contient cinq
+cartes prêtes à l'emploi ([Bubble Card](https://github.com/Clooos/Bubble-Card) + cartes natives) :
+print en cours et dernier print en version simple et complète, plus une carte
+unique qui bascule de l'un à l'autre. La miniature du modèle remplace l'icône.
 
 ## Dépannage
 

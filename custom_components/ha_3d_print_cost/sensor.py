@@ -14,12 +14,12 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfMass, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CONF_COVER_IMAGE_ENTITY, HISTORY_ATTRIBUTE_SIZE
+from .const import CONF_COVER_IMAGE_ENTITY, DOMAIN
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator, PrintCostData
 from .entity import PrintCostEntity
-from .history import compact_job, history_totals
 from .models import PrintJob, PrintResult
 
 PARALLEL_UPDATES = 0
@@ -78,26 +78,6 @@ def _last_attrs(data: PrintCostData) -> dict[str, Any] | None:
         return None
     summary = job.summary()
     return {k: v for k, v in summary.items() if k != "job_id"}
-
-
-def _history_attrs(data: PrintCostData) -> dict[str, Any]:
-    history = data.stored.history
-    return {
-        "totals": history_totals(history),
-        "jobs": [compact_job(job) for job in history[:HISTORY_ATTRIBUTE_SIZE]],
-    }
-
-
-def _estimate_total(data: PrintCostData) -> float | None:
-    estimate = data.stored.last_estimate
-    return estimate.get("total_cost") if estimate else None
-
-
-def _estimate_attrs(data: PrintCostData) -> dict[str, Any] | None:
-    estimate = data.stored.last_estimate
-    if not estimate:
-        return None
-    return {k: v for k, v in estimate.items() if k != "total_cost"}
 
 
 SENSORS: tuple[PrintCostSensorDescription, ...] = (
@@ -216,21 +196,6 @@ SENSORS: tuple[PrintCostSensorDescription, ...] = (
         options=[str(r) for r in PrintResult],
         value_fn=lambda d: str(d.last_job.result) if d.last_job and d.last_job.result else None,
     ),
-    # ---------------- history & estimate ----------------
-    PrintCostSensorDescription(
-        key="print_history",
-        native_unit_of_measurement="prints",
-        value_fn=lambda d: len(d.stored.history),
-        attrs_fn=_history_attrs,
-    ),
-    PrintCostSensorDescription(
-        key="gcode_estimate",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY,
-        suggested_display_precision=2,
-        value_fn=_estimate_total,
-        attrs_fn=_estimate_attrs,
-    ),
 )
 
 
@@ -248,8 +213,6 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
     """A sensor reading one value of the current / last print."""
 
     entity_description: PrintCostSensorDescription
-    # Up to HISTORY_ATTRIBUTE_SIZE prints: useful on dashboards, too big for the recorder.
-    _unrecorded_attributes = frozenset({"jobs"})
 
     def __init__(self, coordinator: PrintCostCoordinator, description: PrintCostSensorDescription) -> None:
         super().__init__(coordinator, description.key, "sensor")
@@ -267,14 +230,24 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
 
     @property
     def entity_picture(self) -> str | None:
-        """Print thumbnail (ha-bambulab cover image) on the current total."""
-        if self.entity_description.key != "current_print_total_cost":
-            return None
+        """Print thumbnail on the totals, shown by cards instead of the icon.
+
+        Current print: the ha-bambulab cover image. Last print: the copy kept
+        by ``image.<printer>_last_print_image``. The URL carries an access
+        token that HA rotates; the periodic update refreshes it.
+        """
         data = self.coordinator.data
-        image = self.coordinator.conf.get(CONF_COVER_IMAGE_ENTITY)
-        if data is None or data.current_job is None or not image:
+        if data is None:
             return None
-        state = self.hass.states.get(image)
+        key = self.entity_description.key
+        image: str | None = None
+        if key == "current_print_total_cost" and data.current_job is not None:
+            image = self.coordinator.conf.get(CONF_COVER_IMAGE_ENTITY)
+        elif key == "last_print_total_cost" and self.coordinator.last_image is not None:
+            image = er.async_get(self.hass).async_get_entity_id(
+                "image", DOMAIN, f"{self.coordinator.config_entry.entry_id}_last_print_image"
+            )
+        state = self.hass.states.get(image) if image else None
         return state.attributes.get("entity_picture") if state else None
 
     @property

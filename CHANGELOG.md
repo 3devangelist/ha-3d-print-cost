@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Scope narrowed to the print in progress and the last print.
+- Example cards (`examples/dashboard_cards.yaml`) replace the dashboard view and package.
+
+### Added
+- `image.<printer>_last_print_image`: thumbnail of the last print, kept across restarts and shown as the picture of `last_print_total_cost`.
+
+### Removed
+- Print history (`print_history` sensor, `get_history` action, history size option).
+- G-code estimate (`estimate_cost` action, file select, buttons, `gcode_estimate` sensor, G-code folder option).
+
 ## [0.2.0] - unreleased
 
 First public version, covering the v0.1 and v0.2 milestones.

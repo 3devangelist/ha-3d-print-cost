@@ -42,6 +42,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: PrintCo
         "active_job": active.as_dict() if active else None,
         "finalizing_jobs": [j.as_dict() for j in coordinator.state.finalizing],
         "last_job": coordinator.state.last_job.summary() if coordinator.state.last_job else None,
-        "history_size": len(coordinator.state.history),
+        "last_print_image": coordinator.last_image is not None,
         "recent_errors": list(coordinator.errors),
     }

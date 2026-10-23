@@ -130,12 +130,7 @@
         "title": "Avancé",
         "data": {
           "update_interval": "Intervalle d'échantillonnage pendant un print",
-          "history_size": "Nombre de prints conservés dans l'historique",
-          "currency": "Devise",
-          "gcode_folder": "Dossier des fichiers tranchés"
-        },
-        "data_description": {
-          "gcode_folder": "Dossier analysé pour les fichiers .gcode / .gcode.3mf à estimer. Exporte-les depuis le slicer via le partage Samba « media ». Doit être autorisé : /media et /config/www le sont par défaut."
+          "currency": "Devise"
         }
       }
     },
@@ -162,14 +157,6 @@
         "none": "Ne jamais estimer",
         "planned_success": "Utiliser le poids slicé pour les prints réussis",
         "planned_progress": "Poids slicé, × progression pour les prints échoués/annulés"
-      }
-    },
-    "print_result": {
-      "options": {
-        "success": "Réussi",
-        "cancelled": "Annulé",
-        "failed": "Échoué",
-        "unknown": "Inconnu"
       }
     }
   },
@@ -233,12 +220,6 @@
           "failed": "Échoué",
           "unknown": "Inconnu"
         }
-      },
-      "print_history": {
-        "name": "Historique des impressions"
-      },
-      "gcode_estimate": {
-        "name": "Estimation G-code"
       }
     },
     "event": {
@@ -253,87 +234,10 @@
         }
       }
     },
-    "select": {
-      "gcode_file": {
-        "name": "Fichier G-code à estimer"
+    "image": {
+      "last_print_image": {
+        "name": "Image du dernier print"
       }
-    },
-    "button": {
-      "estimate_gcode": {
-        "name": "Estimer le G-code"
-      },
-      "refresh_gcode_files": {
-        "name": "Actualiser les fichiers G-code"
-      }
-    }
-  },
-  "services": {
-    "get_history": {
-      "name": "Obtenir l'historique des impressions",
-      "description": "Renvoie les impressions passées enregistrées par l'intégration (coût, énergie, filament, détail par bobine) avec les totaux.",
-      "fields": {
-        "config_entry_id": {
-          "name": "Imprimante",
-          "description": "Entrée 3D Print Cost à utiliser. Facultatif si une seule imprimante est configurée."
-        },
-        "limit": {
-          "name": "Limite",
-          "description": "Nombre maximum d'impressions, les plus récentes d'abord."
-        },
-        "result": {
-          "name": "Résultat",
-          "description": "Uniquement les impressions avec ce résultat."
-        }
-      }
-    },
-    "estimate_cost": {
-      "name": "Estimer le coût d'un G-code",
-      "description": "Estime le coût total d'un fichier .gcode ou .gcode.3mf tranché avant de l'imprimer, à partir des estimations du slicer, des prix Spoolman et de la puissance moyenne des impressions passées.",
-      "fields": {
-        "config_entry_id": {
-          "name": "Imprimante",
-          "description": "Entrée 3D Print Cost à utiliser. Facultatif si une seule imprimante est configurée."
-        },
-        "file_path": {
-          "name": "Chemin du fichier",
-          "description": "Chemin du fichier .gcode ou .gcode.3mf, ex. /media/3d_prints/cube.gcode.3mf. Doit être dans un dossier autorisé (/media ou /config/www par défaut)."
-        },
-        "plate": {
-          "name": "Plateau",
-          "description": "Plateau à estimer quand le .3mf contient plusieurs plateaux tranchés."
-        },
-        "spool_ids": {
-          "name": "IDs de bobines Spoolman",
-          "description": "Un ID de bobine Spoolman par filament du plateau, dans l'ordre du slicer. Sinon, la bobine chargée dans l'AMS avec le même matériau et la même couleur est utilisée."
-        },
-        "power_w": {
-          "name": "Puissance moyenne",
-          "description": "Puissance moyenne de l'imprimante. Par défaut, la moyenne mesurée sur les impressions réussies passées."
-        }
-      }
-    }
-  },
-  "exceptions": {
-    "entry_not_found": {
-      "message": "Aucune entrée 3D Print Cost avec l'id {entry_id}."
-    },
-    "entry_not_loaded": {
-      "message": "L'imprimante {title} n'est pas chargée."
-    },
-    "no_entry": {
-      "message": "Aucune imprimante 3D Print Cost n'est chargée."
-    },
-    "several_entries": {
-      "message": "Plusieurs imprimantes sont configurées : choisis-en une avec config_entry_id."
-    },
-    "path_not_allowed": {
-      "message": "L'accès à {path} n'est pas autorisé. Mets le fichier dans /media ou /config/www, ou ajoute son dossier à allowlist_external_dirs."
-    },
-    "invalid_gcode": {
-      "message": "Impossible de lire {file} : {error}"
-    },
-    "no_gcode_selected": {
-      "message": "Choisis d'abord un fichier dans le sélecteur G-code (exporte-le dans le dossier G-code, par ex. via le partage Samba « media »)."
     }
   }
 }

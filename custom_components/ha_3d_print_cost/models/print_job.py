@@ -23,7 +23,7 @@ class JobPhase(StrEnum):
 
     ACTIVE = "active"  # printer preparing / printing / paused
     FINALIZING = "finalizing"  # electricity frozen, waiting for filament data
-    COMPLETED = "completed"  # everything known, stored in history
+    COMPLETED = "completed"  # everything known, kept as the last print
 
 
 class PrintResult(StrEnum):
@@ -177,7 +177,7 @@ class PrintJob:
         ]
 
     def summary(self, now: datetime | None = None) -> dict[str, Any]:
-        """Flat, rounded view used for history, events and attributes."""
+        """Flat, rounded view used for events and attributes."""
         return {
             "job_id": self.job_id,
             "name": self.name,

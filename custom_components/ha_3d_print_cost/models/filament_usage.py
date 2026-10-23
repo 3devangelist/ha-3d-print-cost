@@ -22,7 +22,6 @@ class UsageSource(StrEnum):
     BAMBU_SLOT = "bambu_slot"  # sliced per-slot weight from ha-bambulab
     BAMBU_TOTAL = "bambu_total"  # sliced total weight from ha-bambulab
     ESTIMATED_PROGRESS = "estimated_progress"  # sliced weight x progress (opt-in)
-    GCODE_FILE = "gcode_file"  # slicer estimate of a file not printed yet (estimate_cost)
 
 
 class PriceSource(StrEnum):

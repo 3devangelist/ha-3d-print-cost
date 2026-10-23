@@ -1,0 +1,359 @@
+# Exemples de cartes pour 3D Print Cost.
+#
+# Carte HACS requise : Bubble Card (3.x, templates Jinja dans name / state_content).
+# Tout le reste est natif (markdown, history-graph, conditional, vertical-stack).
+#
+# Chaque bloc est une carte autonome : Dashboard → Modifier → Ajouter une carte
+# → Manuel, puis coller le bloc (sans le « - » de liste).
+#
+# Les entity_id correspondent à l'imprimante X2D_20P9BJ5C2901510 : remplacer
+# « x2d_20p9bj5c2901510 » par le slug de votre imprimante, et sensor.x2d_power
+# par votre prise.
+#
+# L'image du modèle remplace l'icône automatiquement : les capteurs
+# *_print_total_cost exposent la miniature en entity_picture (ha-bambulab pour
+# le print en cours, copie gardée par image.<imprimante>_last_print_image pour
+# le dernier print). Sans miniature, l'icône de l'entité est affichée.
+
+cards:
+  # ================================================================== #
+  # 1. Print en cours — simple
+  # ================================================================== #
+  # Pendant l'impression, le coût filament réel n'est connu qu'à la fin
+  # (HaspelSync) : le total affiché est le coût connu à cet instant et le poids
+  # est celui prévu par le slicer.
+  - type: custom:bubble-card
+    card_type: button
+    button_type: state
+    entity: sensor.x2d_20p9bj5c2901510_current_print_total_cost
+    name: "{{ state_attr(entity, 'job_name') or 'Aucun print en cours' }}"
+    icon: mdi:printer-3d
+    state_content: >-
+      {% if state_attr(entity, 'job_name') %}
+      {{ '%.2f' | format(state_attr(entity, 'partial_total_cost') | float(0)) | replace('.', ',') }} €
+      · {{ state_attr(entity, 'progress') | int(0) }} %
+      {% endif %}
+    card_layout: large-2-rows
+    sub_button:
+      - entity: sensor.x2d_20p9bj5c2901510_current_print_electricity_cost
+        icon: mdi:flash
+        state_content: state
+        show_background: false
+      - entity: sensor.x2d_20p9bj5c2901510_current_print_total_cost
+        icon: mdi:weight-gram
+        state_content: "{{ state_attr('sensor.x2d_20p9bj5c2901510_current_print_total_cost', 'planned_weight_g') or '–' }} g prévus"
+        show_background: false
+      - entity: sensor.x2d_20p9bj5c2901510_current_print_energy
+        icon: mdi:lightning-bolt
+        state_content: state
+        show_background: false
+      - entity: sensor.x2d_20p9bj5c2901510_current_print_duration
+        icon: mdi:timer-outline
+        state_content: >-
+          {% set m = (states('sensor.x2d_20p9bj5c2901510_current_print_duration') | float(0) * 60) | round | int %}
+          {{ m // 60 }} h {{ '%02d' | format(m % 60) }}
+        show_background: false
+
+  # ================================================================== #
+  # 2. Dernier print — simple
+  # ================================================================== #
+  - type: custom:bubble-card
+    card_type: button
+    button_type: state
+    entity: sensor.x2d_20p9bj5c2901510_last_print_total_cost
+    name: "{{ state_attr(entity, 'name') or 'Aucun print' }}"
+    icon: mdi:receipt-text
+    state_content: state
+    card_layout: large-2-rows
+    sub_button:
+      - entity: sensor.x2d_20p9bj5c2901510_last_print_electricity_cost
+        icon: mdi:flash
+        state_content: state
+        show_background: false
+      - entity: sensor.x2d_20p9bj5c2901510_last_print_filament_cost
+        icon: mdi:printer-3d-nozzle
+        state_content: state
+        show_background: false
+      - entity: sensor.x2d_20p9bj5c2901510_last_print_energy
+        icon: mdi:lightning-bolt
+        state_content: state
+        show_background: false
+      - entity: sensor.x2d_20p9bj5c2901510_last_print_filament_weight
+        icon: mdi:weight-gram
+        state_content: state
+        show_background: false
+      - entity: sensor.x2d_20p9bj5c2901510_last_print_duration
+        icon: mdi:timer-outline
+        state_content: >-
+          {% set s = state_attr('sensor.x2d_20p9bj5c2901510_last_print_total_cost', 'duration_s') | int(0) %}
+          {{ s // 3600 }} h {{ '%02d' | format(s % 3600 // 60) }}
+        show_background: false
+      - entity: sensor.x2d_20p9bj5c2901510_last_print_result
+        state_content: state
+        show_background: false
+
+  # ================================================================== #
+  # 3. Print en cours — complète
+  # ================================================================== #
+  # Carte simple + progression, temps restant, coût horaire, tarif, et la
+  # courbe de puissance / coût électrique.
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: sensor.x2d_20p9bj5c2901510_current_print_phase
+        state_not: idle
+    card:
+      type: vertical-stack
+      cards:
+        - type: custom:bubble-card
+          card_type: button
+          button_type: state
+          entity: sensor.x2d_20p9bj5c2901510_current_print_total_cost
+          name: "{{ state_attr(entity, 'job_name') or 'Impression' }}"
+          icon: mdi:printer-3d
+          state_content: >-
+            {% set m = state_attr(entity, 'remaining_min') | int(0) %}
+            {{ state_attr(entity, 'progress') | int(0) }} % · reste {{ m // 60 }} h {{ '%02d' | format(m % 60) }}
+          card_layout: large-2-rows
+          sub_button:
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_electricity_cost
+              icon: mdi:flash
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_total_cost
+              icon: mdi:weight-gram
+              state_content: "{{ state_attr('sensor.x2d_20p9bj5c2901510_current_print_total_cost', 'planned_weight_g') or '–' }} g prévus"
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_energy
+              icon: mdi:lightning-bolt
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_cost_per_hour
+              icon: mdi:cash-clock
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_duration
+              icon: mdi:timer-outline
+              state_content: >-
+                {% set m = (states('sensor.x2d_20p9bj5c2901510_current_print_duration') | float(0) * 60) | round | int %}
+                {{ m // 60 }} h {{ '%02d' | format(m % 60) }}
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_electricity_price
+              icon: mdi:cash
+              state_content: state
+              show_background: false
+
+        - type: markdown
+          content: |
+            {% set e = 'sensor.x2d_20p9bj5c2901510_current_print_total_cost' %}
+            {% set p = state_attr(e, 'progress') | int(0) %}
+            {% set filled = (p / 5) | round(0, 'floor') | int %}
+            `{{ '█' * filled }}{{ '░' * (20 - filled) }}` **{{ p }} %**
+
+            Coût connu à cet instant : **{{ '%.2f' | format(state_attr(e, 'partial_total_cost') | float(0)) | replace('.', ',') }} €**
+            (électricité ; le filament est ajouté à la fin du print)
+            {% if state_attr(e, 'phase') == 'finalizing' %}
+
+            ⏳ Print terminé, consommation filament en cours de récupération…
+            {% endif %}
+            {% for n in state_attr(e, 'notes') or [] %}
+            > {{ n }}
+            {% endfor %}
+
+        - type: history-graph
+          hours_to_show: 6
+          entities:
+            - entity: sensor.x2d_power
+              name: Puissance
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_electricity_cost
+              name: Coût électrique
+
+  # ================================================================== #
+  # 4. Dernier print — complète
+  # ================================================================== #
+  # Carte simple + dates, détail par bobine et éventuelles approximations.
+  - type: vertical-stack
+    cards:
+      - type: custom:bubble-card
+        card_type: button
+        button_type: state
+        entity: sensor.x2d_20p9bj5c2901510_last_print_total_cost
+        name: "{{ state_attr(entity, 'name') or 'Aucun print' }}"
+        icon: mdi:receipt-text
+        state_content: >-
+          {% set t = state_attr(entity, 'total_cost') %}
+          {% set v = t if t is not none else state_attr(entity, 'partial_total_cost') %}
+          {{ ('≥ ' if t is none else '') ~ ('%.2f' | format(v | float(0)) | replace('.', ',')) }} €
+          · {{ states('sensor.x2d_20p9bj5c2901510_last_print_result') }}
+        card_layout: large-2-rows
+        sub_button:
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_electricity_cost
+            icon: mdi:flash
+            state_content: state
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_filament_cost
+            icon: mdi:printer-3d-nozzle
+            state_content: state
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_energy
+            icon: mdi:lightning-bolt
+            state_content: state
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_filament_weight
+            icon: mdi:weight-gram
+            state_content: state
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_duration
+            icon: mdi:timer-outline
+            state_content: >-
+              {% set s = state_attr('sensor.x2d_20p9bj5c2901510_last_print_total_cost', 'duration_s') | int(0) %}
+              {{ s // 3600 }} h {{ '%02d' | format(s % 3600 // 60) }}
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_result
+            state_content: state
+            show_background: false
+
+      - type: markdown
+        content: |
+          {% set e = 'sensor.x2d_20p9bj5c2901510_last_print_total_cost' %}
+          {% set start = state_attr(e, 'started_at') %}
+          {% set end = state_attr(e, 'finished_at') %}
+          {% if start %}
+          🕑 {{ as_timestamp(start) | timestamp_custom('%d/%m %H:%M') }} → {{ as_timestamp(end) | timestamp_custom('%H:%M') if end else '?' }}
+
+          {% endif %}
+          {% for f in state_attr(e, 'filaments') or [] %}
+          - **{{ f.material or '?' }} {{ f.name or '' }}** {{ '(' ~ f.slot ~ ')' if f.slot }} — {{ f.weight_g }} g — {{ ('%.2f €' | format(f.cost)) | replace('.', ',') if f.cost is not none else 'prix inconnu' }}
+          {% else %}
+          Aucun détail filament.
+          {% endfor %}
+          {% for n in state_attr(e, 'notes') or [] %}
+          > {{ n }}
+          {% endfor %}
+
+  # ================================================================== #
+  # 5. Avancée — une seule carte, bascule print en cours / dernier print
+  # ================================================================== #
+  # Prérequis : un interrupteur d'aide (Paramètres → Appareils et services →
+  # Entrées → Créer une entrée → Interrupteur) nommé « Print cost dernier »
+  # → input_boolean.print_cost_dernier.
+  #
+  # Au repos, la carte montre toujours le dernier print. Pendant un print, elle
+  # montre le print en cours, et le bouton en haut à droite bascule vers le
+  # dernier print (et retour).
+  #
+  # Optionnel, pour revenir au print en cours à chaque nouveau print :
+  #   automation:
+  #     - alias: Print cost — afficher le nouveau print
+  #       triggers:
+  #         - trigger: state
+  #           entity_id: sensor.x2d_20p9bj5c2901510_current_print_phase
+  #           to: active
+  #       actions:
+  #         - action: input_boolean.turn_off
+  #           target:
+  #             entity_id: input_boolean.print_cost_dernier
+  - type: vertical-stack
+    cards:
+      # --- Print en cours ---
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.x2d_20p9bj5c2901510_current_print_phase
+            state_not: idle
+          - condition: state
+            entity: input_boolean.print_cost_dernier
+            state: "off"
+        card:
+          type: custom:bubble-card
+          card_type: button
+          button_type: state
+          entity: sensor.x2d_20p9bj5c2901510_current_print_total_cost
+          name: "{{ state_attr(entity, 'job_name') or 'Impression' }}"
+          icon: mdi:printer-3d
+          state_content: >-
+            {% set m = state_attr(entity, 'remaining_min') | int(0) %}
+            {{ '%.2f' | format(state_attr(entity, 'partial_total_cost') | float(0)) | replace('.', ',') }} €
+            · {{ state_attr(entity, 'progress') | int(0) }} % · reste {{ m // 60 }} h {{ '%02d' | format(m % 60) }}
+          card_layout: large-2-rows
+          sub_button:
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_electricity_cost
+              icon: mdi:flash
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_total_cost
+              icon: mdi:weight-gram
+              state_content: "{{ state_attr('sensor.x2d_20p9bj5c2901510_current_print_total_cost', 'planned_weight_g') or '–' }} g prévus"
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_energy
+              icon: mdi:lightning-bolt
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_current_print_duration
+              icon: mdi:timer-outline
+              state_content: >-
+                {% set m = (states('sensor.x2d_20p9bj5c2901510_current_print_duration') | float(0) * 60) | round | int %}
+                {{ m // 60 }} h {{ '%02d' | format(m % 60) }}
+              show_background: false
+            # Bascule vers le dernier print
+            - entity: input_boolean.print_cost_dernier
+              name: Dernier
+              icon: mdi:history
+              show_name: true
+              tap_action:
+                action: toggle
+
+      # --- Dernier print ---
+      - type: conditional
+        conditions:
+          - condition: or
+            conditions:
+              - condition: state
+                entity: sensor.x2d_20p9bj5c2901510_current_print_phase
+                state: idle
+              - condition: state
+                entity: input_boolean.print_cost_dernier
+                state: "on"
+        card:
+          type: custom:bubble-card
+          card_type: button
+          button_type: state
+          entity: sensor.x2d_20p9bj5c2901510_last_print_total_cost
+          name: "{{ state_attr(entity, 'name') or 'Aucun print' }}"
+          icon: mdi:receipt-text
+          state_content: [state, "{{ states('sensor.x2d_20p9bj5c2901510_last_print_result') }}"]
+          card_layout: large-2-rows
+          sub_button:
+            - entity: sensor.x2d_20p9bj5c2901510_last_print_electricity_cost
+              icon: mdi:flash
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_last_print_filament_cost
+              icon: mdi:printer-3d-nozzle
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_last_print_energy
+              icon: mdi:lightning-bolt
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_last_print_filament_weight
+              icon: mdi:weight-gram
+              state_content: state
+              show_background: false
+            - entity: sensor.x2d_20p9bj5c2901510_last_print_duration
+              icon: mdi:timer-outline
+              state_content: >-
+                {% set s = state_attr('sensor.x2d_20p9bj5c2901510_last_print_total_cost', 'duration_s') | int(0) %}
+                {{ s // 3600 }} h {{ '%02d' | format(s % 3600 // 60) }}
+              show_background: false
+            # Retour au print en cours, seulement s'il y en a un
+            - entity: input_boolean.print_cost_dernier
+              name: En cours
+              icon: mdi:printer-3d-nozzle
+              show_name: true
+              tap_action:
+                action: toggle
+              visibility:
+                - condition: state
+                  entity: sensor.x2d_20p9bj5c2901510_current_print_phase
+                  state_not: idle

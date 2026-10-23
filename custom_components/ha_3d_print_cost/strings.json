@@ -130,12 +130,7 @@
         "title": "Advanced",
         "data": {
           "update_interval": "Sampling interval while printing",
-          "history_size": "Prints kept in history",
-          "currency": "Currency",
-          "gcode_folder": "Folder of sliced files"
-        },
-        "data_description": {
-          "gcode_folder": "Folder scanned for .gcode / .gcode.3mf files to estimate. Export them there from the slicer through the Samba 'media' share. Must be allowed: /media and /config/www are by default."
+          "currency": "Currency"
         }
       }
     },
@@ -162,14 +157,6 @@
         "none": "Never estimate",
         "planned_success": "Use the sliced weight for successful prints",
         "planned_progress": "Sliced weight, × progress for failed/cancelled prints"
-      }
-    },
-    "print_result": {
-      "options": {
-        "success": "Success",
-        "cancelled": "Cancelled",
-        "failed": "Failed",
-        "unknown": "Unknown"
       }
     }
   },
@@ -233,12 +220,6 @@
           "failed": "Failed",
           "unknown": "Unknown"
         }
-      },
-      "print_history": {
-        "name": "Print history"
-      },
-      "gcode_estimate": {
-        "name": "G-code estimate"
       }
     },
     "event": {
@@ -253,87 +234,10 @@
         }
       }
     },
-    "select": {
-      "gcode_file": {
-        "name": "G-code file to estimate"
+    "image": {
+      "last_print_image": {
+        "name": "Last print image"
       }
-    },
-    "button": {
-      "estimate_gcode": {
-        "name": "Estimate G-code"
-      },
-      "refresh_gcode_files": {
-        "name": "Refresh G-code files"
-      }
-    }
-  },
-  "services": {
-    "get_history": {
-      "name": "Get print history",
-      "description": "Returns the past prints recorded by this integration (cost, energy, filament, per-spool detail) with totals.",
-      "fields": {
-        "config_entry_id": {
-          "name": "Printer",
-          "description": "3D Print Cost entry to use. Optional when only one printer is configured."
-        },
-        "limit": {
-          "name": "Limit",
-          "description": "Maximum number of prints, newest first."
-        },
-        "result": {
-          "name": "Result",
-          "description": "Only prints with this result."
-        }
-      }
-    },
-    "estimate_cost": {
-      "name": "Estimate cost of a G-code",
-      "description": "Estimates the total cost of a sliced .gcode or .gcode.3mf file before printing it, from the slicer estimates, Spoolman prices and the average power of past prints.",
-      "fields": {
-        "config_entry_id": {
-          "name": "Printer",
-          "description": "3D Print Cost entry to use. Optional when only one printer is configured."
-        },
-        "file_path": {
-          "name": "File path",
-          "description": "Path of the .gcode or .gcode.3mf file, e.g. /media/3d_prints/cube.gcode.3mf. Must be in an allowed folder (/media or /config/www by default)."
-        },
-        "plate": {
-          "name": "Plate",
-          "description": "Plate to estimate when the .3mf contains several sliced plates."
-        },
-        "spool_ids": {
-          "name": "Spoolman spool IDs",
-          "description": "One Spoolman spool ID per filament of the plate, in slicer order. Without it, the spool loaded in the AMS with the same material and colour is used."
-        },
-        "power_w": {
-          "name": "Average power",
-          "description": "Average printer power. Defaults to the average measured on past successful prints."
-        }
-      }
-    }
-  },
-  "exceptions": {
-    "entry_not_found": {
-      "message": "No 3D Print Cost entry with id {entry_id}."
-    },
-    "entry_not_loaded": {
-      "message": "The printer {title} is not loaded."
-    },
-    "no_entry": {
-      "message": "No 3D Print Cost printer is loaded."
-    },
-    "several_entries": {
-      "message": "Several printers are configured: choose one with config_entry_id."
-    },
-    "path_not_allowed": {
-      "message": "Access to {path} is not allowed. Put the file in /media or /config/www, or add its folder to allowlist_external_dirs."
-    },
-    "invalid_gcode": {
-      "message": "Cannot read {file}: {error}"
-    },
-    "no_gcode_selected": {
-      "message": "Choose a file in the G-code selector first (export it to the G-code folder, e.g. through the Samba 'media' share)."
     }
   }
 }

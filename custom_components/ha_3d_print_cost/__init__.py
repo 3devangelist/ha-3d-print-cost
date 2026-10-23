@@ -10,27 +10,25 @@ import logging
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.typing import ConfigType
+from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
-from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.EVENT, Platform.SELECT, Platform.BUTTON]
-CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE, Platform.EVENT]
 
-
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the service actions (available even before an entry loads)."""
-    async_setup_services(hass)
-    return True
+# Entities of the removed history and G-code estimate features.
+REMOVED_KEYS = ("print_history", "gcode_estimate", "gcode_file", "estimate_gcode", "refresh_gcode_files")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -> bool:
     """Set up one printer."""
+    registry = er.async_get(hass)
+    for key in REMOVED_KEYS:
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+            if entity.unique_id == f"{entry.entry_id}_{key}":
+                registry.async_remove(entity.entity_id)
     coordinator = PrintCostCoordinator(hass, entry)
     await coordinator.async_start()
     entry.runtime_data = coordinator
@@ -48,7 +46,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -> None:
-    """Delete stored jobs when the integration is removed."""
+    """Delete stored jobs and the last print image when the integration is removed."""
     from .storage import JobStore  # noqa: PLC0415 - only needed here
 
     await JobStore(hass, entry.entry_id).async_remove()

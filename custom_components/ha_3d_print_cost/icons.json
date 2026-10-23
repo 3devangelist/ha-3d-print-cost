@@ -1,13 +1,27 @@
 {
   "entity": {
     "sensor": {
-      "current_print_total_cost": { "default": "mdi:printer-3d" },
-      "current_print_electricity_cost": { "default": "mdi:flash" },
-      "current_print_filament_cost": { "default": "mdi:printer-3d-nozzle" },
-      "current_print_energy": { "default": "mdi:lightning-bolt" },
-      "current_print_filament_weight": { "default": "mdi:weight-gram" },
-      "current_print_duration": { "default": "mdi:timer-outline" },
-      "current_print_cost_per_hour": { "default": "mdi:cash-clock" },
+      "current_print_total_cost": {
+        "default": "mdi:printer-3d"
+      },
+      "current_print_electricity_cost": {
+        "default": "mdi:flash"
+      },
+      "current_print_filament_cost": {
+        "default": "mdi:printer-3d-nozzle"
+      },
+      "current_print_energy": {
+        "default": "mdi:lightning-bolt"
+      },
+      "current_print_filament_weight": {
+        "default": "mdi:weight-gram"
+      },
+      "current_print_duration": {
+        "default": "mdi:timer-outline"
+      },
+      "current_print_cost_per_hour": {
+        "default": "mdi:cash-clock"
+      },
       "current_print_phase": {
         "default": "mdi:printer-3d",
         "state": {
@@ -16,13 +30,27 @@
           "finalizing": "mdi:calculator-variant"
         }
       },
-      "electricity_price": { "default": "mdi:cash" },
-      "last_print_total_cost": { "default": "mdi:receipt-text" },
-      "last_print_electricity_cost": { "default": "mdi:flash" },
-      "last_print_filament_cost": { "default": "mdi:printer-3d-nozzle" },
-      "last_print_energy": { "default": "mdi:lightning-bolt" },
-      "last_print_filament_weight": { "default": "mdi:weight-gram" },
-      "last_print_duration": { "default": "mdi:timer-outline" },
+      "electricity_price": {
+        "default": "mdi:cash"
+      },
+      "last_print_total_cost": {
+        "default": "mdi:receipt-text"
+      },
+      "last_print_electricity_cost": {
+        "default": "mdi:flash"
+      },
+      "last_print_filament_cost": {
+        "default": "mdi:printer-3d-nozzle"
+      },
+      "last_print_energy": {
+        "default": "mdi:lightning-bolt"
+      },
+      "last_print_filament_weight": {
+        "default": "mdi:weight-gram"
+      },
+      "last_print_duration": {
+        "default": "mdi:timer-outline"
+      },
       "last_print_result": {
         "default": "mdi:help-circle-outline",
         "state": {
@@ -31,23 +59,17 @@
           "failed": "mdi:alert-circle",
           "unknown": "mdi:help-circle-outline"
         }
-      },
-      "print_history": { "default": "mdi:history" },
-      "gcode_estimate": { "default": "mdi:calculator-variant" }
+      }
     },
     "event": {
-      "print_finished": { "default": "mdi:flag-checkered" }
+      "print_finished": {
+        "default": "mdi:flag-checkered"
+      }
     },
-    "select": {
-      "gcode_file": { "default": "mdi:file-cad" }
-    },
-    "button": {
-      "estimate_gcode": { "default": "mdi:calculator-variant" },
-      "refresh_gcode_files": { "default": "mdi:folder-refresh" }
+    "image": {
+      "last_print_image": {
+        "default": "mdi:image-outline"
+      }
     }
-  },
-  "services": {
-    "get_history": { "service": "mdi:history" },
-    "estimate_cost": { "service": "mdi:calculator-variant" }
   }
 }
