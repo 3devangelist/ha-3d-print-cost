@@ -69,11 +69,14 @@ def make_entry(hass: HomeAssistant, **extra) -> MockConfigEntry:
 
 
 def set_states(hass, *, status, energy, price="0.1876", power="300", job="Flower Lamp"):
-    hass.states.async_set(STATUS, status)
+    # Each state change is processed immediately at the same frozen instant:
+    # the meter must report before the status change that ends the interval
+    # (as a real plug does), otherwise its delta would land in a 0 s interval.
     hass.states.async_set(JOB, job)
     hass.states.async_set(POWER, power, {"unit_of_measurement": "W"})
     hass.states.async_set(ENERGY, energy, {"unit_of_measurement": "Wh"})
     hass.states.async_set(PRICE, price, {"unit_of_measurement": "EUR/kWh"})
+    hass.states.async_set(STATUS, status)
 
 
 async def step(hass: HomeAssistant, freezer: FrozenDateTimeFactory, minutes: float, **states) -> None:
