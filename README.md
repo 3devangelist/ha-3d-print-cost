@@ -258,8 +258,9 @@ and native cards:
 | Switchable             | one card showing the current print, with a button to flip to the last print and back     |
 
 The totals sensors carry the print thumbnail as `entity_picture`, so Bubble
-Card shows it in place of the icon. The switchable card needs an
-`input_boolean` helper (see the comments in the file).
+Card shows it in place of the icon. The switchable card uses the
+`switch.<printer>_show_last_print` entity created by the integration (no helper
+needed); it turns itself off when a new print starts.
 
 ## Automations
 

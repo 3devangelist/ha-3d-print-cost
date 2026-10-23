@@ -16,7 +16,7 @@ from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE, Platform.EVENT]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE, Platform.EVENT, Platform.SWITCH]
 
 # Entities of the removed history and G-code estimate features.
 REMOVED_KEYS = ("print_history", "gcode_estimate", "gcode_file", "estimate_gcode", "refresh_gcode_files")

@@ -234,25 +234,13 @@ cards:
   # ================================================================== #
   # 5. Avancée — une seule carte, bascule print en cours / dernier print
   # ================================================================== #
-  # Prérequis : un interrupteur d'aide (Paramètres → Appareils et services →
-  # Entrées → Créer une entrée → Interrupteur) nommé « Print cost dernier »
-  # → input_boolean.print_cost_dernier.
+  # Utilise switch.<imprimante>_show_last_print, fourni par l'intégration
+  # (aucune entrée d'aide à créer).
   #
   # Au repos, la carte montre toujours le dernier print. Pendant un print, elle
   # montre le print en cours, et le bouton en haut à droite bascule vers le
-  # dernier print (et retour).
-  #
-  # Optionnel, pour revenir au print en cours à chaque nouveau print :
-  #   automation:
-  #     - alias: Print cost — afficher le nouveau print
-  #       triggers:
-  #         - trigger: state
-  #           entity_id: sensor.x2d_20p9bj5c2901510_current_print_phase
-  #           to: active
-  #       actions:
-  #         - action: input_boolean.turn_off
-  #           target:
-  #             entity_id: input_boolean.print_cost_dernier
+  # dernier print (et retour). L'interrupteur repasse à « off » tout seul au
+  # début de chaque nouveau print.
   - type: vertical-stack
     cards:
       # --- Print en cours ---
@@ -262,7 +250,7 @@ cards:
             entity: sensor.x2d_20p9bj5c2901510_current_print_phase
             state_not: idle
           - condition: state
-            entity: input_boolean.print_cost_dernier
+            entity: switch.x2d_20p9bj5c2901510_show_last_print
             state: "off"
         card:
           type: custom:bubble-card
@@ -296,7 +284,7 @@ cards:
                 {{ m // 60 }} h {{ '%02d' | format(m % 60) }}
               show_background: false
             # Bascule vers le dernier print
-            - entity: input_boolean.print_cost_dernier
+            - entity: switch.x2d_20p9bj5c2901510_show_last_print
               name: Dernier
               icon: mdi:history
               show_name: true
@@ -312,7 +300,7 @@ cards:
                 entity: sensor.x2d_20p9bj5c2901510_current_print_phase
                 state: idle
               - condition: state
-                entity: input_boolean.print_cost_dernier
+                entity: switch.x2d_20p9bj5c2901510_show_last_print
                 state: "on"
         card:
           type: custom:bubble-card
@@ -347,7 +335,7 @@ cards:
                 {{ s // 3600 }} h {{ '%02d' | format(s % 3600 // 60) }}
               show_background: false
             # Retour au print en cours, seulement s'il y en a un
-            - entity: input_boolean.print_cost_dernier
+            - entity: switch.x2d_20p9bj5c2901510_show_last_print
               name: En cours
               icon: mdi:printer-3d-nozzle
               show_name: true

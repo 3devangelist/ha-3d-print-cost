@@ -175,6 +175,29 @@ async def test_restart_during_print(hass: HomeAssistant, freezer: FrozenDateTime
     assert float(hass.states.get("sensor.x2d_last_print_energy").state) == pytest.approx(0.3)
 
 
+async def test_show_last_print_switch(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    freezer.move_to("2026-10-23 14:00:00+00:00")
+    set_states(hass, status="idle", energy="100000")
+    entry = make_entry(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    switch = "switch.x2d_show_last_print"
+    assert hass.states.get(switch).state == "off"
+
+    await step(hass, freezer, 0, status="running", energy="100000")
+    await hass.services.async_call("switch", "turn_on", {"entity_id": switch}, blocking=True)
+    await step(hass, freezer, 10, status="running", energy="100100")
+    assert hass.states.get(switch).state == "on"  # stays on during the same print
+
+    await step(hass, freezer, 0, status="finish", energy="100100")
+    await hass.async_block_till_done()
+    assert hass.states.get(switch).state == "on"
+
+    # A new print brings the card back to the current print
+    await step(hass, freezer, 5, status="running", energy="100100")
+    assert hass.states.get(switch).state == "off"
+
+
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
 

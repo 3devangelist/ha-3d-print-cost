@@ -70,6 +70,15 @@
       "last_print_image": {
         "default": "mdi:image-outline"
       }
+    },
+    "switch": {
+      "show_last_print": {
+        "default": "mdi:history",
+        "state": {
+          "off": "mdi:printer-3d-nozzle",
+          "on": "mdi:history"
+        }
+      }
     }
   }
 }

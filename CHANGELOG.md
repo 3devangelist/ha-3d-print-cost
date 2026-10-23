@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 - `image.<printer>_last_print_image`: thumbnail of the last print, kept across restarts and shown as the picture of `last_print_total_cost`.
+- `switch.<printer>_show_last_print`: current / last print toggle for the switchable example card, so it no longer needs an `input_boolean` helper. Turns itself off when a new print starts.
 
 ### Removed
 - Print history (`print_history` sensor, `get_history` action, history size option).

@@ -238,6 +238,11 @@
       "last_print_image": {
         "name": "Image du dernier print"
       }
+    },
+    "switch": {
+      "show_last_print": {
+        "name": "Afficher le dernier print"
+      }
     }
   }
 }
