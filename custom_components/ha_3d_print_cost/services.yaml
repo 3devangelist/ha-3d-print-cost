@@ -33,7 +33,7 @@ estimate_cost:
           integration: ha_3d_print_cost
     file_path:
       required: true
-      example: /media/prints/cube.gcode.3mf
+      example: /media/3d_prints/cube.gcode.3mf
       selector:
         text:
     plate:

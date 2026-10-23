@@ -76,3 +76,27 @@ def average_power_w(jobs: list[dict[str, Any]]) -> tuple[float, int] | None:
     if not used:
         return None
     return energy_kwh / hours * 1000, used
+
+
+_JOB_FIELDS = (
+    "job_id",
+    "name",
+    "result",
+    "started_at",
+    "finished_at",
+    "duration_s",
+    "energy_kwh",
+    "electricity_cost",
+    "filament_weight_g",
+    "filament_cost",
+    "total_cost",
+    "partial_total_cost",
+)
+_FILAMENT_FIELDS = ("slot", "material", "name", "vendor", "color", "weight_g", "cost")
+
+
+def compact_job(job: dict[str, Any]) -> dict[str, Any]:
+    """A history entry trimmed for entity attributes (no notes, no sources)."""
+    compact = {key: job.get(key) for key in _JOB_FIELDS}
+    compact["filaments"] = [{key: f.get(key) for key in _FILAMENT_FIELDS} for f in job.get("filaments") or []]
+    return compact

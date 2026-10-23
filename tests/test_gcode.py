@@ -1,5 +1,6 @@
 """Slicer metadata parsing (no G-code move is ever parsed)."""
 
+import os
 import zipfile
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 
 from custom_components.ha_3d_print_cost.gcode import (
     GcodeError,
+    list_gcode_files,
     parse_duration,
     parse_gcode_text,
     parse_slice_info,
@@ -164,3 +166,22 @@ def test_unsliced_3mf_and_bad_files(tmp_path: Path) -> None:
         read_gcode_file(broken)
     with pytest.raises(GcodeError, match="not found"):
         read_gcode_file(tmp_path / "missing.gcode")
+
+
+def test_list_gcode_files(tmp_path: Path) -> None:
+    (tmp_path / "sub").mkdir()
+    old = tmp_path / "old.gcode"
+    old.write_text(BAMBU_GCODE)
+    os.utime(old, (1, 1))
+    make_3mf(tmp_path / "sub" / "multi.gcode.3mf", plates={1: BAMBU_GCODE, 2: BAMBU_GCODE})
+    make_3mf(tmp_path / "project.3mf", plates={}, slice_info=None)  # not sliced: skipped
+    (tmp_path / "notes.txt").write_text("x")
+
+    entries = list_gcode_files(tmp_path, limit=10)
+    assert [(e.label, e.plate) for e in entries] == [
+        ("sub/multi.gcode.3mf · plate 1", 1),
+        ("sub/multi.gcode.3mf · plate 2", 2),
+        ("old.gcode", None),
+    ]
+    assert len(list_gcode_files(tmp_path, limit=2)) == 2
+    assert list_gcode_files(tmp_path / "missing", limit=10) == []

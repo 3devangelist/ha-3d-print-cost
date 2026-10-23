@@ -25,6 +25,7 @@ class StoredState:
     finalizing: list[PrintJob] = field(default_factory=list)
     last_job: PrintJob | None = None
     history: list[dict[str, Any]] = field(default_factory=list)  # newest first
+    last_estimate: dict[str, Any] | None = None  # last estimate_cost result
 
 
 class JobStore:
@@ -41,6 +42,8 @@ class JobStore:
         if not raw:
             return StoredState()
         state = StoredState(history=list(raw.get("history") or []))
+        if isinstance(raw.get("last_estimate"), dict):
+            state.last_estimate = raw["last_estimate"]
         state.active_job = _job_or_none(raw.get("active_job"))
         state.last_job = _job_or_none(raw.get("last_job"))
         state.finalizing = [j for j in (_job_or_none(d) for d in raw.get("finalizing") or []) if j]
@@ -65,6 +68,7 @@ def _serialise(state: StoredState) -> dict[str, Any]:
         "finalizing": [j.as_dict() for j in state.finalizing],
         "last_job": state.last_job.as_dict() if state.last_job else None,
         "history": state.history,
+        "last_estimate": state.last_estimate,
     }
 
 

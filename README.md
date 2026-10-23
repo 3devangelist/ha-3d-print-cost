@@ -199,6 +199,22 @@ Bambu Lab device. Entity ids below assume a printer named _X2D_.
 `…_electricity_cost`, `…_filament_cost`, `…_energy`, `…_filament_weight`,
 `…_duration`, `…_result` (`success` / `cancelled` / `failed` / `unknown`).
 
+**History and G-code estimate**
+
+| Entity                              | Unit   |                                                                                |
+| ----------------------------------- | ------ | ------------------------------------------------------------------------------ |
+| `sensor.x2d_print_history`          | prints | stored prints; attributes `totals` and `jobs` (30 latest, not recorded)        |
+| `select.x2d_gcode_file`             |        | `.gcode` / `.gcode.3mf` files of the G-code folder (one option per plate)      |
+| `button.x2d_estimate_gcode`         |        | estimates the selected file                                                    |
+| `button.x2d_refresh_gcode_files`    |        | rescans the folder now (otherwise every 30 s)                                  |
+| `sensor.x2d_gcode_estimate`         | €      | last estimate (button or `estimate_cost` action); full detail in attributes    |
+
+The G-code folder is `/media/3d_prints` by default (*Options → Advanced*).
+The Media browser only accepts images, videos and audio, so put the sliced
+files there through the **Samba** `media` share (Bambu Studio can export
+straight to it), Studio Code Server or the File editor. Only this folder is
+scanned, never the whole media directory.
+
 **Event**
 
 `event.x2d_print_finished` — and the bus event `ha_3d_print_cost_print_finished` — with:
@@ -236,7 +252,8 @@ Per-print sensors have no `state_class` on purpose: they reset at every print
 and must not pollute long-term statistics or the Energy dashboard.
 
 No custom Lovelace card is shipped; everything works with native cards,
-Mushroom, Bubble Card or ApexCharts.
+Mushroom, Bubble Card or ApexCharts. A ready-made view is in
+[`examples/dashboard_view.yaml`](examples/dashboard_view.yaml).
 
 ## Actions: history and G-code estimate
 
@@ -268,7 +285,7 @@ moves are never parsed.
 ```yaml
 action: ha_3d_print_cost.estimate_cost
 data:
-  file_path: /media/prints/flower_lamp.gcode.3mf
+  file_path: /media/3d_prints/flower_lamp.gcode.3mf
   plate: 1              # only if the .3mf holds several sliced plates
   spool_ids: [23, 45]   # optional, one Spoolman spool per filament, in slicer order
   power_w: 150          # optional, overrides the measured average
@@ -276,9 +293,10 @@ data:
 
 - **Files**: `.gcode.3mf` from Bambu Studio / Orca Slicer (*Export plate
   sliced file*) and plain `.gcode` (Bambu Studio, Orca, PrusaSlicer). The file
-  must be in an allowed folder: `/media` and `/config/www` by default (upload
-  it with the Media browser or Samba), or one added to
-  `allowlist_external_dirs`.
+  must be in an allowed folder: `/media` and `/config/www` by default (copy it
+  through the Samba `media` share), or one added to
+  `allowlist_external_dirs`. The result also updates
+  `sensor.x2d_gcode_estimate`.
 - **Filament**: priced with Spoolman. Without `spool_ids`, the spool loaded in
   the AMS (via HaspelSync) with the same material **and** colour is used,
   only when exactly one matches. Otherwise the cost stays unknown.

@@ -131,7 +131,11 @@
         "data": {
           "update_interval": "Sampling interval while printing",
           "history_size": "Prints kept in history",
-          "currency": "Currency"
+          "currency": "Currency",
+          "gcode_folder": "Folder of sliced files"
+        },
+        "data_description": {
+          "gcode_folder": "Folder scanned for .gcode / .gcode.3mf files to estimate. Export them there from the slicer through the Samba 'media' share. Must be allowed: /media and /config/www are by default."
         }
       }
     },
@@ -229,6 +233,12 @@
           "failed": "Failed",
           "unknown": "Unknown"
         }
+      },
+      "print_history": {
+        "name": "Print history"
+      },
+      "gcode_estimate": {
+        "name": "G-code estimate"
       }
     },
     "event": {
@@ -241,6 +251,19 @@
             }
           }
         }
+      }
+    },
+    "select": {
+      "gcode_file": {
+        "name": "G-code file to estimate"
+      }
+    },
+    "button": {
+      "estimate_gcode": {
+        "name": "Estimate G-code"
+      },
+      "refresh_gcode_files": {
+        "name": "Refresh G-code files"
       }
     }
   },
@@ -273,7 +296,7 @@
         },
         "file_path": {
           "name": "File path",
-          "description": "Path of the .gcode or .gcode.3mf file, e.g. /media/prints/cube.gcode.3mf. Must be in an allowed folder (/media or /config/www by default)."
+          "description": "Path of the .gcode or .gcode.3mf file, e.g. /media/3d_prints/cube.gcode.3mf. Must be in an allowed folder (/media or /config/www by default)."
         },
         "plate": {
           "name": "Plate",
@@ -308,6 +331,9 @@
     },
     "invalid_gcode": {
       "message": "Cannot read {file}: {error}"
+    },
+    "no_gcode_selected": {
+      "message": "Choose a file in the G-code selector first (export it to the G-code folder, e.g. through the Samba 'media' share)."
     }
   }
 }

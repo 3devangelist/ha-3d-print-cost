@@ -291,6 +291,59 @@ def _parse_3mf(path: Path, plate: int | None) -> GcodeInfo:
 
 
 # --------------------------------------------------------------------------- #
+# Folder listing
+# --------------------------------------------------------------------------- #
+@dataclass(slots=True, frozen=True)
+class GcodeFile:
+    """One estimable entry of a folder: a file, or one plate of a .3mf."""
+
+    label: str  # shown to the user, unique
+    path: Path
+    plate: int | None = None
+
+
+def _sliced_plates(path: Path) -> list[int]:
+    """Plates with a G-code in a .3mf (only the archive index is read)."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return sorted(int(m.group(1)) for n in archive.namelist() if (m := _PLATE_GCODE.match(n)))
+    except (zipfile.BadZipFile, OSError):
+        return []
+
+
+def list_gcode_files(folder: str | Path, limit: int) -> list[GcodeFile]:
+    """Sliced files of ``folder`` and its sub-folders, newest first (blocking IO).
+
+    A multi-plate ``.gcode.3mf`` gives one entry per sliced plate; a ``.3mf``
+    project that was not sliced gives none.
+    """
+    root = Path(folder)
+    if not root.is_dir():
+        return []
+    candidates = [
+        p
+        for p in root.rglob("*")
+        if p.is_file() and not p.name.startswith(".") and p.name.lower().endswith((".gcode", ".3mf"))
+    ]
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    entries: list[GcodeFile] = []
+    for path in candidates:
+        name = path.relative_to(root).as_posix()
+        if path.suffix.lower() != ".3mf":
+            entries.append(GcodeFile(label=name, path=path))
+        else:
+            plates = _sliced_plates(path)
+            if len(plates) == 1:
+                entries.append(GcodeFile(label=name, path=path, plate=plates[0]))
+            else:
+                entries.extend(GcodeFile(label=f"{name} · plate {i}", path=path, plate=i) for i in plates)
+        if len(entries) >= limit:
+            break
+    return entries[:limit]
+
+
+# --------------------------------------------------------------------------- #
 # Entry point
 # --------------------------------------------------------------------------- #
 def read_gcode_file(path: str | Path, plate: int | None = None) -> GcodeInfo:

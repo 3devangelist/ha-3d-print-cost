@@ -27,6 +27,7 @@ from .const import (
     CONF_CURRENCY,
     CONF_ENERGY_ENTITY,
     CONF_FILAMENT_FALLBACK,
+    CONF_GCODE_FOLDER,
     CONF_HASPELSYNC_API_KEY,
     CONF_HASPELSYNC_PRINTER_ID,
     CONF_HASPELSYNC_URL,
@@ -45,6 +46,7 @@ from .const import (
     CONF_SPOOLMAN_URL,
     CONF_UPDATE_INTERVAL,
     DEFAULT_FILAMENT_FALLBACK,
+    DEFAULT_GCODE_FOLDER,
     DEFAULT_HISTORY_SIZE,
     DEFAULT_INTEGRATION_METHOD,
     DEFAULT_UPDATE_INTERVAL,
@@ -169,6 +171,9 @@ def behaviour_schema(defaults: dict[str, Any], hass_currency: str) -> vol.Schema
                 )
             ),
             vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or hass_currency): selector.TextSelector(),
+            vol.Required(
+                CONF_GCODE_FOLDER, default=defaults.get(CONF_GCODE_FOLDER) or DEFAULT_GCODE_FOLDER
+            ): selector.TextSelector(),
         }
     )
 
@@ -428,6 +433,7 @@ class PrintCostOptionsFlow(OptionsFlow):
                     CONF_UPDATE_INTERVAL: int(user_input[CONF_UPDATE_INTERVAL]),
                     CONF_HISTORY_SIZE: int(user_input[CONF_HISTORY_SIZE]),
                     CONF_CURRENCY: str(user_input[CONF_CURRENCY]).strip().upper(),
+                    CONF_GCODE_FOLDER: str(user_input[CONF_GCODE_FOLDER]).strip().rstrip("/") or DEFAULT_GCODE_FOLDER,
                 }
             )
             return self.async_create_entry(data=self._options)

@@ -11,6 +11,7 @@ from homeassistant.exceptions import ServiceValidationError
 from custom_components.ha_3d_print_cost.adapters.haspelsync import SlotSpool
 from custom_components.ha_3d_print_cost.adapters.spoolman import SpoolmanError
 from custom_components.ha_3d_print_cost.const import (
+    CONF_GCODE_FOLDER,
     CONF_HASPELSYNC_PRINTER_ID,
     CONF_HASPELSYNC_URL,
     CONF_SPOOLMAN_URL,
@@ -161,3 +162,90 @@ async def test_estimate_rejects_disallowed_path_and_bad_file(hass: HomeAssistant
     with pytest.raises(ServiceValidationError) as err:
         await _call(hass, "estimate_cost", {"file_path": str(bad)})
     assert err.value.translation_key == "invalid_gcode"
+
+
+# --------------------------------------------------------------------------- #
+# Dashboard entities: history sensor, file select, estimate button
+# --------------------------------------------------------------------------- #
+async def test_history_sensor_attributes(hass: HomeAssistant) -> None:
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    job = {**PAST_JOB, "notes": ["n"], "filaments": [{"material": "PLA", "weight_g": 10, "cost": 0.2, "source": "x"}]}
+    coordinator.state.history[:] = [job]
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.x2d_print_history")
+    assert state.state == "1"
+    assert state.attributes["totals"]["total_cost"] == pytest.approx(0.32)
+    jobs = state.attributes["jobs"]
+    assert jobs[0]["name"] == "Benchy"
+    assert "notes" not in jobs[0]
+    assert jobs[0]["filaments"][0] == {
+        "slot": None,
+        "material": "PLA",
+        "name": None,
+        "vendor": None,
+        "color": None,
+        "weight_g": 10,
+        "cost": 0.2,
+    }
+
+
+async def test_select_and_estimate_button(hass: HomeAssistant, gcode_dir: Path) -> None:
+    (gcode_dir / "lamp.gcode").write_text(BAMBU_GCODE)
+    with patch(
+        "custom_components.ha_3d_print_cost.coordinator.SpoolmanClient.get_spool",
+        side_effect=lambda spool_id: SPOOLS[spool_id],
+    ):
+        entry = await _setup(hass, **{CONF_SPOOLMAN_URL: "http://spoolman:7912", CONF_GCODE_FOLDER: str(gcode_dir)})
+        select = hass.states.get("select.x2d_gcode_file")
+        assert select.attributes["options"] == ["lamp.gcode"]
+        assert select.state == "unknown"
+
+        # Pressing without a selection is refused.
+        with pytest.raises(ServiceValidationError):
+            await hass.services.async_call("button", "press", {"entity_id": "button.x2d_estimate_gcode"}, blocking=True)
+
+        # A new file shows up after a refresh.
+        make_3mf(gcode_dir / "flower.gcode.3mf", plates={1: BAMBU_GCODE})
+        await hass.services.async_call(
+            "button", "press", {"entity_id": "button.x2d_refresh_gcode_files"}, blocking=True
+        )
+        assert "flower.gcode.3mf" in hass.states.get("select.x2d_gcode_file").attributes["options"]
+
+        await hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": "select.x2d_gcode_file", "option": "flower.gcode.3mf"},
+            blocking=True,
+        )
+        assert hass.states.get("select.x2d_gcode_file").state == "flower.gcode.3mf"
+        entry.runtime_data.state.history[:] = [PAST_JOB]  # 120 W average
+        await hass.services.async_call("button", "press", {"entity_id": "button.x2d_estimate_gcode"}, blocking=True)
+        await hass.async_block_till_done()
+
+    estimate = hass.states.get("sensor.x2d_gcode_estimate")
+    assert estimate.attributes["file"] == "flower.gcode.3mf"
+    assert estimate.attributes["estimated_duration_s"] == 12642
+    assert estimate.attributes["power_source"] == "history (1 prints)"
+    # No AMS / spool_ids from the dashboard: filament cost unknown, total too.
+    assert estimate.state == "unknown"
+    assert estimate.attributes["partial_total_cost"] > 0
+
+    # The last estimate survives a reload.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.x2d_gcode_estimate").attributes["file"] == "flower.gcode.3mf"
+
+
+async def test_estimate_service_updates_the_sensor(hass: HomeAssistant, gcode_dir: Path) -> None:
+    path = gcode_dir / "lamp.gcode"
+    path.write_text(BAMBU_GCODE)
+    await _setup(hass)
+    # Called without return_response (e.g. from an automation).
+    await hass.services.async_call(DOMAIN, "estimate_cost", {"file_path": str(path), "power_w": 100}, blocking=True)
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.x2d_gcode_estimate")
+    assert state.attributes["file"] == "lamp.gcode"
+    assert state.attributes["energy_kwh"] == pytest.approx(0.1 * 4205 / 3600, abs=1e-4)

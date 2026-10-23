@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -28,12 +29,13 @@ from homeassistant.util import dt as dt_util
 from .adapters import bambu
 from .adapters.electricity import ElectricityReader, ElectricitySources
 from .adapters.haspelsync import HaspelsyncClient
-from .adapters.spoolman import SpoolmanClient
+from .adapters.spoolman import SpoolmanClient, SpoolmanError, SpoolNotFoundError
 from .const import (
     BAMBU_ENTITY_KEYS,
     CONF_CURRENCY,
     CONF_ENERGY_ENTITY,
     CONF_FILAMENT_FALLBACK,
+    CONF_GCODE_FOLDER,
     CONF_HASPELSYNC_API_KEY,
     CONF_HASPELSYNC_PRINTER_ID,
     CONF_HASPELSYNC_URL,
@@ -51,6 +53,7 @@ from .const import (
     CONF_SPOOLMAN_URL,
     CONF_UPDATE_INTERVAL,
     DEFAULT_FILAMENT_FALLBACK,
+    DEFAULT_GCODE_FOLDER,
     DEFAULT_HISTORY_SIZE,
     DEFAULT_INTEGRATION_METHOD,
     DEFAULT_UPDATE_INTERVAL,
@@ -58,13 +61,18 @@ from .const import (
     EVENT_PRINT_FINISHED,
     FILAMENT_RESOLVE_ATTEMPTS,
     FILAMENT_RESOLVE_DELAY,
+    GCODE_SCAN_INTERVAL,
     HTTP_TIMEOUT,
+    MAX_GCODE_FILES,
     MAX_SAMPLE_GAP,
     FilamentFallback,
     IntegrationMethod,
 )
+from .estimate import LoadedSlot, assign_spools, estimate_cost
 from .filament import FilamentResolver, apply_outcome
-from .models import FilamentStatus, JobPhase, PrintJob
+from .gcode import GcodeFile, list_gcode_files, read_gcode_file
+from .history import average_power_w
+from .models import FilamentStatus, JobPhase, PrintJob, SpoolInfo
 from .storage import JobStore, StoredState
 from .tracker import PrinterSnapshot, PrintTracker, TransitionKind
 
@@ -82,6 +90,7 @@ class PrintCostData:
     finalizing_job: PrintJob | None
     last_job: PrintJob | None
     price_per_kwh: Decimal | None
+    stored: StoredState  # live reference: history and last estimate
 
     @property
     def current_job(self) -> PrintJob | None:
@@ -134,6 +143,11 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             fallback=FilamentFallback(self.conf.get(CONF_FILAMENT_FALLBACK, DEFAULT_FILAMENT_FALLBACK)),
         )
 
+        self.gcode_folder: str = self.conf.get(CONF_GCODE_FOLDER) or DEFAULT_GCODE_FOLDER
+        self.gcode_files: dict[str, GcodeFile] = {}
+        self.selected_gcode: str | None = None
+        self._gcode_folder_warned = False
+
         self.errors: deque[str] = deque(maxlen=20)
         self._unsubs: list[CALLBACK_TYPE] = []
         self._tasks: set[asyncio.Task] = set()
@@ -155,6 +169,10 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._unsubs.append(async_track_state_change_event(self.hass, watched, self._on_state_change))
         interval = timedelta(seconds=int(self.conf.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)))
         self._unsubs.append(async_track_time_interval(self.hass, self._on_tick, interval))
+        self._unsubs.append(
+            async_track_time_interval(self.hass, self._on_gcode_scan, timedelta(seconds=GCODE_SCAN_INTERVAL))
+        )
+        self._spawn(self.async_scan_gcode_files())
 
         # Jobs that were waiting for filament data when HA stopped.
         for job in list(self.state.finalizing):
@@ -250,6 +268,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 finalizing_job=self.state.finalizing[-1] if self.state.finalizing else None,
                 last_job=self.state.last_job,
                 price_per_kwh=price,
+                stored=self.state,
             )
         )
 
@@ -318,6 +337,125 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self.currency,
         )
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    # ------------------------------------------------------------------ #
+    # Cost estimate of sliced files
+    # ------------------------------------------------------------------ #
+    @callback
+    def _on_gcode_scan(self, now: datetime) -> None:
+        self._spawn(self.async_scan_gcode_files())
+
+    async def async_scan_gcode_files(self) -> None:
+        """Refresh the files offered by the G-code select entity."""
+        folder = self.gcode_folder
+        hass = self.hass
+        if not await hass.async_add_executor_job(hass.config.is_allowed_path, folder):
+            files: list[GcodeFile] = []
+            if not self._gcode_folder_warned:
+                self._gcode_folder_warned = True
+                self._record_error(f"G-code folder {folder} is not in allowlist_external_dirs")
+        else:
+            files = await hass.async_add_executor_job(list_gcode_files, folder, MAX_GCODE_FILES)
+        found = {f.label: f for f in files}
+        if list(found) == list(self.gcode_files):
+            return
+        self.gcode_files = found
+        if self.selected_gcode not in found:
+            self.selected_gcode = None
+        self.async_update_listeners()
+
+    @callback
+    def async_select_gcode(self, label: str) -> None:
+        """Remember the file chosen in the select entity."""
+        self.selected_gcode = label if label in self.gcode_files else None
+        self.async_update_listeners()
+
+    async def async_estimate(
+        self,
+        path: Path,
+        *,
+        plate: int | None = None,
+        spool_ids: list[int] | None = None,
+        power_w: float | None = None,
+        label: str | None = None,
+    ) -> dict[str, Any]:
+        """Estimate the cost of a sliced file and keep it as the last estimate.
+
+        Raises :class:`GcodeError` when the file holds no usable estimate.
+        """
+        info = await self.hass.async_add_executor_job(read_gcode_file, path, plate)
+
+        notes: list[str] = []
+        loaded: list[LoadedSlot] = []
+        if len(spool_ids or []) < len(info.filaments):
+            loaded = await self._async_loaded_slots(notes)
+        assignments = assign_spools(info.filaments, spool_ids, loaded)
+        spools = await self._async_spools({a.spool_id for a in assignments if a.spool_id is not None}, notes)
+
+        power_source: str | None = None
+        if power_w is not None:
+            power_source = "parameter"
+        elif (measured := average_power_w(self.state.history)) is not None:
+            power_w, count = measured
+            power_source = f"history ({count} prints)"
+
+        result = estimate_cost(
+            info,
+            assignments,
+            spools,
+            average_power_w=power_w,
+            power_source=power_source,
+            price_per_kwh=self.reader.price_per_kwh(),
+        )
+        result.notes[:0] = notes
+        response = {
+            "file": label or path.name,
+            "printer": self.printer_name,
+            "estimated_at": dt_util.utcnow().isoformat(),
+            **result.as_dict(self.currency),
+        }
+        self.state.last_estimate = response
+        await self.store.async_save(self.state)
+        self.async_update_listeners()
+        _LOGGER.debug("Estimate for %s: %s", path.name, response["total_cost"])
+        return response
+
+    async def _async_loaded_slots(self, notes: list[str]) -> list[LoadedSlot]:
+        """Spools currently in the AMS, to price filaments without spool_ids."""
+        printer_id = self.haspelsync_printer_id
+        if self.haspelsync is None or not printer_id:
+            notes.append("HaspelSync not configured: spools must be given with spool_ids")
+            return []
+        try:
+            slots = await self.haspelsync.get_current_slots(printer_id)
+        except Exception as err:  # noqa: BLE001 - an estimate must not fail on it
+            self._record_error(f"HaspelSync slots for the estimate: {err}")
+            notes.append(f"HaspelSync unavailable: {err}")
+            return []
+        return [
+            LoadedSlot(slot=s.slot, spool_id=s.spool_id, material=s.material, color=s.color)
+            for s in slots.values()
+            if s.spool_id is not None
+        ]
+
+    async def _async_spools(self, spool_ids: set[int], notes: list[str]) -> dict[int, SpoolInfo | None]:
+        """Read the spools from Spoolman (missing key: could not be read)."""
+        if not spool_ids:
+            return {}
+        if self.spoolman is None:
+            notes.append("Spoolman not configured: filament cost unknown")
+            return {}
+        spools: dict[int, SpoolInfo | None] = {}
+        for spool_id in sorted(spool_ids):
+            try:
+                spools[spool_id] = await self.spoolman.get_spool(spool_id)
+            except SpoolNotFoundError:
+                spools[spool_id] = None
+            except SpoolmanError as err:
+                self._record_error(f"Spoolman for the estimate: {err}")
+                notes.append(f"Spoolman unavailable: {err}")
+                break
+        return spools
 
     def _record_error(self, message: str) -> None:
         _LOGGER.warning(message)

@@ -55,6 +55,7 @@ CONF_FILAMENT_FALLBACK: Final = "filament_fallback"
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_HISTORY_SIZE: Final = "history_size"
 CONF_CURRENCY: Final = "currency"
+CONF_GCODE_FOLDER: Final = "gcode_folder"
 
 DEFAULT_UPDATE_INTERVAL: Final = 30  # seconds
 MIN_UPDATE_INTERVAL: Final = 10
@@ -62,6 +63,14 @@ MAX_UPDATE_INTERVAL: Final = 300
 DEFAULT_HISTORY_SIZE: Final = 100
 MIN_HISTORY_SIZE: Final = 10
 MAX_HISTORY_SIZE: Final = 1000
+# Prints exposed in the attributes of the history sensor (not recorded).
+HISTORY_ATTRIBUTE_SIZE: Final = 30
+
+# Sliced files offered for estimation. A dedicated folder, never the whole
+# media directory (it may hold camera recordings).
+DEFAULT_GCODE_FOLDER: Final = "/media/3d_prints"
+GCODE_SCAN_INTERVAL: Final = 30  # seconds
+MAX_GCODE_FILES: Final = 200
 
 # HTTP
 HTTP_TIMEOUT: Final = 10  # seconds

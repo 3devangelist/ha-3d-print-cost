@@ -131,7 +131,11 @@
         "data": {
           "update_interval": "Intervalle d'échantillonnage pendant un print",
           "history_size": "Nombre de prints conservés dans l'historique",
-          "currency": "Devise"
+          "currency": "Devise",
+          "gcode_folder": "Dossier des fichiers tranchés"
+        },
+        "data_description": {
+          "gcode_folder": "Dossier analysé pour les fichiers .gcode / .gcode.3mf à estimer. Exporte-les depuis le slicer via le partage Samba « media ». Doit être autorisé : /media et /config/www le sont par défaut."
         }
       }
     },
@@ -229,6 +233,12 @@
           "failed": "Échoué",
           "unknown": "Inconnu"
         }
+      },
+      "print_history": {
+        "name": "Historique des impressions"
+      },
+      "gcode_estimate": {
+        "name": "Estimation G-code"
       }
     },
     "event": {
@@ -241,6 +251,19 @@
             }
           }
         }
+      }
+    },
+    "select": {
+      "gcode_file": {
+        "name": "Fichier G-code à estimer"
+      }
+    },
+    "button": {
+      "estimate_gcode": {
+        "name": "Estimer le G-code"
+      },
+      "refresh_gcode_files": {
+        "name": "Actualiser les fichiers G-code"
       }
     }
   },
@@ -273,7 +296,7 @@
         },
         "file_path": {
           "name": "Chemin du fichier",
-          "description": "Chemin du fichier .gcode ou .gcode.3mf, ex. /media/prints/cube.gcode.3mf. Doit être dans un dossier autorisé (/media ou /config/www par défaut)."
+          "description": "Chemin du fichier .gcode ou .gcode.3mf, ex. /media/3d_prints/cube.gcode.3mf. Doit être dans un dossier autorisé (/media ou /config/www par défaut)."
         },
         "plate": {
           "name": "Plateau",
@@ -308,6 +331,9 @@
     },
     "invalid_gcode": {
       "message": "Impossible de lire {file} : {error}"
+    },
+    "no_gcode_selected": {
+      "message": "Choisis d'abord un fichier dans le sélecteur G-code (exporte-le dans le dossier G-code, par ex. via le partage Samba « media »)."
     }
   }
 }

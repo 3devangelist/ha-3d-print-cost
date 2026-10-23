@@ -31,10 +31,19 @@
           "failed": "mdi:alert-circle",
           "unknown": "mdi:help-circle-outline"
         }
-      }
+      },
+      "print_history": { "default": "mdi:history" },
+      "gcode_estimate": { "default": "mdi:calculator-variant" }
     },
     "event": {
       "print_finished": { "default": "mdi:flag-checkered" }
+    },
+    "select": {
+      "gcode_file": { "default": "mdi:file-cad" }
+    },
+    "button": {
+      "estimate_gcode": { "default": "mdi:calculator-variant" },
+      "refresh_gcode_files": { "default": "mdi:folder-refresh" }
     }
   },
   "services": {
