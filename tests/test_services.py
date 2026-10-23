@@ -44,7 +44,8 @@ async def _setup(hass: HomeAssistant, **extra):
     set_states(hass, status="idle", energy="0", price="0.20")
     entry = make_entry(hass, **extra)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    # The initial G-code folder scan runs as a background task.
+    await hass.async_block_till_done(wait_background_tasks=True)
     return entry
 
 
