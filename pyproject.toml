@@ -1,0 +1,38 @@
+[project]
+name = "ha-3d-print-cost"
+version = "0.2.0"
+description = "Home Assistant integration: electricity + filament cost of every 3D print (Bambu Lab, HaspelSync, Spoolman)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.13"
+
+[dependency-groups]
+dev = [
+  "pytest-homeassistant-custom-component",
+  "ruff",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "D", "PL", "BLE", "C4", "PT"]
+ignore = [
+  "D203", "D213",          # docstring style conflicts
+  "D105", "D107", "D401",  # magic methods / __init__ / imperative mood
+  "PLR0913", "PLR2004",    # many args / magic values (domain constants)
+  "PLR0911", "PLR0912", "PLR0915",
+  "RUF001", "RUF002", "RUF003",  # "—" and "×" are intentional in texts
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "PLR2004", "S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components"]

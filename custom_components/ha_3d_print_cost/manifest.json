@@ -1,0 +1,13 @@
+{
+  "domain": "ha_3d_print_cost",
+  "name": "3D Print Cost",
+  "codeZoziLaMalices": ["@ZoziLaMalice"],
+  "config_flow": true,
+  "documentation": "https://github.com/ZoziLaMalice/ha-3d-print-cost",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/ZoziLaMalice/ha-3d-print-cost/issues",
+  "loggers": ["custom_components.ha_3d_print_cost"],
+  "requirements": [],
+  "version": "0.2.0"
+}

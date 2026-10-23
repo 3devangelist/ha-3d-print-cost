@@ -1,0 +1,239 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Choisir l'imprimante",
+        "description": "Sélectionnez l'imprimante Bambu Lab (ha-bambulab) à suivre.",
+        "data": {
+          "printer_device_id": "Imprimante"
+        }
+      },
+      "bambu": {
+        "title": "Entités de l'imprimante",
+        "description": "{found} entités ont été détectées pour {printer}. Vérifiez ou corrigez-les.",
+        "data": {
+          "print_status_entity": "Statut d'impression",
+          "job_name_entity": "Nom du job / fichier",
+          "progress_entity": "Progression",
+          "print_weight_entity": "Poids prévu du print",
+          "remaining_time_entity": "Temps restant",
+          "cover_image_entity": "Miniature"
+        },
+        "data_description": {
+          "print_status_entity": "Obligatoire. Capteur `print_status` de ha-bambulab.",
+          "job_name_entity": "Sert à distinguer deux prints et à faire le lien avec HaspelSync.",
+          "print_weight_entity": "Repli si HaspelSync n'a pas de donnée."
+        }
+      },
+      "electricity": {
+        "title": "Électricité",
+        "data": {
+          "power_entity": "Capteur de puissance (W)",
+          "energy_entity": "Compteur d'énergie (Wh / kWh)",
+          "price_entity": "Prix de l'électricité",
+          "integration_method": "Méthode d'intégration de la puissance"
+        },
+        "data_description": {
+          "energy_entity": "Recommandé : un compteur cumulé est exact, même après un redémarrage.",
+          "price_entity": "Toute entité en EUR/kWh, c€/kWh ou EUR/MWh. Le prix peut changer pendant un print.",
+          "integration_method": "Utilisé seulement sans compteur d'énergie."
+        }
+      },
+      "filament": {
+        "title": "Filament (optionnel)",
+        "description": "Laissez vide pour ne suivre que l'électricité. HaspelSync fournit la consommation réelle, Spoolman le prix des bobines. Aucun des deux n'est modifié.",
+        "data": {
+          "haspelsync_url": "URL HaspelSync",
+          "haspelsync_api_key": "Clé API HaspelSync",
+          "spoolman_url": "URL Spoolman",
+          "filament_fallback": "Si aucune consommation réelle n'est disponible"
+        },
+        "data_description": {
+          "haspelsync_url": "ex. http://192.168.1.10:4000",
+          "spoolman_url": "ex. http://192.168.1.10:7912 — lecture seule, jamais modifié."
+        }
+      },
+      "haspelsync_printer": {
+        "title": "Imprimante HaspelSync",
+        "data": {
+          "haspelsync_printer_id": "Imprimante HaspelSync"
+        }
+      }
+    },
+    "error": {
+      "power_or_energy_required": "Sélectionnez un capteur de puissance, un compteur d'énergie, ou les deux.",
+      "unsupported_power_unit": "Unité non supportée (W ou kW attendu).",
+      "unsupported_energy_unit": "Unité non supportée (Wh, kWh ou MWh attendu).",
+      "unsupported_price_unit": "Unité non supportée (ex. EUR/kWh, c€/kWh, EUR/MWh).",
+      "cannot_connect": "Connexion impossible.",
+      "invalid_auth": "Clé API refusée.",
+      "host_refused": "HaspelSync refuse ce nom d'hôte : utilisez l'adresse IP ou ajoutez le nom dans « Allowed host names » de HaspelSync.",
+      "no_printers": "HaspelSync ne surveille aucune imprimante."
+    },
+    "abort": {
+      "already_configured": "Cette imprimante est déjà configurée."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Entités de l'imprimante",
+        "data": {
+          "print_status_entity": "Statut d'impression",
+          "job_name_entity": "Nom du job / fichier",
+          "progress_entity": "Progression",
+          "print_weight_entity": "Poids prévu du print",
+          "remaining_time_entity": "Temps restant",
+          "cover_image_entity": "Miniature"
+        },
+        "data_description": {
+          "print_status_entity": "Obligatoire. Capteur `print_status` de ha-bambulab.",
+          "job_name_entity": "Sert à distinguer deux prints et à faire le lien avec HaspelSync.",
+          "print_weight_entity": "Repli si HaspelSync n'a pas de donnée."
+        }
+      },
+      "electricity": {
+        "title": "Électricité",
+        "data": {
+          "power_entity": "Capteur de puissance (W)",
+          "energy_entity": "Compteur d'énergie (Wh / kWh)",
+          "price_entity": "Prix de l'électricité",
+          "integration_method": "Méthode d'intégration de la puissance"
+        },
+        "data_description": {
+          "energy_entity": "Recommandé : un compteur cumulé est exact, même après un redémarrage.",
+          "price_entity": "Toute entité en EUR/kWh, c€/kWh ou EUR/MWh. Le prix peut changer pendant un print.",
+          "integration_method": "Utilisé seulement sans compteur d'énergie."
+        }
+      },
+      "filament": {
+        "title": "Filament (optionnel)",
+        "description": "Laissez vide pour ne suivre que l'électricité. HaspelSync fournit la consommation réelle, Spoolman le prix des bobines. Aucun des deux n'est modifié.",
+        "data": {
+          "haspelsync_url": "URL HaspelSync",
+          "haspelsync_api_key": "Clé API HaspelSync",
+          "spoolman_url": "URL Spoolman",
+          "filament_fallback": "Si aucune consommation réelle n'est disponible"
+        },
+        "data_description": {
+          "haspelsync_url": "ex. http://192.168.1.10:4000",
+          "spoolman_url": "ex. http://192.168.1.10:7912 — lecture seule, jamais modifié."
+        }
+      },
+      "haspelsync_printer": {
+        "title": "Imprimante HaspelSync",
+        "data": {
+          "haspelsync_printer_id": "Imprimante HaspelSync"
+        }
+      },
+      "behaviour": {
+        "title": "Avancé",
+        "data": {
+          "update_interval": "Intervalle d'échantillonnage pendant un print",
+          "history_size": "Nombre de prints conservés dans l'historique",
+          "currency": "Devise"
+        }
+      }
+    },
+    "error": {
+      "power_or_energy_required": "Sélectionnez un capteur de puissance, un compteur d'énergie, ou les deux.",
+      "unsupported_power_unit": "Unité non supportée (W ou kW attendu).",
+      "unsupported_energy_unit": "Unité non supportée (Wh, kWh ou MWh attendu).",
+      "unsupported_price_unit": "Unité non supportée (ex. EUR/kWh, c€/kWh, EUR/MWh).",
+      "cannot_connect": "Connexion impossible.",
+      "invalid_auth": "Clé API refusée.",
+      "host_refused": "HaspelSync refuse ce nom d'hôte : utilisez l'adresse IP ou ajoutez le nom dans « Allowed host names » de HaspelSync.",
+      "no_printers": "HaspelSync ne surveille aucune imprimante."
+    }
+  },
+  "selector": {
+    "integration_method": {
+      "options": {
+        "left": "Gauche (capteurs en escalier)",
+        "trapezoidal": "Trapèzes"
+      }
+    },
+    "filament_fallback": {
+      "options": {
+        "none": "Ne jamais estimer",
+        "planned_success": "Utiliser le poids slicé pour les prints réussis",
+        "planned_progress": "Poids slicé, × progression pour les prints échoués/annulés"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "current_print_total_cost": {
+        "name": "Coût total du print en cours"
+      },
+      "current_print_electricity_cost": {
+        "name": "Coût électrique du print en cours"
+      },
+      "current_print_filament_cost": {
+        "name": "Coût filament du print en cours"
+      },
+      "current_print_energy": {
+        "name": "Énergie du print en cours"
+      },
+      "current_print_filament_weight": {
+        "name": "Poids filament du print en cours"
+      },
+      "current_print_duration": {
+        "name": "Durée du print en cours"
+      },
+      "current_print_cost_per_hour": {
+        "name": "Coût horaire du print en cours"
+      },
+      "electricity_price": {
+        "name": "Prix de l'électricité"
+      },
+      "last_print_total_cost": {
+        "name": "Coût total du dernier print"
+      },
+      "last_print_electricity_cost": {
+        "name": "Coût électrique du dernier print"
+      },
+      "last_print_filament_cost": {
+        "name": "Coût filament du dernier print"
+      },
+      "last_print_energy": {
+        "name": "Énergie du dernier print"
+      },
+      "last_print_filament_weight": {
+        "name": "Poids filament du dernier print"
+      },
+      "last_print_duration": {
+        "name": "Durée du dernier print"
+      },
+      "current_print_phase": {
+        "name": "Phase du print en cours",
+        "state": {
+          "idle": "Inactif",
+          "active": "En impression",
+          "finalizing": "Finalisation"
+        }
+      },
+      "last_print_result": {
+        "name": "Résultat du dernier print",
+        "state": {
+          "success": "Réussi",
+          "cancelled": "Annulé",
+          "failed": "Échoué",
+          "unknown": "Inconnu"
+        }
+      }
+    },
+    "event": {
+      "print_finished": {
+        "name": "Impression terminée",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "print_finished": "Impression terminée"
+            }
+          }
+        }
+      }
+    }
+  }
+}
