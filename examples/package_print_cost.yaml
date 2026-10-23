@@ -1,0 +1,87 @@
+# Package optionnel pour 3D Print Cost : statistiques long terme + script d'estimation.
+#
+# Installation :
+#   1. configuration.yaml :
+#        homeassistant:
+#          packages: !include_dir_named packages
+#   2. copier ce fichier dans /config/packages/print_cost.yaml
+#   3. Outils de développement → YAML → Vérifier la configuration, puis redémarrer.
+#
+# En attendant les capteurs jour / mois natifs (roadmap v0.3), le cumul est
+# construit à partir de l'event entity : il ne compte que les prints terminés
+# après son installation.
+
+template:
+  - trigger:
+      # Chaque print terminé change l'état de l'event entity. Les rechargements
+      # (unavailable -> état restauré) ne sont pas comptés.
+      - trigger: state
+        entity_id: event.x2d_20p9bj5c2901510_print_finished
+        not_from:
+          - unavailable
+          - unknown
+    sensor:
+      - name: X2D coût cumulé des impressions
+        unique_id: x2d_print_cost_cumulative
+        unit_of_measurement: EUR
+        device_class: monetary
+        state_class: total
+        # Si le coût filament est inconnu, seule la partie connue est ajoutée.
+        state: >-
+          {% set e = 'event.x2d_20p9bj5c2901510_print_finished' %}
+          {% set cost = state_attr(e, 'total_cost') %}
+          {% if cost is none %}{% set cost = state_attr(e, 'partial_total_cost') %}{% endif %}
+          {{ ((this.state | float(0)) + (cost | float(0))) | round(4) }}
+      - name: X2D nombre d'impressions
+        unique_id: x2d_print_count_cumulative
+        state_class: total_increasing
+        state: "{{ (this.state | int(0)) + 1 }}"
+
+utility_meter:
+  x2d_print_cost_month:
+    name: X2D coût des impressions ce mois
+    source: sensor.x2d_cout_cumule_des_impressions
+    cycle: monthly
+  x2d_print_count_month:
+    name: X2D impressions ce mois
+    source: sensor.x2d_nombre_d_impressions
+    cycle: monthly
+
+# Pour un .3mf à plusieurs plateaux, appeler directement l'action
+# ha_3d_print_cost.estimate_cost avec `plate`.
+script:
+  estimer_cout_impression:
+    alias: Estimer le coût d'une impression
+    icon: mdi:calculator-variant
+    fields:
+      file_path:
+        name: Fichier
+        description: Chemin du .gcode.3mf, ex. /media/3d_prints/fleur.gcode.3mf
+        required: true
+        selector:
+          text:
+    sequence:
+      - action: ha_3d_print_cost.estimate_cost
+        data:
+          file_path: "{{ file_path }}"
+        response_variable: estimate
+      - action: persistent_notification.create
+        data:
+          title: "Estimation : {{ estimate.file }}"
+          message: >-
+            {% set d = estimate.estimated_duration_s | int(0) %}
+            **Total : {{ '%.2f €' | format(estimate.total_cost) if estimate.total_cost is not none
+            else '≥ %.2f € (incomplet)' | format(estimate.partial_total_cost) }}**
+
+            - Durée : {{ d // 3600 }} h {{ '%02d' | format(d % 3600 // 60) }}
+            - Filament : {{ estimate.filament_weight_g }} g →
+              {{ '%.2f €' | format(estimate.filament_cost) if estimate.filament_cost is not none else 'inconnu' }}
+            - Électricité : {{ estimate.energy_kwh }} kWh →
+              {{ '%.2f €' | format(estimate.electricity_cost) if estimate.electricity_cost is not none else 'inconnu' }}
+            {% for f in estimate.filaments %}
+            - {{ f.material }} {{ f.name or '' }} ({{ f.slot or 'bobine ?' }}) :
+              {{ f.weight_g }} g{{ ' — %.2f €' | format(f.cost) if f.cost is not none }}
+            {% endfor %}
+            {% for n in estimate.notes %}
+            > {{ n }}
+            {% endfor %}

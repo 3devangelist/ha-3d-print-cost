@@ -1,0 +1,395 @@
+# Vue « Impression 3D » pour 3D Print Cost.
+#
+# Cartes HACS requises : Bubble Card, Mushroom, ApexCharts Card.
+# Installation : Dashboard → ⋮ → Modifier → ⋮ → Éditeur de configuration brut,
+# puis coller ce bloc dans la liste `views:`.
+#
+# Les entity_id correspondent à l'imprimante X2D_20P9BJ5C2901510 : remplacer
+# « x2d_20p9bj5c2901510 » par le slug de votre imprimante si besoin.
+
+title: Impression 3D
+path: impression-3d
+icon: mdi:printer-3d
+type: sections
+max_columns: 3
+sections:
+  # ------------------------------------------------------------------ #
+  # Print en cours (visible uniquement pendant une impression)
+  # ------------------------------------------------------------------ #
+  - type: grid
+    cards:
+      - type: heading
+        heading: Print en cours
+        icon: mdi:printer-3d-nozzle
+        badges:
+          - type: entity
+            entity: sensor.x2d_20p9bj5c2901510_current_print_phase
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.x2d_20p9bj5c2901510_current_print_phase
+            state_not: idle
+        card:
+          type: vertical-stack
+          cards:
+            # Miniature + nom + progression + coût provisoire
+            - type: custom:mushroom-template-card
+              entity: sensor.x2d_20p9bj5c2901510_current_print_total_cost
+              picture: "{{ state_attr('image.x2d_20p9bj5c2901510_image_du_modele', 'entity_picture') }}"
+              primary: "{{ state_attr(entity, 'job_name') or 'Impression' }}"
+              secondary: >-
+                {% set p = state_attr(entity, 'progress') | int(0) %}
+                {% set m = state_attr(entity, 'remaining_min') | int(0) %}
+                {% set cost = state_attr(entity, 'partial_total_cost') | float(0) %}
+                {{ p }} % · reste {{ m // 60 }} h {{ '%02d' | format(m % 60) }}
+                · {{ '%.2f' | format(cost) }} € pour l'instant
+              multiline_secondary: true
+              tap_action:
+                action: more-info
+
+            # Électricité en direct
+            - type: custom:bubble-card
+              card_type: button
+              button_type: state
+              entity: sensor.x2d_20p9bj5c2901510_current_print_electricity_cost
+              name: Électricité
+              icon: mdi:flash
+              card_layout: large-2-rows
+              sub_button:
+                - entity: sensor.x2d_20p9bj5c2901510_current_print_energy
+                  icon: mdi:lightning-bolt
+                  state_content: state
+                  show_background: false
+                - entity: sensor.x2d_power
+                  icon: mdi:power-plug
+                  state_content: state
+                  show_background: false
+                - entity: sensor.x2d_20p9bj5c2901510_current_print_cost_per_hour
+                  icon: mdi:cash-clock
+                  state_content: state
+                  show_background: false
+                - entity: sensor.x2d_20p9bj5c2901510_electricity_price
+                  icon: mdi:cash
+                  state_content: state
+                  show_background: false
+
+            # Filament : le coût réel n'est connu qu'à la fin (HaspelSync)
+            - type: custom:bubble-card
+              card_type: button
+              button_type: state
+              entity: sensor.x2d_20p9bj5c2901510_current_print_duration
+              name: Durée
+              icon: mdi:timer-outline
+              sub_button:
+                - entity: sensor.x2d_20p9bj5c2901510_poids_de_limpression
+                  name: Poids prévu
+                  icon: mdi:weight-gram
+                  state_content: state
+                  show_background: false
+
+            # Puissance et coût électrique pendant le print
+            - type: custom:apexcharts-card
+              header:
+                show: true
+                title: Consommation
+                show_states: true
+              graph_span: 6h
+              yaxis:
+                - id: power
+                  min: 0
+                  decimals: 0
+                - id: cost
+                  opposite: true
+                  min: 0
+                  decimals: 2
+              series:
+                - entity: sensor.x2d_power
+                  name: Puissance
+                  yaxis_id: power
+                  type: area
+                  curve: stepline
+                  stroke_width: 2
+                  opacity: 0.3
+                  group_by:
+                    func: avg
+                    duration: 2min
+                - entity: sensor.x2d_20p9bj5c2901510_current_print_electricity_cost
+                  name: Coût électrique
+                  yaxis_id: cost
+                  type: line
+                  curve: stepline
+                  stroke_width: 2
+                  float_precision: 3
+
+      # Au repos : rappel du dernier print
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: sensor.x2d_20p9bj5c2901510_current_print_phase
+            state: idle
+        card:
+          type: custom:mushroom-template-card
+          icon: mdi:printer-3d-off
+          color: disabled
+          primary: Imprimante au repos
+          secondary: >-
+            {% set name = state_attr('sensor.x2d_20p9bj5c2901510_last_print_total_cost', 'name') %}
+            {{ 'Dernier print : ' ~ name if name else 'Aucun print enregistré' }}
+
+  # ------------------------------------------------------------------ #
+  # Dernier print
+  # ------------------------------------------------------------------ #
+  - type: grid
+    cards:
+      - type: heading
+        heading: Dernier print
+        icon: mdi:receipt-text
+
+      - type: custom:mushroom-template-card
+        entity: sensor.x2d_20p9bj5c2901510_last_print_total_cost
+        icon: >-
+          {% set r = states('sensor.x2d_20p9bj5c2901510_last_print_result') %}
+          {{ {'success': 'mdi:check-circle', 'cancelled': 'mdi:cancel',
+              'failed': 'mdi:alert-circle'}.get(r, 'mdi:help-circle-outline') }}
+        color: >-
+          {% set r = states('sensor.x2d_20p9bj5c2901510_last_print_result') %}
+          {{ {'success': 'green', 'cancelled': 'orange', 'failed': 'red'}.get(r, 'disabled') }}
+        primary: "{{ state_attr(entity, 'name') or 'Aucun print' }}"
+        secondary: >-
+          {% set s = state_attr(entity, 'duration_s') | int(0) %}
+          {% set end = state_attr(entity, 'finished_at') %}
+          {{ states('sensor.x2d_20p9bj5c2901510_last_print_result') | capitalize }}
+          · {{ s // 3600 }} h {{ '%02d' | format(s % 3600 // 60) }}
+          {% if end %}· {{ as_timestamp(end) | timestamp_custom('%d/%m %H:%M') }}{% endif %}
+        tap_action:
+          action: more-info
+
+      - type: custom:bubble-card
+        card_type: button
+        button_type: state
+        entity: sensor.x2d_20p9bj5c2901510_last_print_total_cost
+        name: Coût total
+        icon: mdi:cash-multiple
+        card_layout: large-2-rows
+        sub_button:
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_electricity_cost
+            icon: mdi:flash
+            state_content: state
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_filament_cost
+            icon: mdi:printer-3d-nozzle
+            state_content: state
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_energy
+            icon: mdi:lightning-bolt
+            state_content: state
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_last_print_filament_weight
+            icon: mdi:weight-gram
+            state_content: state
+            show_background: false
+
+      # Détail par bobine
+      - type: markdown
+        title: Bobines utilisées
+        content: |
+          {% set e = 'sensor.x2d_20p9bj5c2901510_last_print_total_cost' %}
+          {% for f in state_attr(e, 'filaments') or [] %}
+          - **{{ f.material or '?' }} {{ f.name or '' }}** {{ '(' ~ f.slot ~ ')' if f.slot }} — {{ f.weight_g }} g — {{ '%.2f €' | format(f.cost) if f.cost is not none else 'prix inconnu' }}
+          {% else %}
+          Aucun détail filament.
+          {% endfor %}
+
+          {% for n in state_attr(e, 'notes') or [] %}
+          > {{ n }}
+
+          {% endfor %}
+
+  # ------------------------------------------------------------------ #
+  # Historique : 30 derniers prints (attributs de sensor.…_print_history,
+  # indépendants de la durée de conservation du recorder)
+  # ------------------------------------------------------------------ #
+  - type: grid
+    column_span: 2
+    cards:
+      - type: heading
+        heading: Historique
+        icon: mdi:history
+
+      # Totaux de tout l'historique conservé
+      - type: custom:bubble-card
+        card_type: button
+        button_type: state
+        entity: sensor.x2d_20p9bj5c2901510_print_history
+        name: Impressions enregistrées
+        icon: mdi:history
+        card_layout: large-2-rows
+        sub_button:
+          - entity: sensor.x2d_20p9bj5c2901510_print_history
+            name: Total
+            icon: mdi:cash-multiple
+            state_content: "{{ '%.2f €' | format(state_attr('sensor.x2d_20p9bj5c2901510_print_history', 'totals').total_cost) }}"
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_print_history
+            name: Énergie
+            icon: mdi:lightning-bolt
+            state_content: "{{ state_attr('sensor.x2d_20p9bj5c2901510_print_history', 'totals').energy_kwh }} kWh"
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_print_history
+            name: Filament
+            icon: mdi:weight-gram
+            state_content: "{{ (state_attr('sensor.x2d_20p9bj5c2901510_print_history', 'totals').filament_weight_g / 1000) | round(2) }} kg"
+            show_background: false
+          - entity: sensor.x2d_20p9bj5c2901510_print_history
+            name: Durée
+            icon: mdi:timer-outline
+            state_content: "{{ (state_attr('sensor.x2d_20p9bj5c2901510_print_history', 'totals').duration_s / 3600) | round(1) }} h"
+            show_background: false
+
+      # Coût par impression, électricité + filament empilés
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Coût par impression
+        graph_span: 30d
+        stacked: true
+        yaxis:
+          - min: 0
+            decimals: 2
+        apex_config:
+          legend:
+            show: true
+        series:
+          - entity: sensor.x2d_20p9bj5c2901510_print_history
+            name: Électricité
+            type: column
+            unit: €
+            float_precision: 2
+            show:
+              in_header: false
+            data_generator: |
+              return (entity.attributes.jobs || [])
+                .filter((j) => j.finished_at && j.electricity_cost !== null)
+                .map((j) => [new Date(j.finished_at).getTime(), j.electricity_cost]);
+          - entity: sensor.x2d_20p9bj5c2901510_print_history
+            name: Filament
+            type: column
+            unit: €
+            float_precision: 2
+            show:
+              in_header: false
+            data_generator: |
+              return (entity.attributes.jobs || [])
+                .filter((j) => j.finished_at && j.filament_cost !== null)
+                .map((j) => [new Date(j.finished_at).getTime(), j.filament_cost]);
+
+      # Tableau détaillé, un print par ligne
+      - type: markdown
+        content: |
+          {% set jobs = state_attr('sensor.x2d_20p9bj5c2901510_print_history', 'jobs') or [] %}
+          {% set icons = {'success': '✅', 'cancelled': '⛔', 'failed': '❌'} %}
+          {% if jobs %}
+          | Date | Impression | | Durée | kWh | Total |
+          |:--|:--|:-:|--:|--:|--:|
+          {% for j in jobs %}
+          {% set d = j.duration_s | int(0) %}
+          | {{ as_timestamp(j.finished_at) | timestamp_custom('%d/%m %H:%M') if j.finished_at else '—' }} | **{{ j.name or '?' }}**<br>{% for f in j.filaments %}{{ f.material or '' }} {{ f.name or '' }} {{ f.weight_g }} g{{ ' · ' if not loop.last }}{% endfor %} | {{ icons.get(j.result, '❔') }} | {{ d // 3600 }} h {{ '%02d' | format(d % 3600 // 60) }} | {{ j.energy_kwh }} | {{ '%.2f €' | format(j.total_cost) if j.total_cost is not none else '≥ %.2f €' | format(j.partial_total_cost or 0) }} |
+          {% endfor %}
+          {% else %}
+          Aucune impression enregistrée.
+          {% endif %}
+
+  # ------------------------------------------------------------------ #
+  # Estimer un G-code avant de l'imprimer
+  # Déposer le .gcode.3mf dans /media/3d_prints (partage Samba « media »).
+  # ------------------------------------------------------------------ #
+  - type: grid
+    cards:
+      - type: heading
+        heading: Estimer un G-code
+        icon: mdi:calculator-variant
+
+      - type: tile
+        entity: select.x2d_20p9bj5c2901510_gcode_file
+        name: Fichier
+        features_position: bottom
+        features:
+          - type: select-options
+
+      - type: horizontal-stack
+        cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: name
+            name: Estimer
+            icon: mdi:calculator-variant
+            button_action:
+              tap_action:
+                action: perform-action
+                perform_action: button.press
+                target:
+                  entity_id: button.x2d_20p9bj5c2901510_estimate_gcode
+            tap_action:
+              action: perform-action
+              perform_action: button.press
+              target:
+                entity_id: button.x2d_20p9bj5c2901510_estimate_gcode
+          - type: custom:bubble-card
+            card_type: button
+            button_type: name
+            name: Actualiser
+            icon: mdi:folder-refresh
+            button_action:
+              tap_action:
+                action: perform-action
+                perform_action: button.press
+                target:
+                  entity_id: button.x2d_20p9bj5c2901510_refresh_gcode_files
+            tap_action:
+              action: perform-action
+              perform_action: button.press
+              target:
+                entity_id: button.x2d_20p9bj5c2901510_refresh_gcode_files
+
+      # Résultat de la dernière estimation
+      - type: custom:mushroom-template-card
+        entity: sensor.x2d_20p9bj5c2901510_gcode_estimate
+        icon: mdi:receipt-text-clock
+        color: >-
+          {{ 'green' if states(entity) not in ['unknown', 'unavailable']
+             else ('orange' if state_attr(entity, 'file') else 'disabled') }}
+        primary: >-
+          {% set total = states(entity) %}
+          {% if total not in ['unknown', 'unavailable'] %}{{ '%.2f €' | format(total | float) }}
+          {% elif state_attr(entity, 'file') %}≥ {{ '%.2f €' | format(state_attr(entity, 'partial_total_cost') | float(0)) }} (incomplet)
+          {% else %}Aucune estimation{% endif %}
+        secondary: >-
+          {% set d = state_attr(entity, 'estimated_duration_s') | int(0) %}
+          {{ state_attr(entity, 'file') or 'Choisis un fichier puis « Estimer »' }}
+          {% if d %}· {{ d // 3600 }} h {{ '%02d' | format(d % 3600 // 60) }}
+          · {{ state_attr(entity, 'filament_weight_g') }} g{% endif %}
+        multiline_secondary: true
+        tap_action:
+          action: more-info
+
+      - type: markdown
+        content: |
+          {% set e = 'sensor.x2d_20p9bj5c2901510_gcode_estimate' %}
+          {% if state_attr(e, 'file') %}
+          {% set fil = state_attr(e, 'filament_cost') %}
+          {% set elec = state_attr(e, 'electricity_cost') %}
+          **Filament** : {{ '%.2f €' | format(fil) if fil is not none else 'inconnu' }}
+          {% for f in state_attr(e, 'filaments') or [] %}
+          - {{ f.material or '?' }} {{ f.name or '' }}{{ ' (' ~ f.slot ~ ')' if f.slot }} — {{ f.weight_g }} g — {{ '%.2f €' | format(f.cost) if f.cost is not none else 'prix inconnu' }}
+          {% endfor %}
+
+          **Électricité** : {{ '%.2f €' | format(elec) if elec is not none else 'inconnue' }} ({{ state_attr(e, 'energy_kwh') }} kWh, {{ state_attr(e, 'average_power_w') }} W, {{ state_attr(e, 'power_source') }})
+
+          {% for n in state_attr(e, 'notes') or [] %}
+          > {{ n }}
+
+          {% endfor %}
+          {% else %}
+          Dépose un `.gcode.3mf` dans `/media/3d_prints` (partage Samba « media »), choisis-le ci-dessus puis appuie sur **Estimer**.
+          {% endif %}
