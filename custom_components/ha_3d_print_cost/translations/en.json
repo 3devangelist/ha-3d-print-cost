@@ -159,6 +159,14 @@
         "planned_success": "Use the sliced weight for successful prints",
         "planned_progress": "Sliced weight, × progress for failed/cancelled prints"
       }
+    },
+    "print_result": {
+      "options": {
+        "success": "Success",
+        "cancelled": "Cancelled",
+        "failed": "Failed",
+        "unknown": "Unknown"
+      }
     }
   },
   "entity": {
@@ -234,6 +242,72 @@
           }
         }
       }
+    }
+  },
+  "services": {
+    "get_history": {
+      "name": "Get print history",
+      "description": "Returns the past prints recorded by this integration (cost, energy, filament, per-spool detail) with totals.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Printer",
+          "description": "3D Print Cost entry to use. Optional when only one printer is configured."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Maximum number of prints, newest first."
+        },
+        "result": {
+          "name": "Result",
+          "description": "Only prints with this result."
+        }
+      }
+    },
+    "estimate_cost": {
+      "name": "Estimate cost of a G-code",
+      "description": "Estimates the total cost of a sliced .gcode or .gcode.3mf file before printing it, from the slicer estimates, Spoolman prices and the average power of past prints.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Printer",
+          "description": "3D Print Cost entry to use. Optional when only one printer is configured."
+        },
+        "file_path": {
+          "name": "File path",
+          "description": "Path of the .gcode or .gcode.3mf file, e.g. /media/prints/cube.gcode.3mf. Must be in an allowed folder (/media or /config/www by default)."
+        },
+        "plate": {
+          "name": "Plate",
+          "description": "Plate to estimate when the .3mf contains several sliced plates."
+        },
+        "spool_ids": {
+          "name": "Spoolman spool IDs",
+          "description": "One Spoolman spool ID per filament of the plate, in slicer order. Without it, the spool loaded in the AMS with the same material and colour is used."
+        },
+        "power_w": {
+          "name": "Average power",
+          "description": "Average printer power. Defaults to the average measured on past successful prints."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_found": {
+      "message": "No 3D Print Cost entry with id {entry_id}."
+    },
+    "entry_not_loaded": {
+      "message": "The printer {title} is not loaded."
+    },
+    "no_entry": {
+      "message": "No 3D Print Cost printer is loaded."
+    },
+    "several_entries": {
+      "message": "Several printers are configured: choose one with config_entry_id."
+    },
+    "path_not_allowed": {
+      "message": "Access to {path} is not allowed. Put the file in /media or /config/www, or add its folder to allowlist_external_dirs."
+    },
+    "invalid_gcode": {
+      "message": "Cannot read {file}: {error}"
     }
   }
 }

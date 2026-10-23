@@ -37,10 +37,11 @@ already do well.
 5. [Electricity](#electricity)
 6. [Filament: HaspelSync and Spoolman](#filament-haspelsync-and-spoolman)
 7. [Entities](#entities)
-8. [Automations](#automations)
-9. [Troubleshooting](#troubleshooting)
-10. [Development](#development)
-11. [Roadmap](#roadmap)
+8. [Actions: history and G-code estimate](#actions-history-and-g-code-estimate)
+9. [Automations](#automations)
+10. [Troubleshooting](#troubleshooting)
+11. [Development](#development)
+12. [Roadmap](#roadmap)
 
 ---
 
@@ -237,6 +238,57 @@ and must not pollute long-term statistics or the Energy dashboard.
 No custom Lovelace card is shipped; everything works with native cards,
 Mushroom, Bubble Card or ApexCharts.
 
+## Actions: history and G-code estimate
+
+Both actions only read data and return a response: run them from
+**Developer tools → Actions** (tick *Return response*) or from a script.
+`config_entry_id` is only needed when several printers are configured.
+
+### `ha_3d_print_cost.get_history`
+
+Returns the stored past prints (newest first, up to the history size set in
+the options) with their totals.
+
+```yaml
+action: ha_3d_print_cost.get_history
+data:
+  limit: 20          # optional
+  result: success    # optional: success | cancelled | failed | unknown
+```
+
+`totals.incomplete_jobs` counts prints whose total is unknown (e.g. no spool
+price): only their known parts are added, so the totals are then a minimum.
+
+### `ha_3d_print_cost.estimate_cost`
+
+Estimates the cost of a sliced file **before printing it**, from the slicer
+estimates written in the file (weight per filament, print time). G-code
+moves are never parsed.
+
+```yaml
+action: ha_3d_print_cost.estimate_cost
+data:
+  file_path: /media/prints/flower_lamp.gcode.3mf
+  plate: 1              # only if the .3mf holds several sliced plates
+  spool_ids: [23, 45]   # optional, one Spoolman spool per filament, in slicer order
+  power_w: 150          # optional, overrides the measured average
+```
+
+- **Files**: `.gcode.3mf` from Bambu Studio / Orca Slicer (*Export plate
+  sliced file*) and plain `.gcode` (Bambu Studio, Orca, PrusaSlicer). The file
+  must be in an allowed folder: `/media` and `/config/www` by default (upload
+  it with the Media browser or Samba), or one added to
+  `allowlist_external_dirs`.
+- **Filament**: priced with Spoolman. Without `spool_ids`, the spool loaded in
+  the AMS (via HaspelSync) with the same material **and** colour is used,
+  only when exactly one matches. Otherwise the cost stays unknown.
+- **Electricity**: average power of past successful prints (≥ 10 min) ×
+  slicer print time × **current** tariff. The future tariff is unknown, so
+  this part is an approximation. Real prints are still costed interval by
+  interval.
+- Any missing part leaves `total_cost` empty, with `partial_total_cost` and
+  `notes` explaining why.
+
 ## Automations
 
 ```yaml
@@ -302,7 +354,7 @@ systems sit behind adapters that are mocked in tests. Money is computed with
 
 - **v0.1** ✅ electricity cost per print, tariff changes, restart recovery, last print, event
 - **v0.2** ✅ HaspelSync + Spoolman, cost per spool, total cost, cancelled prints
-- **v0.3** day/month statistics sensors, services (`recalculate_last_print`, `delete_print`), history export
+- **v0.3** 🚧 `get_history` and `estimate_cost` actions ✅; day/month statistics sensors, `recalculate_last_print`, `delete_print`
 - **v0.4** multi-printer statistics, cost per material / spool, cancellation rate, CSV/JSON export
 
 ## License

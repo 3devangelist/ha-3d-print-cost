@@ -129,7 +129,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self.spoolman = SpoolmanClient(session, url, timeout=HTTP_TIMEOUT)
         self.resolver = FilamentResolver(
             haspelsync=self.haspelsync,
-            haspelsync_printer_id=self.conf.get(CONF_HASPELSYNC_PRINTER_ID) or self.printer_serial,
+            haspelsync_printer_id=self.haspelsync_printer_id,
             spoolman=self.spoolman,
             fallback=FilamentFallback(self.conf.get(CONF_FILAMENT_FALLBACK, DEFAULT_FILAMENT_FALLBACK)),
         )
@@ -256,10 +256,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     # ------------------------------------------------------------------ #
     # Filament
     # ------------------------------------------------------------------ #
+    @property
+    def haspelsync_printer_id(self) -> str | None:
+        """Printer id on the HaspelSync side (defaults to the Bambu serial)."""
+        return self.conf.get(CONF_HASPELSYNC_PRINTER_ID) or self.printer_serial
+
     async def _async_capture_slots(self, job: PrintJob) -> None:
         """Snapshot slot -> spool at print start (used by the fallback)."""
         assert self.haspelsync is not None
-        printer_id = self.conf.get(CONF_HASPELSYNC_PRINTER_ID) or self.printer_serial
+        printer_id = self.haspelsync_printer_id
         if not printer_id:
             return
         try:

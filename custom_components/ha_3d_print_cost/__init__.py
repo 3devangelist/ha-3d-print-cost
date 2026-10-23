@@ -10,12 +10,23 @@ import logging
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
+from .const import DOMAIN
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.EVENT]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the service actions (available even before an entry loads)."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -> bool:

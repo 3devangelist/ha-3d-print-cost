@@ -36,5 +36,9 @@
     "event": {
       "print_finished": { "default": "mdi:flag-checkered" }
     }
+  },
+  "services": {
+    "get_history": { "service": "mdi:history" },
+    "estimate_cost": { "service": "mdi:calculator-variant" }
   }
 }

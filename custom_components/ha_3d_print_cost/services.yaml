@@ -1,0 +1,60 @@
+get_history:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_3d_print_cost
+    limit:
+      required: false
+      example: 20
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    result:
+      required: false
+      selector:
+        select:
+          translation_key: print_result
+          options:
+            - success
+            - cancelled
+            - failed
+            - unknown
+
+estimate_cost:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: ha_3d_print_cost
+    file_path:
+      required: true
+      example: /media/prints/cube.gcode.3mf
+      selector:
+        text:
+    plate:
+      required: false
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 99
+          mode: box
+    spool_ids:
+      required: false
+      example: "[23, 45]"
+      selector:
+        object:
+    power_w:
+      required: false
+      example: 150
+      selector:
+        number:
+          min: 1
+          max: 10000
+          unit_of_measurement: W
+          mode: box
