@@ -1,7 +1,7 @@
 {
   "domain": "ha_3d_print_cost",
   "name": "3D Print Cost",
-  "codeZoziLaMalices": ["@ZoziLaMalice"],
+  "codeowners": ["@ZoziLaMalice"],
   "config_flow": true,
   "documentation": "https://github.com/ZoziLaMalice/ha-3d-print-cost",
   "integration_type": "service",
