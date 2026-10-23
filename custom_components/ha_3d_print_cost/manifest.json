@@ -1,6 +1,7 @@
 {
   "domain": "ha_3d_print_cost",
   "name": "3D Print Cost",
+  "categories": ["energy.meters_monitoring", "computers_network.printers"],
   "codeowners": ["@ZoziLaMalice"],
   "config_flow": true,
   "documentation": "https://github.com/ZoziLaMalice/ha-3d-print-cost",
