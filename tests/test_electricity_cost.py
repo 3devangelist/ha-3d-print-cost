@@ -186,3 +186,22 @@ def test_meter_frozen_for_the_whole_print_uses_power():
     assert acc.energy_kwh == pytest.approx(0.12)
     assert acc.cost == pytest.approx(Decimal(repr(0.12)) * HC, abs=Decimal("1e-9"))
     assert "energy meter did not report the last part of the print, power estimate used" in acc.notes
+
+
+def test_meter_hole_note_only_once_the_meter_is_back():
+    acc = ElectricityAccumulator()
+    acc.add_sample(ElectricitySample(at(0), power_w=120, energy_kwh=10.0, price_per_kwh=HC))
+    acc.add_sample(ElectricitySample(at(1), power_w=120, energy_kwh=None, price_per_kwh=HC))  # HA restart
+    assert acc.notes == []
+    acc.add_sample(ElectricitySample(at(30), power_w=120, energy_kwh=10.06, price_per_kwh=HC))
+    assert acc.notes == ["energy meter was briefly unavailable, its next reading covered the gap"]
+    assert acc.energy_kwh == pytest.approx(0.06)
+
+
+def test_seconds_without_price_are_not_flagged():
+    acc = ElectricityAccumulator()
+    acc.add_sample(ElectricitySample(at(0), power_w=120, price_per_kwh=None))  # price sensor restarting
+    acc.add_sample(ElectricitySample(at(0.1), power_w=120, price_per_kwh=HC))  # 6 s -> 0.2 Wh
+    acc.add_sample(ElectricitySample(at(60), power_w=120, price_per_kwh=HC))
+    assert acc.uncosted_energy_kwh == pytest.approx(0.0002)
+    assert acc.cost_complete

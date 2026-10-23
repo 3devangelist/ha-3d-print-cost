@@ -35,6 +35,7 @@ from ..const import IntegrationMethod
 from ..units import to_decimal
 
 ZERO = Decimal(0)
+UNCOSTED_TOLERANCE_KWH = 0.001
 
 
 @dataclass(slots=True)
@@ -70,6 +71,9 @@ class ElectricityAccumulator:
     price_min: Decimal | None = None
     price_max: Decimal | None = None
 
+    # The meter went unavailable and has not stepped since.
+    meter_hole: bool = False
+
     # Power estimate since the last meter reading, not booked yet.
     pending_kwh: float = 0.0
     pending_cost: Decimal = ZERO
@@ -95,8 +99,12 @@ class ElectricityAccumulator:
 
     @property
     def cost_complete(self) -> bool:
-        """True when every kWh of the print has a known price."""
-        return self.total_uncosted_energy_kwh <= 1e-12
+        """True when every kWh of the print has a known price.
+
+        Below 1 Wh (a few seconds while the price sensor restarts with HA)
+        the missing cost is far under a cent and not worth flagging.
+        """
+        return self.total_uncosted_energy_kwh < UNCOSTED_TOLERANCE_KWH
 
     @property
     def notes(self) -> list[str]:
@@ -145,8 +153,10 @@ class ElectricityAccumulator:
         elif meter_now is None:
             # Meter momentarily unavailable: keep the estimate pending, the
             # next meter reading will cover the whole hole exactly.
-            self._note("energy meter temporarily unavailable, its next reading covered the hole")
+            self.meter_hole = True
         elif meter_now > meter_prev:
+            if self.meter_hole:
+                self._note("energy meter was briefly unavailable, its next reading covered the gap")
             self._commit_meter(meter_now - meter_prev)
         elif meter_now == meter_prev:
             # Meter not advanced yet (coarse resolution, or a plug that only
@@ -192,6 +202,7 @@ class ElectricityAccumulator:
         self._clear_pending()
 
     def _clear_pending(self) -> None:
+        self.meter_hole = False
         self.pending_kwh = 0.0
         self.pending_cost = ZERO
         self.pending_uncosted_kwh = 0.0
@@ -256,6 +267,7 @@ class ElectricityAccumulator:
             "pending_kwh": self.pending_kwh,
             "pending_cost": str(self.pending_cost),
             "pending_uncosted_kwh": self.pending_uncosted_kwh,
+            "meter_hole": self.meter_hole,
             "notes": list(self._notes),
         }
 
@@ -282,6 +294,7 @@ class ElectricityAccumulator:
             pending_kwh=float(data.get("pending_kwh", 0.0)),
             pending_cost=to_decimal(data.get("pending_cost")) or ZERO,
             pending_uncosted_kwh=float(data.get("pending_uncosted_kwh", 0.0)),
+            meter_hole=bool(data.get("meter_hole", False)),
         )
         acc._notes = list(data.get("notes", []))
         return acc
