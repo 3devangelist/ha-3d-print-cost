@@ -84,7 +84,9 @@ def set_states(hass, *, status, energy, price="0.1876", power="300", job="Flower
 async def step(hass: HomeAssistant, freezer: FrozenDateTimeFactory, minutes: float, **states) -> None:
     freezer.tick(timedelta(minutes=minutes))
     set_states(hass, **states)
-    await hass.async_block_till_done()
+    # Finalisation runs as a background task, which a plain block_till_done
+    # does not wait for (newer HA happens to finish it in time, older does not).
+    await hass.async_block_till_done(wait_background_tasks=True)
 
 
 @pytest.fixture
