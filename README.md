@@ -54,8 +54,9 @@ a **Visit** button that opens Mainsail / Fluidd.
 
 ## Edit a printer
 
-**Configure** on the printer's entry changes everything — IP address, port,
-API key, web interface, name, plug, meters, price — without deleting it. The
+**Configure** on the printer's entry changes the connection (Klipper: IP
+address, port, API key, web interface, name; Bambu Lab: its entities), the
+plug, meters and price — without deleting it. The
 device, its entities and its history are kept, and a print in progress
 survives the reload.
 
@@ -136,8 +137,9 @@ host names_, otherwise it answers `403`.
 
 ## Entities
 
-One device named after the printer is created and linked to the
-Bambu Lab device. Entity ids below assume a printer named _X2D_.
+One device named after the printer is created (for Bambu Lab it is linked to
+the Bambu Lab device). Entity ids below assume a printer named _X2D_; an
+_Ender 6_ gets `sensor.ender_6_…`.
 
 **Current print** (the running print, then the one being finalised; `unknown` when idle)
 
@@ -161,7 +163,7 @@ Bambu Lab device. Entity ids below assume a printer named _X2D_.
 
 **Last print image**
 
-`image.x2d_last_print_image` — copy of the ha-bambulab cover image taken when
+`image.x2d_last_print_image` (Bambu Lab only, for now) — copy of the ha-bambulab cover image taken when
 the print ended, so it still shows the right model once the next print has
 started. It is also the picture of `sensor.x2d_last_print_total_cost`
 (stored in `.storage/fdm_printer_manager.<entry_id>.image`).
@@ -242,7 +244,8 @@ actions:
 
 | Symptom                    | Check                                                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------------------------------ |
-| No print detected          | the _print status_ entity must report `prepare` / `running` / `pause` (ha-bambulab `print_status`).    |
+| No print detected (Klipper) | open `http://<IP>:7125/server/info` in a browser: it must answer. If Moonraker asks for an API key, set it in **Configure**. |
+| No print detected (Bambu)  | the _print status_ entity must report `prepare` / `running` / `pause` (ha-bambulab `print_status`).    |
 | Two prints merged / split  | configure the _job name_ entity.                                                                       |
 | Electricity cost `unknown` | the price entity was `unknown`/`unavailable` or in an unsupported unit; see `notes`.                   |
 | Filament `unavailable`     | HaspelSync unreachable, wrong printer id, or HaspelSync had no slice info for the print (see its log). |
@@ -263,7 +266,7 @@ logger:
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements_test.txt
-pytest            # 100 tests: units, tariff change, meter outage, life cycle, restart, filament, flows
+pytest            # 122 tests: units, tariff change, meter outage, life cycle, restart, filament, flows, Klipper
 ruff check . && ruff format --check .
 ```
 
@@ -273,7 +276,7 @@ custom_components/fdm_printer_manager/
 ├── units.py         unit normalisation                                ← pure Python
 ├── tracker.py       print life cycle state machine                    ← pure Python
 ├── filament.py      HaspelSync → fallback → Spoolman resolution       ← pure Python
-├── adapters/        bambu, electricity (HA states), haspelsync, spoolman (HTTP, read-only)
+├── adapters/        moonraker (Klipper, HTTP), bambu, electricity (HA states), haspelsync, spoolman (HTTP, read-only)
 ├── coordinator.py   listeners, timer, storage, finalisation, event
 ├── sensor.py / event.py / config_flow.py / diagnostics.py / storage.py
 ```
