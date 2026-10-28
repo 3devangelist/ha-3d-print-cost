@@ -1,4 +1,4 @@
-# 3D Printer Manager for Home Assistant
+# FDM Printer Manager for Home Assistant
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
 [![Tests](https://github.com/3devangelist/ha-3d-print-cost/actions/workflows/tests.yml/badge.svg)](https://github.com/3devangelist/ha-3d-print-cost/actions/workflows/tests.yml)
@@ -26,14 +26,14 @@ what it is doing, how long it took, how much **energy** it used and what it
 
 1. HACS → ⋮ → **Custom repositories** → add
    `https://github.com/3devangelist/ha-3d-print-cost`, category **Integration**.
-2. Install **3D Printer Manager**, restart Home Assistant.
+2. Install **FDM Printer Manager**, restart Home Assistant.
 
-Manual install: copy `custom_components/printer_manager` into your
+Manual install: copy `custom_components/fdm_printer_manager` into your
 `config/custom_components/` folder and restart.
 
 ## Add a printer
 
-**Settings → Devices & services → Add integration → 3D Printer Manager.**
+**Settings → Devices & services → Add integration → FDM Printer Manager.**
 Everything happens in that one window:
 
 1. **What kind of printer?** Klipper or Bambu Lab.
@@ -164,11 +164,11 @@ Bambu Lab device. Entity ids below assume a printer named _X2D_.
 `image.x2d_last_print_image` — copy of the ha-bambulab cover image taken when
 the print ended, so it still shows the right model once the next print has
 started. It is also the picture of `sensor.x2d_last_print_total_cost`
-(stored in `.storage/printer_manager.<entry_id>.image`).
+(stored in `.storage/fdm_printer_manager.<entry_id>.image`).
 
 **Event**
 
-`event.x2d_print_finished` — and the bus event `printer_manager_print_finished` — with:
+`event.x2d_print_finished` — and the bus event `fdm_printer_manager_print_finished` — with:
 
 ```yaml
 name: Flower Lamp
@@ -255,7 +255,7 @@ URLs are redacted. Debug logs:
 ```yaml
 logger:
   logs:
-    custom_components.printer_manager: debug
+    custom_components.fdm_printer_manager: debug
 ```
 
 ## Development
@@ -268,7 +268,7 @@ ruff check . && ruff format --check .
 ```
 
 ```text
-custom_components/printer_manager/
+custom_components/fdm_printer_manager/
 ├── models/          PrintJob, ElectricityAccumulator, FilamentUsage   ← pure Python
 ├── units.py         unit normalisation                                ← pure Python
 ├── tracker.py       print life cycle state machine                    ← pure Python

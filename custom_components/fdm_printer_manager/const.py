@@ -1,12 +1,12 @@
-"""Constants for the 3D Printer Manager integration."""
+"""Constants for the FDM Printer Manager integration."""
 
 from __future__ import annotations
 
 from enum import StrEnum
 from typing import Final
 
-DOMAIN: Final = "printer_manager"
-NAME: Final = "3D Printer Manager"
+DOMAIN: Final = "fdm_printer_manager"
+NAME: Final = "FDM Printer Manager"
 
 # ha-bambulab integration domain (used to filter devices in the config flow)
 BAMBU_DOMAIN: Final = "bambu_lab"

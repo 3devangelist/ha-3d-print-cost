@@ -8,8 +8,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.printer_manager.adapters.haspelsync import HaspelsyncAuthError, HaspelsyncPrinter
-from custom_components.printer_manager.const import (
+from custom_components.fdm_printer_manager.adapters.haspelsync import HaspelsyncAuthError, HaspelsyncPrinter
+from custom_components.fdm_printer_manager.const import (
     CONF_ENERGY_ENTITY,
     CONF_FILAMENT_FALLBACK,
     CONF_HASPELSYNC_API_KEY,
@@ -32,7 +32,7 @@ from .helpers import BAMBU_SENSORS, SERIAL, register_bambu_printer
 async def bypass_setup(hass: HomeAssistant):
     """Create entries without setting them up (setup and unload patched)."""
     with patch.multiple(
-        "custom_components.printer_manager",
+        "custom_components.fdm_printer_manager",
         async_setup_entry=AsyncMock(return_value=True),
         async_unload_entry=AsyncMock(return_value=True),
     ):
@@ -130,7 +130,7 @@ async def test_haspelsync_printer_matched_by_serial(hass: HomeAssistant, bypass_
     printers = [HaspelsyncPrinter("OTHER", "P2S"), HaspelsyncPrinter(SERIAL, "X2D")]
     with (
         patch(
-            "custom_components.printer_manager.config_flow.HaspelsyncClient.get_printers",
+            "custom_components.fdm_printer_manager.config_flow.HaspelsyncClient.get_printers",
             AsyncMock(return_value=printers),
         ),
     ):
@@ -151,7 +151,7 @@ async def test_haspelsync_bad_key(hass: HomeAssistant) -> None:
     _, result = await _go_to_electricity(hass)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], ELEC)
     with patch(
-        "custom_components.printer_manager.config_flow.HaspelsyncClient.get_printers",
+        "custom_components.fdm_printer_manager.config_flow.HaspelsyncClient.get_printers",
         AsyncMock(side_effect=HaspelsyncAuthError("401")),
     ):
         result = await hass.config_entries.flow.async_configure(

@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from custom_components.printer_manager.const import IntegrationMethod
-from custom_components.printer_manager.models import ElectricityAccumulator, ElectricitySample
+from custom_components.fdm_printer_manager.const import IntegrationMethod
+from custom_components.fdm_printer_manager.models import ElectricityAccumulator, ElectricitySample
 
 T0 = datetime(2026, 10, 23, 14, 0, tzinfo=UTC)
 HP = Decimal("0.1876")

@@ -3,9 +3,9 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [0.3.0] — 3D Printer Manager
+## [0.3.0] — FDM Printer Manager
 
-- Renamed to **3D Printer Manager** (domain `printer_manager`), maintained by @3devangelist.
+- Renamed to **FDM Printer Manager** (domain `fdm_printer_manager`), maintained by @3devangelist.
 - "Add integration" starts with a choice of printer type.
 - **Klipper printers connect directly** to Moonraker (IP address, optional API key);
   no other integration needed. Polled every 5 s; slicer metadata gives the remaining

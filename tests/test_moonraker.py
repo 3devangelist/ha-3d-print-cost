@@ -1,6 +1,6 @@
 """Klipper / Moonraker parsing (pure functions, no printer needed)."""
 
-from custom_components.printer_manager.adapters.moonraker import (
+from custom_components.fdm_printer_manager.adapters.moonraker import (
     FileMetadata,
     KlipperStatus,
     default_web_url,

@@ -5,24 +5,24 @@ from decimal import Decimal
 
 import pytest
 
-from custom_components.printer_manager.adapters.haspelsync import (
+from custom_components.fdm_printer_manager.adapters.haspelsync import (
     parse_print_usage,
     parse_printers,
     parse_slots,
 )
-from custom_components.printer_manager.adapters.spoolman import (
+from custom_components.fdm_printer_manager.adapters.spoolman import (
     SpoolmanError,
     SpoolNotFoundError,
     parse_setting_value,
     parse_spool,
 )
-from custom_components.printer_manager.const import FilamentFallback
-from custom_components.printer_manager.filament import (
+from custom_components.fdm_printer_manager.const import FilamentFallback
+from custom_components.fdm_printer_manager.filament import (
     FilamentResolver,
     apply_outcome,
     bambu_slot_to_label,
 )
-from custom_components.printer_manager.models import (
+from custom_components.fdm_printer_manager.models import (
     ElectricityAccumulator,
     FilamentStatus,
     FilamentUsage,

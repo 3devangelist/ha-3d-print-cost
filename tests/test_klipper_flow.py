@@ -8,16 +8,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.printer_manager.adapters.moonraker import MoonrakerAuthError, MoonrakerConnectionError
-from custom_components.printer_manager.const import DOMAIN
+from custom_components.fdm_printer_manager.adapters.moonraker import MoonrakerAuthError, MoonrakerConnectionError
+from custom_components.fdm_printer_manager.const import DOMAIN
 
-CLIENT = "custom_components.printer_manager.config_flow.MoonrakerClient"
+CLIENT = "custom_components.fdm_printer_manager.config_flow.MoonrakerClient"
 
 
 @pytest.fixture
 async def bypass_setup(hass: HomeAssistant):
     with patch.multiple(
-        "custom_components.printer_manager",
+        "custom_components.fdm_printer_manager",
         async_setup_entry=AsyncMock(return_value=True),
         async_unload_entry=AsyncMock(return_value=True),
     ):

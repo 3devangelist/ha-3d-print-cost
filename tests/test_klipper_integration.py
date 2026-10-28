@@ -9,14 +9,14 @@ from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
-from custom_components.printer_manager.adapters.moonraker import (
+from custom_components.fdm_printer_manager.adapters.moonraker import (
     FileMetadata,
     KlipperStatus,
     MoonrakerConnectionError,
 )
-from custom_components.printer_manager.const import DOMAIN, EVENT_PRINT_FINISHED
+from custom_components.fdm_printer_manager.const import DOMAIN, EVENT_PRINT_FINISHED
 
-CLIENT = "custom_components.printer_manager.coordinator.MoonrakerClient"
+CLIENT = "custom_components.fdm_printer_manager.coordinator.MoonrakerClient"
 ENERGY = "sensor.escritorio_tomada_ender6_energy"
 PRICE = "input_number.preco_do_kwh"
 FILE = "gsu_cover_PLA_1h12m.gcode"
