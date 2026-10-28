@@ -38,10 +38,11 @@ Everything happens in that one window:
 
 1. **What kind of printer?** Klipper or Bambu Lab.
 2. **Connection**
-   - *Klipper*: IP address (port 7125 unless changed), API key only if your
-     Moonraker requires one, and the web interface address (defaults to
-     `http://<IP>/`, i.e. Mainsail or Fluidd). The connection is tested before
-     you can continue.
+   - *Klipper*: just the IP address (add `:port` only if Moonraker does not
+     use 7125). The connection is tested before you can continue. Name, port
+     and web interface (`http://<IP>/`, i.e. Mainsail or Fluidd) are filled in
+     automatically. An API key is asked only if your Moonraker refuses the
+     connection without one.
    - *Bambu Lab*: pick the printer from the Bambu Lab integration; its entities
      are found automatically.
 3. **Smart plug** — the switch the printer is plugged into. Power sensor and

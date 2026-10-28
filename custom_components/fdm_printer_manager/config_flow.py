@@ -110,6 +110,30 @@ def klipper_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+def klipper_add_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Adding a Klipper printer: only the IP address (``host`` or ``host:port``)."""
+    return vol.Schema(
+        {vol.Required(CONF_HOST, description={"suggested_value": defaults.get(CONF_HOST)}): selector.TextSelector()}
+    )
+
+
+def split_host_port(value: str) -> tuple[str, int | None]:
+    """``192.168.1.89:7126`` → (``192.168.1.89``, 7126). IPv6 must be in brackets to carry a port."""
+    value = value.strip()
+    for prefix in ("http://", "https://"):
+        if value.startswith(prefix):
+            value = value[len(prefix) :]
+    value = value.rstrip("/")
+    if value.startswith("[") and "]:" in value:
+        host, _, port = value[1:].partition("]:")
+        return host, int(port) if port.isdigit() else None
+    if value.count(":") == 1:
+        host, _, port = value.partition(":")
+        if port.isdigit():
+            return host, int(port)
+    return value.strip("[]"), None
+
+
 async def validate_klipper(hass: HomeAssistant, data: dict[str, Any]) -> tuple[dict[str, str], str | None]:
     """Reach Moonraker. Returns errors and the printer's hostname (default name)."""
     client = MoonrakerClient(
@@ -212,6 +236,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         """Init."""
         self._data: dict[str, Any] = {}
         self._discovered: dict[str, str] = {}
+        self._klipper: dict[str, Any] = {}
 
     @staticmethod
     @callback
@@ -224,19 +249,47 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_menu(step_id="user", menu_options=["klipper", "bambu_device"])
 
     async def async_step_klipper(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Klipper: IP address of the printer (Moonraker)."""
+        """Klipper: only the IP address. Port, name and web interface are filled in automatically."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            cleaned = _clean(user_input)
-            errors, hostname = await validate_klipper(self.hass, cleaned)
+            host, port = split_host_port(user_input[CONF_HOST])
+            self._klipper = {CONF_HOST: host, CONF_PORT: port or DEFAULT_PORT}
+            await self.async_set_unique_id(f"klipper_{host.lower()}_{self._klipper[CONF_PORT]}")
+            self._abort_if_unique_id_configured()
+            errors, hostname = await validate_klipper(self.hass, self._klipper)
+            if errors.get(CONF_API_KEY):
+                # Moonraker wants a key: ask for it, and only for it.
+                return await self.async_step_klipper_auth()
             if not errors:
-                data = normalise_klipper(cleaned, hostname)
-                await self.async_set_unique_id(f"klipper_{data[CONF_HOST].lower()}_{data[CONF_PORT]}")
-                self._abort_if_unique_id_configured()
-                self._data.update(data)
-                self._data[CONF_PRINTER_TYPE] = PrinterType.KLIPPER
-                return await self.async_step_electricity()
-        return self.async_show_form(step_id="klipper", data_schema=klipper_schema(user_input or {}), errors=errors)
+                return await self._async_klipper_done(hostname)
+        return self.async_show_form(step_id="klipper", data_schema=klipper_add_schema(user_input or {}), errors=errors)
+
+    async def async_step_klipper_auth(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Shown only when Moonraker refuses the connection without an API key."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            self._klipper[CONF_API_KEY] = user_input[CONF_API_KEY]
+            errors, hostname = await validate_klipper(self.hass, self._klipper)
+            if not errors:
+                return await self._async_klipper_done(hostname)
+            errors = {CONF_API_KEY: errors.get(CONF_API_KEY, "cannot_connect")}
+        return self.async_show_form(
+            step_id="klipper_auth",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_API_KEY): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    )
+                }
+            ),
+            description_placeholders={"host": self._klipper[CONF_HOST]},
+            errors=errors,
+        )
+
+    async def _async_klipper_done(self, hostname: str | None) -> ConfigFlowResult:
+        self._data.update(normalise_klipper(self._klipper, hostname))
+        self._data[CONF_PRINTER_TYPE] = PrinterType.KLIPPER
+        return await self.async_step_electricity()
 
     async def async_step_bambu_device(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Bambu Lab: pick the printer from the ha-bambulab integration."""

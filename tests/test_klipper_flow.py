@@ -44,9 +44,7 @@ async def test_add_klipper_printer_with_plug_only(hass: HomeAssistant, bypass_se
     result = await _open_klipper(hass)
     assert result["step_id"] == "klipper"
     with _moonraker():
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"host": "192.168.1.89", "port": 7125}
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.89"})
     assert result["step_id"] == "electricity"
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"switch_entity": "switch.escritorio_tomada_ender6", "integration_method": "left"}
@@ -62,43 +60,48 @@ async def test_add_klipper_printer_with_plug_only(hass: HomeAssistant, bypass_se
     assert "energy_entity" not in data
 
 
-async def test_typed_name_and_web_url_win(hass: HomeAssistant, bypass_setup) -> None:
+async def test_add_window_asks_only_the_ip(hass: HomeAssistant) -> None:
+    result = await _open_klipper(hass)
+    assert [str(k) for k in result["data_schema"].schema] == ["host"]
+
+
+async def test_port_typed_with_the_ip(hass: HomeAssistant, bypass_setup) -> None:
     result = await _open_klipper(hass)
     with _moonraker():
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {"printer_name": "Ender 6", "host": "192.168.1.89", "port": 7125, "web_url": "http://192.168.1.89:81/"},
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.89:7126"})
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"integration_method": "left"})
-    assert result["title"] == "Ender 6"
-    assert result["data"]["web_url"] == "http://192.168.1.89:81/"
+    assert result["data"]["host"] == "192.168.1.89"
+    assert result["data"]["port"] == 7126
+    assert result["data"]["web_url"] == "http://192.168.1.89/"
 
 
 async def test_cannot_connect(hass: HomeAssistant) -> None:
     result = await _open_klipper(hass)
     with _moonraker(error=MoonrakerConnectionError("timeout")):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"host": "192.168.1.250", "port": 7125}
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.250"})
     assert result["errors"] == {"host": "cannot_connect"}
 
 
-async def test_api_key_refused(hass: HomeAssistant) -> None:
+async def test_api_key_asked_only_when_moonraker_wants_one(hass: HomeAssistant, bypass_setup) -> None:
     result = await _open_klipper(hass)
     with _moonraker(error=MoonrakerAuthError("401")):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"host": "192.168.1.89", "port": 7125, "api_key": "wrong"}
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.89"})
+    assert result["step_id"] == "klipper_auth"
+    with _moonraker(error=MoonrakerAuthError("401")):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"api_key": "wrong"})
     assert result["errors"] == {"api_key": "invalid_auth"}
+    with _moonraker():
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"api_key": "right"})
+    assert result["step_id"] == "electricity"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"integration_method": "left"})
+    assert result["data"]["api_key"] == "right"
 
 
 async def test_same_klipper_twice_aborts(hass: HomeAssistant) -> None:
     MockConfigEntry(domain=DOMAIN, unique_id="klipper_192.168.1.89_7125", data={}).add_to_hass(hass)
     result = await _open_klipper(hass)
     with _moonraker():
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"host": "192.168.1.89", "port": 7125}
-        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.89"})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 

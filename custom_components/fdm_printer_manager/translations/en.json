@@ -29,20 +29,12 @@
       },
       "klipper": {
         "title": "Klipper printer",
-        "description": "Type the printer's IP address. Nothing else needs to be installed: Home Assistant talks to Moonraker directly.",
+        "description": "Type the printer's IP address. Port, name and web interface are filled in automatically and can be changed later in Configure.",
         "data": {
-          "printer_name": "Name",
-          "host": "IP address or host name",
-          "port": "Moonraker port",
-          "api_key": "API key",
-          "web_url": "Web interface"
+          "host": "IP address"
         },
         "data_description": {
-          "printer_name": "Leave empty to use the printer's host name.",
-          "host": "e.g. 192.168.1.89",
-          "port": "7125 unless you changed it in moonraker.conf.",
-          "api_key": "Only if Moonraker requires one (trusted_clients not set for Home Assistant).",
-          "web_url": "Mainsail or Fluidd. Leave empty for http://<IP>/. Opens with \"Visit\" on the device page."
+          "host": "e.g. 192.168.1.89 (add :port only if Moonraker does not use 7125)"
         }
       },
       "bambu_device": {
@@ -65,6 +57,13 @@
         "data_description": {
           "print_status_entity": "Required. ha-bambulab `print_status` sensor.",
           "job_name_entity": "Used to tell two prints apart."
+        }
+      },
+      "klipper_auth": {
+        "title": "API key needed",
+        "description": "The printer at {host} only accepts connections with a Moonraker API key. See \"Authorization\" in the Moonraker documentation for how to get it.",
+        "data": {
+          "api_key": "API key"
         }
       }
     },
