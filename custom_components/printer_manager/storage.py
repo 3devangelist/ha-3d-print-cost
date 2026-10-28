@@ -1,7 +1,7 @@
-"""Persistence through Home Assistant's ``Store`` (``.storage/ha_3d_print_cost.<entry_id>``).
+"""Persistence through Home Assistant's ``Store`` (``.storage/printer_manager.<entry_id>``).
 
 The thumbnail of the last print is kept next to it, in its own file
-(``.storage/ha_3d_print_cost.<entry_id>.image``): the JSON is rewritten every
+(``.storage/printer_manager.<entry_id>.image``): the JSON is rewritten every
 few seconds while printing and must stay small.
 """
 

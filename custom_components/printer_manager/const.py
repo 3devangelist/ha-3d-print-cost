@@ -1,12 +1,12 @@
-"""Constants for the 3D Print Cost integration."""
+"""Constants for the 3D Printer Manager integration."""
 
 from __future__ import annotations
 
 from enum import StrEnum
 from typing import Final
 
-DOMAIN: Final = "ha_3d_print_cost"
-NAME: Final = "3D Print Cost"
+DOMAIN: Final = "printer_manager"
+NAME: Final = "3D Printer Manager"
 
 # ha-bambulab integration domain (used to filter devices in the config flow)
 BAMBU_DOMAIN: Final = "bambu_lab"
@@ -17,6 +17,24 @@ STORAGE_KEY_PREFIX: Final = DOMAIN
 # --------------------------------------------------------------------------- #
 # Config entry keys
 # --------------------------------------------------------------------------- #
+CONF_PRINTER_TYPE: Final = "printer_type"
+
+
+class PrinterType(StrEnum):
+    """How the integration talks to the printer."""
+
+    KLIPPER = "klipper"  # Moonraker HTTP API, direct
+    BAMBU = "bambu"  # through the ha-bambulab integration (direct LAN mode planned)
+
+
+# Direct connection (Klipper today; OctoPrint and Bambu LAN later)
+CONF_HOST: Final = "host"
+CONF_PORT: Final = "port"
+CONF_API_KEY: Final = "api_key"
+CONF_WEB_URL: Final = "web_url"
+
+KLIPPER_POLL_INTERVAL: Final = 5  # seconds
+
 CONF_PRINTER_DEVICE_ID: Final = "printer_device_id"
 CONF_PRINTER_NAME: Final = "printer_name"
 CONF_PRINTER_SERIAL: Final = "printer_serial"
@@ -38,7 +56,9 @@ BAMBU_ENTITY_KEYS: Final = (
     CONF_COVER_IMAGE_ENTITY,
 )
 
-# Electricity
+# Smart plug and electricity (power / energy are optional: a plug without a
+# meter still works, there is just no consumption or cost)
+CONF_SWITCH_ENTITY: Final = "switch_entity"
 CONF_POWER_ENTITY: Final = "power_entity"
 CONF_ENERGY_ENTITY: Final = "energy_entity"
 CONF_PRICE_ENTITY: Final = "price_entity"

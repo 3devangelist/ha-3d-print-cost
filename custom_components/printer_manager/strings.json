@@ -2,40 +2,28 @@
   "config": {
     "step": {
       "user": {
-        "title": "Choose the printer",
-        "description": "Select the Bambu Lab printer (ha-bambulab) to track.",
-        "data": {
-          "printer_device_id": "Printer"
-        }
-      },
-      "bambu": {
-        "title": "Printer entities",
-        "description": "{found} entities were detected for {printer}. Check or correct them.",
-        "data": {
-          "print_status_entity": "Print status",
-          "job_name_entity": "Job / file name",
-          "progress_entity": "Print progress",
-          "print_weight_entity": "Planned print weight",
-          "remaining_time_entity": "Remaining time",
-          "cover_image_entity": "Cover image"
-        },
-        "data_description": {
-          "print_status_entity": "Required. ha-bambulab `print_status` sensor.",
-          "job_name_entity": "Used to tell two prints apart and to match HaspelSync.",
-          "print_weight_entity": "Fallback when HaspelSync has no data."
+        "title": "Add a 3D printer",
+        "description": "What kind of printer is it?",
+        "menu_options": {
+          "klipper": "Klipper (Moonraker)",
+          "bambu_device": "Bambu Lab (through the Bambu Lab integration)"
         }
       },
       "electricity": {
-        "title": "Electricity",
+        "title": "Smart plug",
+        "description": "The plug the printer is connected to. A plug without energy metering works too: there is just no consumption or cost.",
         "data": {
+          "switch_entity": "Plug",
           "power_entity": "Power sensor (W)",
           "energy_entity": "Energy meter (Wh / kWh)",
           "price_entity": "Electricity price",
           "integration_method": "Power integration method"
         },
         "data_description": {
-          "energy_entity": "Recommended: a cumulative meter is exact, even across restarts.",
-          "price_entity": "Any entity in EUR/kWh, c€/kWh or EUR/MWh. It may change during a print.",
+          "switch_entity": "The switch that powers the printer.",
+          "power_entity": "Optional.",
+          "energy_entity": "Optional. Recommended: a cumulative meter is exact, even across restarts.",
+          "price_entity": "Needed when a power sensor or energy meter is set. Any entity in EUR/kWh, c€/kWh or EUR/MWh; it may change during a print.",
           "integration_method": "Only used when no energy meter is available."
         }
       },
@@ -58,17 +46,59 @@
         "data": {
           "haspelsync_printer_id": "HaspelSync printer"
         }
+      },
+      "klipper": {
+        "title": "Klipper printer",
+        "description": "Type the printer's IP address. Nothing else needs to be installed: Home Assistant talks to Moonraker directly.",
+        "data": {
+          "printer_name": "Name",
+          "host": "IP address or host name",
+          "port": "Moonraker port",
+          "api_key": "API key",
+          "web_url": "Web interface"
+        },
+        "data_description": {
+          "printer_name": "Leave empty to use the printer's host name.",
+          "host": "e.g. 192.168.1.89",
+          "port": "7125 unless you changed it in moonraker.conf.",
+          "api_key": "Only if Moonraker requires one (trusted_clients not set for Home Assistant).",
+          "web_url": "Mainsail or Fluidd. Leave empty for http://<IP>/. Opens with \"Visit\" on the device page."
+        }
+      },
+      "bambu_device": {
+        "title": "Bambu Lab printer",
+        "description": "Select the printer from the Bambu Lab (ha-bambulab) integration. A direct LAN connection that needs no other integration is planned.",
+        "data": {
+          "printer_device_id": "Printer"
+        }
+      },
+      "bambu": {
+        "title": "Printer entities",
+        "description": "{found} entities were detected for {printer}. Check or correct them.",
+        "data": {
+          "print_status_entity": "Print status",
+          "job_name_entity": "Job / file name",
+          "progress_entity": "Print progress",
+          "print_weight_entity": "Planned print weight",
+          "remaining_time_entity": "Remaining time",
+          "cover_image_entity": "Cover image"
+        },
+        "data_description": {
+          "print_status_entity": "Required. ha-bambulab `print_status` sensor.",
+          "job_name_entity": "Used to tell two prints apart and to match HaspelSync.",
+          "print_weight_entity": "Fallback when HaspelSync has no data."
+        }
       }
     },
     "error": {
-      "power_or_energy_required": "Select a power sensor, an energy meter, or both.",
       "unsupported_power_unit": "Unsupported unit (expected W or kW).",
       "unsupported_energy_unit": "Unsupported unit (expected Wh, kWh or MWh).",
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
-      "cannot_connect": "Cannot connect.",
+      "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
       "invalid_auth": "API key refused.",
       "host_refused": "HaspelSync refused this host name: use the IP address or add the name under \"Allowed host names\" in HaspelSync.",
-      "no_printers": "HaspelSync monitors no printer."
+      "no_printers": "HaspelSync monitors no printer.",
+      "price_required": "Select the electricity price: a power sensor or energy meter is set."
     },
     "abort": {
       "already_configured": "This printer is already configured."
@@ -93,16 +123,20 @@
         }
       },
       "electricity": {
-        "title": "Electricity",
+        "title": "Smart plug",
+        "description": "The plug the printer is connected to. A plug without energy metering works too: there is just no consumption or cost.",
         "data": {
+          "switch_entity": "Plug",
           "power_entity": "Power sensor (W)",
           "energy_entity": "Energy meter (Wh / kWh)",
           "price_entity": "Electricity price",
           "integration_method": "Power integration method"
         },
         "data_description": {
-          "energy_entity": "Recommended: a cumulative meter is exact, even across restarts.",
-          "price_entity": "Any entity in EUR/kWh, c€/kWh or EUR/MWh. It may change during a print.",
+          "switch_entity": "The switch that powers the printer.",
+          "power_entity": "Optional.",
+          "energy_entity": "Optional. Recommended: a cumulative meter is exact, even across restarts.",
+          "price_entity": "Needed when a power sensor or energy meter is set. Any entity in EUR/kWh, c€/kWh or EUR/MWh; it may change during a print.",
           "integration_method": "Only used when no energy meter is available."
         }
       },
@@ -132,17 +166,35 @@
           "update_interval": "Sampling interval while printing",
           "currency": "Currency"
         }
+      },
+      "klipper": {
+        "title": "Klipper printer",
+        "description": "Change the connection. The printer keeps its history and entities.",
+        "data": {
+          "printer_name": "Name",
+          "host": "IP address or host name",
+          "port": "Moonraker port",
+          "api_key": "API key",
+          "web_url": "Web interface"
+        },
+        "data_description": {
+          "printer_name": "Leave empty to use the printer's host name.",
+          "host": "e.g. 192.168.1.89",
+          "port": "7125 unless you changed it in moonraker.conf.",
+          "api_key": "Only if Moonraker requires one (trusted_clients not set for Home Assistant).",
+          "web_url": "Mainsail or Fluidd. Leave empty for http://<IP>/. Opens with \"Visit\" on the device page."
+        }
       }
     },
     "error": {
-      "power_or_energy_required": "Select a power sensor, an energy meter, or both.",
       "unsupported_power_unit": "Unsupported unit (expected W or kW).",
       "unsupported_energy_unit": "Unsupported unit (expected Wh, kWh or MWh).",
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
-      "cannot_connect": "Cannot connect.",
+      "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
       "invalid_auth": "API key refused.",
       "host_refused": "HaspelSync refused this host name: use the IP address or add the name under \"Allowed host names\" in HaspelSync.",
-      "no_printers": "HaspelSync monitors no printer."
+      "no_printers": "HaspelSync monitors no printer.",
+      "price_required": "Select the electricity price: a power sensor or energy meter is set."
     }
   },
   "selector": {

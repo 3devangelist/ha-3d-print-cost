@@ -1,4 +1,4 @@
-"""Base entity: one virtual device per printer, linked to the Bambu device."""
+"""Base entity: one device per printer."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
-from .const import BAMBU_DOMAIN, DOMAIN, NAME
+from .const import BAMBU_DOMAIN, DOMAIN, PrinterType
 from .coordinator import PrintCostCoordinator
 
 
@@ -20,15 +20,17 @@ class PrintCostEntity(CoordinatorEntity[PrintCostCoordinator]):
         entry = coordinator.config_entry
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_translation_key = key
-        # Suggest "sensor.<printer>_<key>" (e.g. sensor.x2d_current_print_total_cost).
+        # Suggest "sensor.<printer>_<key>" (e.g. sensor.ender_6_current_print_total_cost).
         # HA keeps it unique and the user can still rename it.
         self.entity_id = f"{platform_domain}.{slugify(coordinator.printer_name)}_{key}"
         device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name=f"{NAME} — {coordinator.printer_name}",
-            manufacturer="HA 3D Print Cost",
-            model="Print cost tracker",
+            name=coordinator.printer_name,
+            manufacturer=coordinator.manufacturer,
+            model="3D printer",
         )
-        if coordinator.printer_serial:
+        if url := coordinator.configuration_url:
+            device_info["configuration_url"] = url
+        if coordinator.printer_type is PrinterType.BAMBU and coordinator.printer_serial:
             device_info["via_device"] = (BAMBU_DOMAIN, coordinator.printer_serial)
         self._attr_device_info = device_info

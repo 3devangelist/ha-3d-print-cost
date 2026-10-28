@@ -5,13 +5,13 @@ from decimal import Decimal
 
 import pytest
 
-from custom_components.ha_3d_print_cost.models import (
+from custom_components.printer_manager.models import (
     ElectricitySample,
     JobPhase,
     PrintJob,
     PrintResult,
 )
-from custom_components.ha_3d_print_cost.tracker import (
+from custom_components.printer_manager.tracker import (
     PrinterActivity,
     PrinterSnapshot,
     PrintTracker,

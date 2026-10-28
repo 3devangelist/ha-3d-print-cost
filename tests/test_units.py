@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from custom_components.ha_3d_print_cost.units import (
+from custom_components.printer_manager.units import (
     UnsupportedUnitError,
     energy_to_kwh,
     is_supported_price_unit,

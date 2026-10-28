@@ -1,6 +1,8 @@
 """Glue between Home Assistant and the pure business logic.
 
-* listens to the Bambu, power, energy and price entities (push, no polling);
+* reads the printer: Klipper directly over Moonraker's HTTP API (polled),
+  Bambu Lab through the ha-bambulab entities (push);
+* listens to the plug, power, energy and price entities (push);
 * also samples on a timer (default 30 s) so long flat periods are integrated;
 * feeds :class:`PrintTracker`, persists, finalises jobs, fires the event;
 * keeps the ha-bambulab thumbnail of the last print (the cover image entity
@@ -31,9 +33,11 @@ from homeassistant.util import dt as dt_util
 from .adapters import bambu
 from .adapters.electricity import ElectricityReader, ElectricitySources
 from .adapters.haspelsync import HaspelsyncClient
+from .adapters.moonraker import DEFAULT_PORT, KlipperSource, MoonrakerClient, default_web_url
 from .adapters.spoolman import SpoolmanClient
 from .const import (
     BAMBU_ENTITY_KEYS,
+    CONF_API_KEY,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
     CONF_ENERGY_ENTITY,
@@ -41,18 +45,23 @@ from .const import (
     CONF_HASPELSYNC_API_KEY,
     CONF_HASPELSYNC_PRINTER_ID,
     CONF_HASPELSYNC_URL,
+    CONF_HOST,
     CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
+    CONF_PORT,
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
     CONF_PRINT_STATUS_ENTITY,
     CONF_PRINT_WEIGHT_ENTITY,
     CONF_PRINTER_NAME,
     CONF_PRINTER_SERIAL,
+    CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
     CONF_SPOOLMAN_URL,
+    CONF_SWITCH_ENTITY,
     CONF_UPDATE_INTERVAL,
+    CONF_WEB_URL,
     DEFAULT_FILAMENT_FALLBACK,
     DEFAULT_INTEGRATION_METHOD,
     DEFAULT_UPDATE_INTERVAL,
@@ -61,9 +70,11 @@ from .const import (
     FILAMENT_RESOLVE_ATTEMPTS,
     FILAMENT_RESOLVE_DELAY,
     HTTP_TIMEOUT,
+    KLIPPER_POLL_INTERVAL,
     MAX_SAMPLE_GAP,
     FilamentFallback,
     IntegrationMethod,
+    PrinterType,
 )
 from .filament import FilamentResolver, apply_outcome
 from .models import FilamentStatus, JobPhase, PrintJob
@@ -101,6 +112,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.conf: dict[str, Any] = {**entry.data, **entry.options}
         self.printer_name: str = self.conf.get(CONF_PRINTER_NAME) or entry.title
         self.printer_serial: str | None = self.conf.get(CONF_PRINTER_SERIAL)
+        # Entries created before 0.3 have no type: they are Bambu.
+        self.printer_type = PrinterType(self.conf.get(CONF_PRINTER_TYPE) or PrinterType.BAMBU)
         self.currency: str = self.conf.get(CONF_CURRENCY) or hass.config.currency
 
         self.store = JobStore(hass, entry.entry_id)
@@ -120,6 +133,19 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         )
 
         session = async_get_clientsession(hass)
+        self.klipper: KlipperSource | None = None
+        if self.printer_type is PrinterType.KLIPPER:
+            self.klipper = KlipperSource(
+                MoonrakerClient(
+                    session,
+                    self.conf[CONF_HOST],
+                    int(self.conf.get(CONF_PORT) or DEFAULT_PORT),
+                    self.conf.get(CONF_API_KEY),
+                    timeout=HTTP_TIMEOUT,
+                )
+            )
+        self._polling = False
+
         self.haspelsync: HaspelsyncClient | None = None
         if url := self.conf.get(CONF_HASPELSYNC_URL):
             self.haspelsync = HaspelsyncClient(
@@ -151,12 +177,17 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.last_image = await self.store.async_load_image() if self.state.last_job else None
         self.tracker.restore(self.state.active_job)
 
-        watched = [
-            self.conf.get(k)
-            for k in (*BAMBU_ENTITY_KEYS, CONF_POWER_ENTITY, CONF_ENERGY_ENTITY, CONF_PRICE_ENTITY)
-            if self.conf.get(k)
-        ]
-        self._unsubs.append(async_track_state_change_event(self.hass, watched, self._on_state_change))
+        keys = (CONF_SWITCH_ENTITY, CONF_POWER_ENTITY, CONF_ENERGY_ENTITY, CONF_PRICE_ENTITY)
+        if self.printer_type is PrinterType.BAMBU:
+            keys = (*BAMBU_ENTITY_KEYS, *keys)
+        watched = [self.conf[k] for k in keys if self.conf.get(k)]
+        if watched:
+            self._unsubs.append(async_track_state_change_event(self.hass, watched, self._on_state_change))
+        if self.klipper is not None:
+            await self.klipper.async_update()
+            self._unsubs.append(
+                async_track_time_interval(self.hass, self._async_poll_klipper, timedelta(seconds=KLIPPER_POLL_INTERVAL))
+            )
         interval = timedelta(seconds=int(self.conf.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)))
         self._unsubs.append(async_track_time_interval(self.hass, self._on_tick, interval))
 
@@ -205,8 +236,45 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     def _on_tick(self, now: datetime) -> None:
         self._process(dt_util.utcnow())
 
+    async def _async_poll_klipper(self, now: datetime) -> None:
+        """Read the Klipper printer, then run the tracker. Skips a tick if the last poll is still running."""
+        if self.klipper is None or self._polling:
+            return
+        self._polling = True
+        try:
+            await self.klipper.async_update()
+        finally:
+            self._polling = False
+        self._process(dt_util.utcnow())
+
+    # ------------------------------------------------------------------ #
+    # Printer identity (used by the entities' device info)
+    # ------------------------------------------------------------------ #
+    @property
+    def manufacturer(self) -> str:
+        """Shown on the device page."""
+        return "Klipper" if self.printer_type is PrinterType.KLIPPER else "Bambu Lab"
+
+    @property
+    def configuration_url(self) -> str | None:
+        """Web interface of the printer ("Visit" on the device page). Bambu has none."""
+        if self.printer_type is PrinterType.KLIPPER:
+            return self.conf.get(CONF_WEB_URL) or default_web_url(self.conf[CONF_HOST])
+        return None
+
     def build_snapshot(self, now: datetime) -> PrinterSnapshot:
-        """Read every configured entity."""
+        """Read the printer and the electrical inputs."""
+        if self.klipper is not None:
+            reading = self.klipper.reading
+            return PrinterSnapshot(
+                timestamp=now,
+                status=reading.state,
+                electricity=self.reader.sample(now),
+                job_name=reading.filename,
+                progress=reading.progress,
+                remaining_min=self.klipper.remaining_min,
+                planned_weight_g=self.klipper.planned_weight_g,
+            )
         hass = self.hass
         total_g, slots = bambu.read_print_weight(hass, self.conf.get(CONF_PRINT_WEIGHT_ENTITY))
         return PrinterSnapshot(

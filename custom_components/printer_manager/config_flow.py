@@ -1,4 +1,8 @@
-"""Config flow (UI only, no YAML) and options flow."""
+"""Config flow (UI only, no YAML) and options flow.
+
+Add printer: printer type → connection → smart plug → (filament, Bambu only).
+"Configure" on the entry edits the same things without deleting the printer.
+"""
 
 from __future__ import annotations
 
@@ -20,9 +24,17 @@ from .adapters.haspelsync import (
     HaspelsyncHostRefusedError,
     HaspelsyncPrinter,
 )
+from .adapters.moonraker import (
+    DEFAULT_PORT,
+    MoonrakerAuthError,
+    MoonrakerClient,
+    MoonrakerError,
+    default_web_url,
+)
 from .adapters.spoolman import SpoolmanClient, SpoolmanError
 from .const import (
     BAMBU_DOMAIN,
+    CONF_API_KEY,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
     CONF_ENERGY_ENTITY,
@@ -30,8 +42,10 @@ from .const import (
     CONF_HASPELSYNC_API_KEY,
     CONF_HASPELSYNC_PRINTER_ID,
     CONF_HASPELSYNC_URL,
+    CONF_HOST,
     CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
+    CONF_PORT,
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
     CONF_PRINT_STATUS_ENTITY,
@@ -39,10 +53,13 @@ from .const import (
     CONF_PRINTER_DEVICE_ID,
     CONF_PRINTER_NAME,
     CONF_PRINTER_SERIAL,
+    CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
     CONF_SPOOLMAN_URL,
+    CONF_SWITCH_ENTITY,
     CONF_UPDATE_INTERVAL,
+    CONF_WEB_URL,
     DEFAULT_FILAMENT_FALLBACK,
     DEFAULT_INTEGRATION_METHOD,
     DEFAULT_UPDATE_INTERVAL,
@@ -50,9 +67,9 @@ from .const import (
     HTTP_TIMEOUT,
     MAX_UPDATE_INTERVAL,
     MIN_UPDATE_INTERVAL,
-    NAME,
     FilamentFallback,
     IntegrationMethod,
+    PrinterType,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,16 +108,62 @@ def bambu_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def electricity_schema(defaults: dict[str, Any]) -> vol.Schema:
-    """Smart plug + price step."""
+def klipper_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Connection to a Klipper printer (Moonraker)."""
     return vol.Schema(
         {
+            _opt(CONF_PRINTER_NAME, defaults): selector.TextSelector(),
+            vol.Required(CONF_HOST, description={"suggested_value": defaults.get(CONF_HOST)}): selector.TextSelector(),
+            vol.Required(CONF_PORT, default=int(defaults.get(CONF_PORT) or DEFAULT_PORT)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=65535, step=1, mode=selector.NumberSelectorMode.BOX)
+            ),
+            _opt(CONF_API_KEY, defaults): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            _opt(CONF_WEB_URL, defaults): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+            ),
+        }
+    )
+
+
+async def validate_klipper(hass: HomeAssistant, data: dict[str, Any]) -> tuple[dict[str, str], str | None]:
+    """Reach Moonraker. Returns errors and the printer's hostname (default name)."""
+    client = MoonrakerClient(
+        async_get_clientsession(hass),
+        data[CONF_HOST],
+        int(data.get(CONF_PORT) or DEFAULT_PORT),
+        data.get(CONF_API_KEY),
+        timeout=HTTP_TIMEOUT,
+    )
+    try:
+        await client.server_info()
+    except MoonrakerAuthError:
+        return {CONF_API_KEY: "invalid_auth"}, None
+    except MoonrakerError as err:
+        _LOGGER.debug("Moonraker not reachable: %s", err)
+        return {CONF_HOST: "cannot_connect"}, None
+    return {}, await client.hostname()
+
+
+def normalise_klipper(data: dict[str, Any], hostname: str | None) -> dict[str, Any]:
+    """Fill the defaults the user left empty (name, port, web interface)."""
+    result = dict(data)
+    result[CONF_HOST] = str(data[CONF_HOST]).strip()
+    result[CONF_PORT] = int(data.get(CONF_PORT) or DEFAULT_PORT)
+    result[CONF_PRINTER_NAME] = (data.get(CONF_PRINTER_NAME) or "").strip() or hostname or result[CONF_HOST]
+    result[CONF_WEB_URL] = (data.get(CONF_WEB_URL) or "").strip() or default_web_url(result[CONF_HOST])
+    return result
+
+
+def electricity_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Smart plug step: the switch, and optionally its meter and the price."""
+    return vol.Schema(
+        {
+            _opt(CONF_SWITCH_ENTITY, defaults): _entity(["switch", "light", "input_boolean"]),
             _opt(CONF_POWER_ENTITY, defaults): _entity("sensor", "power"),
             _opt(CONF_ENERGY_ENTITY, defaults): _entity("sensor", "energy"),
-            vol.Required(
-                CONF_PRICE_ENTITY,
-                description={"suggested_value": defaults.get(CONF_PRICE_ENTITY)},
-            ): _entity(["sensor", "input_number", "number"]),
+            _opt(CONF_PRICE_ENTITY, defaults): _entity(["sensor", "input_number", "number"]),
             vol.Required(
                 CONF_INTEGRATION_METHOD,
                 default=defaults.get(CONF_INTEGRATION_METHOD, DEFAULT_INTEGRATION_METHOD),
@@ -171,10 +234,10 @@ def _clean(user_input: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_electricity(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, str]:
-    """At least one of power / energy, and supported units."""
+    """A price is needed only when the plug measures energy; units must be supported."""
     errors: dict[str, str] = {}
-    if not data.get(CONF_POWER_ENTITY) and not data.get(CONF_ENERGY_ENTITY):
-        errors["base"] = "power_or_energy_required"
+    if (data.get(CONF_POWER_ENTITY) or data.get(CONF_ENERGY_ENTITY)) and not data.get(CONF_PRICE_ENTITY):
+        errors[CONF_PRICE_ENTITY] = "price_required"
     errors.update(
         validate_units(hass, data.get(CONF_POWER_ENTITY), data.get(CONF_ENERGY_ENTITY), data.get(CONF_PRICE_ENTITY))
     )
@@ -244,7 +307,7 @@ def _printer_select(printers: list[HaspelsyncPrinter], default: str | None) -> v
 # Config flow
 # --------------------------------------------------------------------------- #
 class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
-    """printer → Bambu entities → electricity → filament (optional)."""
+    """type → connection (Klipper) or device + entities (Bambu) → plug → filament (Bambu)."""
 
     VERSION = 1
 
@@ -261,12 +324,32 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         return PrintCostOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Pick the Bambu Lab printer device."""
+        """What kind of printer."""
+        return self.async_show_menu(step_id="user", menu_options=["klipper", "bambu_device"])
+
+    async def async_step_klipper(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Klipper: IP address of the printer (Moonraker)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            errors, hostname = await validate_klipper(self.hass, cleaned)
+            if not errors:
+                data = normalise_klipper(cleaned, hostname)
+                await self.async_set_unique_id(f"klipper_{data[CONF_HOST].lower()}_{data[CONF_PORT]}")
+                self._abort_if_unique_id_configured()
+                self._data.update(data)
+                self._data[CONF_PRINTER_TYPE] = PrinterType.KLIPPER
+                return await self.async_step_electricity()
+        return self.async_show_form(step_id="klipper", data_schema=klipper_schema(user_input or {}), errors=errors)
+
+    async def async_step_bambu_device(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Bambu Lab: pick the printer from the ha-bambulab integration."""
         if user_input is not None:
             device_id = user_input[CONF_PRINTER_DEVICE_ID]
             await self.async_set_unique_id(device_id)
             self._abort_if_unique_id_configured()
             self._data[CONF_PRINTER_DEVICE_ID] = device_id
+            self._data[CONF_PRINTER_TYPE] = PrinterType.BAMBU
             self._data[CONF_PRINTER_NAME] = bambu.printer_name(self.hass, device_id) or "Printer"
             if serial := bambu.printer_serial(self.hass, device_id):
                 self._data[CONF_PRINTER_SERIAL] = serial
@@ -274,7 +357,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self.async_step_bambu()
 
         return self.async_show_form(
-            step_id="user",
+            step_id="bambu_device",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_PRINTER_DEVICE_ID): selector.DeviceSelector(
@@ -306,6 +389,8 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
             errors = validate_electricity(self.hass, cleaned)
             if not errors:
                 self._data.update(cleaned)
+                if self._data.get(CONF_PRINTER_TYPE) == PrinterType.KLIPPER:
+                    return self._create()
                 return await self.async_step_filament()
         return self.async_show_form(
             step_id="electricity",
@@ -341,7 +426,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="haspelsync_printer", data_schema=_printer_select(self._printers, None))
 
     def _create(self) -> ConfigFlowResult:
-        return self.async_create_entry(title=f"{NAME} — {self._data[CONF_PRINTER_NAME]}", data=self._data)
+        return self.async_create_entry(title=self._data[CONF_PRINTER_NAME], data=self._data)
 
 
 # --------------------------------------------------------------------------- #
@@ -359,12 +444,38 @@ class PrintCostOptionsFlow(OptionsFlow):
     def _current(self) -> dict[str, Any]:
         return {**self.config_entry.data, **self.config_entry.options, **self._options}
 
+    @property
+    def _is_klipper(self) -> bool:
+        return self._current.get(CONF_PRINTER_TYPE) == PrinterType.KLIPPER
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Bambu entities."""
+        """Printer connection (Klipper) or entities (Bambu)."""
+        if self._is_klipper:
+            return await self.async_step_klipper()
         if user_input is not None:
             self._options.update(_with_cleared(user_input, bambu_schema({})))
             return await self.async_step_electricity()
         return self.async_show_form(step_id="init", data_schema=bambu_schema(self._current))
+
+    async def async_step_klipper(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Change IP, port, API key, web interface or name (history is kept)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            old_host = self._current.get(CONF_HOST)
+            if old_host and cleaned.get(CONF_WEB_URL) == default_web_url(old_host):
+                cleaned.pop(CONF_WEB_URL)  # still the default: follow the new IP
+            errors, hostname = await validate_klipper(self.hass, cleaned)
+            if not errors:
+                data = normalise_klipper(cleaned, hostname)
+                # A cleared API key must override the one stored in the entry data.
+                self._options.update({str(k): data.get(str(k)) for k in klipper_schema({}).schema})
+                if data[CONF_PRINTER_NAME] != self.config_entry.title:
+                    self.hass.config_entries.async_update_entry(self.config_entry, title=data[CONF_PRINTER_NAME])
+                return await self.async_step_electricity()
+        return self.async_show_form(
+            step_id="klipper", data_schema=klipper_schema(user_input or self._current), errors=errors
+        )
 
     async def async_step_electricity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Electricity."""
@@ -374,6 +485,8 @@ class PrintCostOptionsFlow(OptionsFlow):
             errors = validate_electricity(self.hass, _clean(cleaned))
             if not errors:
                 self._options.update(cleaned)
+                if self._is_klipper:
+                    return await self.async_step_behaviour()
                 return await self.async_step_filament()
         return self.async_show_form(step_id="electricity", data_schema=electricity_schema(self._current), errors=errors)
 

@@ -1,7 +1,7 @@
-"""3D Print Cost — electricity + filament cost of every print.
+"""3D Printer Manager — your 3D printers in Home Assistant, with the energy and cost of every print.
 
-Aggregates ha-bambulab (printer state), HaspelSync (real consumption),
-Spoolman (spool prices, read-only) and a smart plug + price sensor.
+Printers: Klipper (Moonraker, direct) and Bambu Lab (through ha-bambulab).
+Optional: a smart plug with a meter + price, HaspelSync and Spoolman for filament.
 """
 
 from __future__ import annotations

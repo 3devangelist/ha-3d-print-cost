@@ -8,8 +8,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ha_3d_print_cost.adapters.haspelsync import HaspelsyncAuthError, HaspelsyncPrinter
-from custom_components.ha_3d_print_cost.const import (
+from custom_components.printer_manager.adapters.haspelsync import HaspelsyncAuthError, HaspelsyncPrinter
+from custom_components.printer_manager.const import (
     CONF_ENERGY_ENTITY,
     CONF_FILAMENT_FALLBACK,
     CONF_HASPELSYNC_API_KEY,
@@ -32,7 +32,7 @@ from .helpers import BAMBU_SENSORS, SERIAL, register_bambu_printer
 async def bypass_setup(hass: HomeAssistant):
     """Create entries without setting them up (setup and unload patched)."""
     with patch.multiple(
-        "custom_components.ha_3d_print_cost",
+        "custom_components.printer_manager",
         async_setup_entry=AsyncMock(return_value=True),
         async_unload_entry=AsyncMock(return_value=True),
     ):
@@ -55,9 +55,16 @@ def set_electric_states(hass: HomeAssistant, price_unit: str = "EUR/kWh") -> Non
     hass.states.async_set("sensor.prix_electricite_octopus", "0.1876", {"unit_of_measurement": price_unit})
 
 
+async def _start_bambu(hass: HomeAssistant):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert result["type"] is FlowResultType.MENU
+    assert result["menu_options"] == ["klipper", "bambu_device"]
+    return await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "bambu_device"})
+
+
 async def _go_to_electricity(hass: HomeAssistant):
     device_id = register_bambu_printer(hass)
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await _start_bambu(hass)
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_PRINTER_DEVICE_ID: device_id})
     assert result["step_id"] == "bambu"
@@ -82,7 +89,8 @@ async def test_full_flow_electricity_only(hass: HomeAssistant, bypass_setup) -> 
         result["flow_id"], {CONF_FILAMENT_FALLBACK: "planned_success"}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "3D Print Cost — X2D"
+    assert result["title"] == "X2D"
+    assert result["data"]["printer_type"] == "bambu"
     data = result["data"]
     assert data[CONF_PRINTER_DEVICE_ID] == device_id
     assert data[CONF_PRINTER_SERIAL] == SERIAL
@@ -90,13 +98,22 @@ async def test_full_flow_electricity_only(hass: HomeAssistant, bypass_setup) -> 
     assert CONF_HASPELSYNC_URL not in data
 
 
-async def test_power_or_energy_required(hass: HomeAssistant) -> None:
+async def test_price_required_with_a_meter(hass: HomeAssistant) -> None:
     set_electric_states(hass)
     _, result = await _go_to_electricity(hass)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_PRICE_ENTITY: "sensor.prix_electricite_octopus", CONF_INTEGRATION_METHOD: "left"}
+        result["flow_id"], {CONF_ENERGY_ENTITY: "sensor.x2d_energy", CONF_INTEGRATION_METHOD: "left"}
     )
-    assert result["errors"] == {"base": "power_or_energy_required"}
+    assert result["errors"] == {CONF_PRICE_ENTITY: "price_required"}
+
+
+async def test_plug_without_meter_is_accepted(hass: HomeAssistant) -> None:
+    hass.states.async_set("switch.x2d_plug", "on")
+    _, result = await _go_to_electricity(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"switch_entity": "switch.x2d_plug", CONF_INTEGRATION_METHOD: "left"}
+    )
+    assert result["step_id"] == "filament"
 
 
 async def test_unsupported_price_unit(hass: HomeAssistant) -> None:
@@ -113,7 +130,7 @@ async def test_haspelsync_printer_matched_by_serial(hass: HomeAssistant, bypass_
     printers = [HaspelsyncPrinter("OTHER", "P2S"), HaspelsyncPrinter(SERIAL, "X2D")]
     with (
         patch(
-            "custom_components.ha_3d_print_cost.config_flow.HaspelsyncClient.get_printers",
+            "custom_components.printer_manager.config_flow.HaspelsyncClient.get_printers",
             AsyncMock(return_value=printers),
         ),
     ):
@@ -134,7 +151,7 @@ async def test_haspelsync_bad_key(hass: HomeAssistant) -> None:
     _, result = await _go_to_electricity(hass)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], ELEC)
     with patch(
-        "custom_components.ha_3d_print_cost.config_flow.HaspelsyncClient.get_printers",
+        "custom_components.printer_manager.config_flow.HaspelsyncClient.get_printers",
         AsyncMock(side_effect=HaspelsyncAuthError("401")),
     ):
         result = await hass.config_entries.flow.async_configure(
@@ -147,7 +164,7 @@ async def test_haspelsync_bad_key(hass: HomeAssistant) -> None:
 async def test_same_printer_twice_aborts(hass: HomeAssistant) -> None:
     device_id = register_bambu_printer(hass)
     MockConfigEntry(domain=DOMAIN, unique_id=device_id, data={}).add_to_hass(hass)
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await _start_bambu(hass)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_PRINTER_DEVICE_ID: device_id})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"

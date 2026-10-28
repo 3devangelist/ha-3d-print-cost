@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          VERSION=$(jq -r .version custom_components/ha_3d_print_cost/manifest.json)
+          VERSION=$(jq -r .version custom_components/printer_manager/manifest.json)
           TAG="${GITHUB_REF_NAME#v}"
           if [ "$VERSION" != "$TAG" ]; then
             echo "::error::manifest.json version ($VERSION) does not match tag ($TAG)"

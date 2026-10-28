@@ -3,7 +3,21 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] — 3D Printer Manager
+
+- Renamed to **3D Printer Manager** (domain `printer_manager`), maintained by @3devangelist.
+- "Add integration" starts with a choice of printer type.
+- **Klipper printers connect directly** to Moonraker (IP address, optional API key);
+  no other integration needed. Polled every 5 s; slicer metadata gives the remaining
+  time and the planned filament weight.
+- Device page: printer name, manufacturer, and a **Visit** link to Mainsail / Fluidd.
+- Smart plug: new plug switch field; power and energy are optional (no cost without them);
+  the electricity price is only required with a meter.
+- **Configure** edits a Klipper printer's connection (IP, port, API key, web interface, name)
+  without deleting it.
+- English only (French translation and README removed).
+
+## [0.2.x] — upstream (ZoziLaMalice)
 
 ### Changed
 - Scope narrowed to the print in progress and the last print.

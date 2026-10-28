@@ -1,6 +1,6 @@
 """``event.<printer>_print_finished``: fired once per finished print.
 
-The same payload is also fired on the bus as ``ha_3d_print_cost_print_finished``.
+The same payload is also fired on the bus as ``printer_manager_print_finished``.
 """
 
 from __future__ import annotations

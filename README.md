@@ -1,121 +1,80 @@
-# 3D Print Cost for Home Assistant
+# 3D Printer Manager for Home Assistant
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
-[![Tests](https://github.com/ZoziLaMalice/ha-3d-print-cost/actions/workflows/tests.yml/badge.svg)](https://github.com/ZoziLaMalice/ha-3d-print-cost/actions/workflows/tests.yml)
-[![Hassfest](https://github.com/ZoziLaMalice/ha-3d-print-cost/actions/workflows/hassfest.yml/badge.svg)](https://github.com/ZoziLaMalice/ha-3d-print-cost/actions/workflows/hassfest.yml)
+[![Tests](https://github.com/3devangelist/ha-3d-print-cost/actions/workflows/tests.yml/badge.svg)](https://github.com/3devangelist/ha-3d-print-cost/actions/workflows/tests.yml)
 
-_[Version française](README.fr.md)_
+Add your 3D printers to Home Assistant in one window, and get for every print:
+what it is doing, how long it took, how much **energy** it used and what it
+**cost**.
 
-**What did that print actually cost?** This integration computes, for every
-Bambu Lab print, the **real electricity cost**, the **real filament cost** and
-the **total**, and exposes them as standard Home Assistant entities — for
-the **print in progress** and the **last print** only. Long-term history and
-statistics are deliberately left to other tools.
+- **Klipper**: type the printer's IP address. Nothing else to install —
+  Home Assistant talks to Moonraker directly.
+- **Bambu Lab**: through the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)
+  for now. A direct LAN (offline) connection is planned.
+- **OctoPrint**: planned, for older machines.
+- **Any smart plug**. With an energy meter you also get consumption and cost;
+  a plain on/off plug works too.
 
-```text
-Flower Lamp — success — 3 h 31 min
+> Based on [ha-3d-print-cost](https://github.com/ZoziLaMalice/ha-3d-print-cost)
+> by ZoziLaMalice (MIT). Thanks for the clean base.
 
-Electricity   0.640 kWh     0.13 €
-Filament      PLA Black   62.4 g   1.21 €
-              PLA White   22.2 g   0.51 €
-              total       84.6 g   1.72 €
-TOTAL                              1.85 €
-```
-
-It is an **aggregation layer**: it does not re-implement what other tools
-already do well.
-
-> **This integration never modifies your Spoolman stock.**
-> HaspelSync stays responsible for filament consumption and spool synchronisation.
-
----
-
-## Contents
-
-1. [How it works](#how-it-works)
-2. [Requirements](#requirements)
-3. [Installation (HACS)](#installation-hacs)
-4. [Configuration](#configuration)
-5. [Electricity](#electricity)
-6. [Filament: HaspelSync and Spoolman](#filament-haspelsync-and-spoolman)
-7. [Entities](#entities)
-8. [Dashboard cards](#dashboard-cards)
-9. [Automations](#automations)
-10. [Troubleshooting](#troubleshooting)
-11. [Development](#development)
-12. [Roadmap](#roadmap)
-
----
-
-## How it works
-
-```text
- ha-bambulab ─── printer state, job name, progress, sliced weight ──┐
-                                                                     │
- Smart plug  ─── power (W) and/or energy meter (Wh/kWh) ────────────┤
-                                                                     ├──► 3D Print Cost ──► sensors + event
- Price sensor ── EUR/kWh, c€/kWh, EUR/MWh (may change any time) ────┤      (cost of the print)
-                                                                     │
- HaspelSync  ─── real grams per spool, read from the G-code ────────┤
-                                                                     │
- Spoolman    ─── spool prices (read-only) ──────────────────────────┘
-```
-
-| System                                                 | Responsible for                                                                                            |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| [ha-bambulab](https://github.com/greghesp/ha-bambulab) | what the printer is doing                                                                                  |
-| [HaspelSync](https://github.com/Rdiger-36/HaspelSync)  | which spool is in which slot, what was really consumed (cancelled prints included), booking it in Spoolman |
-| [Spoolman](https://github.com/Donkie/Spoolman)         | spools, materials, colours, prices                                                                         |
-| **this integration**                                   | putting it together and computing the costs                                                                |
-
-Everything runs **locally**; no internet access is needed.
-
-## Requirements
-
-|                          | Required   | Notes                                                                            |
-| ------------------------ | ---------- | -------------------------------------------------------------------------------- |
-| Home Assistant           | ✅ 2025.2+ |                                                                                  |
-| ha-bambulab              | ✅         | any Bambu Lab printer it supports                                                |
-| Smart plug               | ✅         | a power sensor (W) **or** a cumulative energy meter (Wh/kWh); both is best       |
-| Electricity price entity | ✅         | any `sensor` / `input_number` in a supported unit; can be a fixed `input_number` |
-| HaspelSync               | optional   | needed for the real filament consumption (v0.2)                                  |
-| Spoolman                 | optional   | needed for filament prices (v0.2)                                                |
-
-Without HaspelSync and Spoolman the integration tracks **electricity only**, and
-the total cost equals the electricity cost (`filament_status: disabled`).
+> **Status: early development.** Klipper and Bambu (via ha-bambulab) work;
+> print history, to-do list, safe power-off and the other items in the
+> [roadmap](#roadmap) are being added.
 
 ## Installation (HACS)
 
-1. HACS → ⋮ → **Custom repositories** → add `https://github.com/ZoziLaMalice/ha-3d-print-cost`, category **Integration**.
-2. Install **3D Print Cost**, restart Home Assistant.
-3. **Settings → Devices & services → Add integration → 3D Print Cost**.
+1. HACS → ⋮ → **Custom repositories** → add
+   `https://github.com/3devangelist/ha-3d-print-cost`, category **Integration**.
+2. Install **3D Printer Manager**, restart Home Assistant.
 
-Manual install: copy `custom_components/ha_3d_print_cost` into your
+Manual install: copy `custom_components/printer_manager` into your
 `config/custom_components/` folder and restart.
 
-## Configuration
+## Add a printer
 
-Everything is done in the UI, no YAML. The flow has four steps:
+**Settings → Devices & services → Add integration → 3D Printer Manager.**
+Everything happens in that one window:
 
-1. **Printer** — pick the Bambu Lab device. One config entry per printer.
-2. **Printer entities** — discovered automatically from the device registry by
-   `translation_key` / `unique_id` (never by `entity_id`, so renamed or localised
-   entities are found). Only _print status_ is required; _job name_ is strongly
-   recommended (it tells two prints apart and matches HaspelSync).
-3. **Electricity** — power sensor, energy meter, price entity, integration method.
-4. **Filament (optional)** — HaspelSync URL + API key, Spoolman URL, fallback policy.
-   If HaspelSync monitors several printers, the one whose serial number matches
-   the Bambu device is selected; otherwise you are asked.
+1. **What kind of printer?** Klipper or Bambu Lab.
+2. **Connection**
+   - *Klipper*: IP address (port 7125 unless changed), API key only if your
+     Moonraker requires one, and the web interface address (defaults to
+     `http://<IP>/`, i.e. Mainsail or Fluidd). The connection is tested before
+     you can continue.
+   - *Bambu Lab*: pick the printer from the Bambu Lab integration; its entities
+     are found automatically.
+3. **Smart plug** — the switch the printer is plugged into. Power sensor and
+   energy meter are optional; the electricity price is asked only when one of
+   them is set.
+4. **Filament** (Bambu only, optional) — HaspelSync / Spoolman, see below.
 
-Everything can be changed later in **Configure** (options) without removing the
-integration; a print in progress survives the reload.
+The printer appears as a device with its name. For Klipper the device page has
+a **Visit** button that opens Mainsail / Fluidd.
+
+## Edit a printer
+
+**Configure** on the printer's entry changes everything — IP address, port,
+API key, web interface, name, plug, meters, price — without deleting it. The
+device, its entities and its history are kept, and a print in progress
+survives the reload.
 
 | Option                   | Default                              |                                                                      |
 | ------------------------ | ------------------------------------ | -------------------------------------------------------------------- |
-| Sampling interval        | 30 s                                 | samples are also taken on every state change of the watched entities |
+| Sampling interval        | 30 s                                 | Klipper is also polled every 5 s; Bambu updates on every change      |
 | Currency                 | HA currency                          | used for units only, no conversion                                   |
 | Power integration method | left                                 | `left` suits step-like plug sensors, `trapezoidal` smooth ones       |
 | Filament fallback        | planned weight for successful prints | see below                                                            |
+
+## How a print is detected
+
+| Printer state (Klipper / Bambu)     | Meaning                                                    |
+| ----------------------------------- | ---------------------------------------------------------- |
+| `printing`, `paused` / `running`, `pause`, `prepare` | print in progress                         |
+| `complete` / `finish`               | ended, success                                             |
+| `cancelled` / `cancel`              | ended, cancelled                                           |
+| `error` / `failed`                  | ended, failed (Klipper shutting down mid-print counts too) |
+| printer unreachable                 | the print stays open until the printer answers again       |
 
 ## Electricity
 
@@ -177,7 +136,7 @@ host names_, otherwise it answers `403`.
 
 ## Entities
 
-One device **3D Print Cost — &lt;printer&gt;** is created and linked to the
+One device named after the printer is created and linked to the
 Bambu Lab device. Entity ids below assume a printer named _X2D_.
 
 **Current print** (the running print, then the one being finalised; `unknown` when idle)
@@ -205,11 +164,11 @@ Bambu Lab device. Entity ids below assume a printer named _X2D_.
 `image.x2d_last_print_image` — copy of the ha-bambulab cover image taken when
 the print ended, so it still shows the right model once the next print has
 started. It is also the picture of `sensor.x2d_last_print_total_cost`
-(stored in `.storage/ha_3d_print_cost.<entry_id>.image`).
+(stored in `.storage/printer_manager.<entry_id>.image`).
 
 **Event**
 
-`event.x2d_print_finished` — and the bus event `ha_3d_print_cost_print_finished` — with:
+`event.x2d_print_finished` — and the bus event `printer_manager_print_finished` — with:
 
 ```yaml
 name: Flower Lamp
@@ -296,7 +255,7 @@ URLs are redacted. Debug logs:
 ```yaml
 logger:
   logs:
-    custom_components.ha_3d_print_cost: debug
+    custom_components.printer_manager: debug
 ```
 
 ## Development
@@ -309,7 +268,7 @@ ruff check . && ruff format --check .
 ```
 
 ```text
-custom_components/ha_3d_print_cost/
+custom_components/printer_manager/
 ├── models/          PrintJob, ElectricityAccumulator, FilamentUsage   ← pure Python
 ├── units.py         unit normalisation                                ← pure Python
 ├── tracker.py       print life cycle state machine                    ← pure Python
@@ -325,13 +284,24 @@ systems sit behind adapters that are mocked in tests. Money is computed with
 
 ## Roadmap
 
-- **v0.1** ✅ electricity cost per print, tariff changes, restart recovery, last print, event
-- **v0.2** ✅ HaspelSync + Spoolman, cost per spool, total cost, cancelled prints
-- **v0.3** 🚧 scope narrowed to the current and last print, last print thumbnail, example cards
+Done (from the original project): electricity cost per print, tariff changes,
+restart recovery, last print, `print_finished` event, HaspelSync + Spoolman.
 
-History, G-code estimates and statistics were removed: Home Assistant is not
-the right place for them. Use the `print_finished` event to feed another tool.
+- ✅ **0.3** — new name, one-window "Add printer", **Klipper direct** (Moonraker),
+  plug without meter, edit the connection without deleting the printer, link to
+  the printer's web interface
+- 🚧 permanent history of every print
+- 🚧 to-do list entry per print (⏳ while printing, ✅ / ❌ at the end)
+- 🚧 run a script / notify when a print ends
+- 🚧 printer down while printing: notify, wait, close as failed if it comes back idle
+- 🚧 safe power: shut the printer's host down before cutting the plug, never while printing
+- 🚧 auto power-off after a successful print, once the nozzle is cold
+- 🚧 "Mark success" / "Mark failed" buttons
+- 🚧 Bambu Lab direct LAN connection (no other integration)
+- 🚧 OctoPrint
+- 🚧 dashboard that lists every printer automatically
+- 🚧 guide: sending each print to Google Sheets
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE). Original work © ZoziLaMalice.

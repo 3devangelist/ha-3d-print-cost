@@ -11,8 +11,8 @@ from homeassistant.core import Event, HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ha_3d_print_cost.adapters.haspelsync import parse_print_usage
-from custom_components.ha_3d_print_cost.const import (
+from custom_components.printer_manager.adapters.haspelsync import parse_print_usage
+from custom_components.printer_manager.const import (
     CONF_COVER_IMAGE_ENTITY,
     CONF_ENERGY_ENTITY,
     CONF_FILAMENT_FALLBACK,
@@ -32,8 +32,8 @@ from custom_components.ha_3d_print_cost.const import (
     DOMAIN,
     EVENT_PRINT_FINISHED,
 )
-from custom_components.ha_3d_print_cost.diagnostics import async_get_config_entry_diagnostics
-from custom_components.ha_3d_print_cost.models import SpoolInfo
+from custom_components.printer_manager.diagnostics import async_get_config_entry_diagnostics
+from custom_components.printer_manager.models import SpoolInfo
 
 from .helpers import BAMBU_SENSORS, SERIAL, register_bambu_printer
 
@@ -48,7 +48,7 @@ def make_entry(hass: HomeAssistant, **extra) -> MockConfigEntry:
     device_id = register_bambu_printer(hass)
     entry = MockConfigEntry(
         domain=DOMAIN,
-        title="3D Print Cost — X2D",
+        title="X2D",
         unique_id=device_id,
         data={
             CONF_PRINTER_DEVICE_ID: device_id,
@@ -221,7 +221,7 @@ async def test_last_print_keeps_its_thumbnail(
     assert current.attributes["entity_picture"] == "/api/image_proxy/cover?token=a"
 
     get_image = AsyncMock(return_value=Image("image/png", PNG))
-    with patch("custom_components.ha_3d_print_cost.coordinator.async_get_image", get_image):
+    with patch("custom_components.printer_manager.coordinator.async_get_image", get_image):
         await step(hass, freezer, 30, status="finish", energy="100150")
         await hass.async_block_till_done(wait_background_tasks=True)  # finalisation writes the file
     get_image.assert_awaited_once_with(hass, cover)
@@ -279,15 +279,15 @@ async def test_filament_cost_from_haspelsync_and_spoolman(
 
     with (
         patch(
-            "custom_components.ha_3d_print_cost.coordinator.HaspelsyncClient.get_current_slots",
+            "custom_components.printer_manager.coordinator.HaspelsyncClient.get_current_slots",
             AsyncMock(return_value={}),
         ),
         patch(
-            "custom_components.ha_3d_print_cost.coordinator.HaspelsyncClient.get_print_usage",
+            "custom_components.printer_manager.coordinator.HaspelsyncClient.get_print_usage",
             side_effect=fake_usage,
         ),
         patch(
-            "custom_components.ha_3d_print_cost.coordinator.SpoolmanClient.get_spool",
+            "custom_components.printer_manager.coordinator.SpoolmanClient.get_spool",
             side_effect=lambda spool_id: spools[spool_id],
         ),
     ):

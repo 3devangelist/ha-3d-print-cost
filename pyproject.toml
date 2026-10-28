@@ -1,7 +1,7 @@
 [project]
 name = "ha-3d-print-cost"
-version = "0.2.0"
-description = "Home Assistant integration: electricity + filament cost of every 3D print (Bambu Lab, HaspelSync, Spoolman)."
+version = "0.3.0"
+description = "Home Assistant integration: add 3D printers (Klipper, Bambu Lab) in one window and track every print, its energy and its cost."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.13"
