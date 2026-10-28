@@ -1,20 +1,8 @@
 {
   "entity": {
     "sensor": {
-      "current_print_total_cost": {
-        "default": "mdi:printer-3d"
-      },
-      "current_print_electricity_cost": {
-        "default": "mdi:flash"
-      },
-      "current_print_filament_cost": {
-        "default": "mdi:printer-3d-nozzle"
-      },
       "current_print_energy": {
         "default": "mdi:lightning-bolt"
-      },
-      "current_print_filament_weight": {
-        "default": "mdi:weight-gram"
       },
       "current_print_duration": {
         "default": "mdi:timer-outline"
@@ -33,20 +21,8 @@
       "electricity_price": {
         "default": "mdi:cash"
       },
-      "last_print_total_cost": {
-        "default": "mdi:receipt-text"
-      },
-      "last_print_electricity_cost": {
-        "default": "mdi:flash"
-      },
-      "last_print_filament_cost": {
-        "default": "mdi:printer-3d-nozzle"
-      },
       "last_print_energy": {
         "default": "mdi:lightning-bolt"
-      },
-      "last_print_filament_weight": {
-        "default": "mdi:weight-gram"
       },
       "last_print_duration": {
         "default": "mdi:timer-outline"
@@ -59,6 +35,12 @@
           "failed": "mdi:alert-circle",
           "unknown": "mdi:help-circle-outline"
         }
+      },
+      "current_print_cost": {
+        "default": "mdi:printer-3d"
+      },
+      "last_print_cost": {
+        "default": "mdi:receipt-text"
       }
     },
     "event": {

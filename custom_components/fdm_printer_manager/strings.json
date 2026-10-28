@@ -27,26 +27,6 @@
           "integration_method": "Only used when no energy meter is available."
         }
       },
-      "filament": {
-        "title": "Filament (optional)",
-        "description": "Leave empty to track electricity only. HaspelSync provides the real consumption, Spoolman the spool prices. Neither is ever modified.",
-        "data": {
-          "haspelsync_url": "HaspelSync URL",
-          "haspelsync_api_key": "HaspelSync API key",
-          "spoolman_url": "Spoolman URL",
-          "filament_fallback": "When no real consumption is available"
-        },
-        "data_description": {
-          "haspelsync_url": "e.g. http://192.168.1.10:4000",
-          "spoolman_url": "e.g. http://192.168.1.10:7912 — read only, never modified."
-        }
-      },
-      "haspelsync_printer": {
-        "title": "HaspelSync printer",
-        "data": {
-          "haspelsync_printer_id": "HaspelSync printer"
-        }
-      },
       "klipper": {
         "title": "Klipper printer",
         "description": "Type the printer's IP address. Nothing else needs to be installed: Home Assistant talks to Moonraker directly.",
@@ -79,14 +59,12 @@
           "print_status_entity": "Print status",
           "job_name_entity": "Job / file name",
           "progress_entity": "Print progress",
-          "print_weight_entity": "Planned print weight",
           "remaining_time_entity": "Remaining time",
           "cover_image_entity": "Cover image"
         },
         "data_description": {
           "print_status_entity": "Required. ha-bambulab `print_status` sensor.",
-          "job_name_entity": "Used to tell two prints apart and to match HaspelSync.",
-          "print_weight_entity": "Fallback when HaspelSync has no data."
+          "job_name_entity": "Used to tell two prints apart."
         }
       }
     },
@@ -96,8 +74,6 @@
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
       "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
       "invalid_auth": "API key refused.",
-      "host_refused": "HaspelSync refused this host name: use the IP address or add the name under \"Allowed host names\" in HaspelSync.",
-      "no_printers": "HaspelSync monitors no printer.",
       "price_required": "Select the electricity price: a power sensor or energy meter is set."
     },
     "abort": {
@@ -112,14 +88,12 @@
           "print_status_entity": "Print status",
           "job_name_entity": "Job / file name",
           "progress_entity": "Print progress",
-          "print_weight_entity": "Planned print weight",
           "remaining_time_entity": "Remaining time",
           "cover_image_entity": "Cover image"
         },
         "data_description": {
           "print_status_entity": "Required. ha-bambulab `print_status` sensor.",
-          "job_name_entity": "Used to tell two prints apart and to match HaspelSync.",
-          "print_weight_entity": "Fallback when HaspelSync has no data."
+          "job_name_entity": "Used to tell two prints apart."
         }
       },
       "electricity": {
@@ -138,26 +112,6 @@
           "energy_entity": "Optional. Recommended: a cumulative meter is exact, even across restarts.",
           "price_entity": "Needed when a power sensor or energy meter is set. Any entity in EUR/kWh, c€/kWh or EUR/MWh; it may change during a print.",
           "integration_method": "Only used when no energy meter is available."
-        }
-      },
-      "filament": {
-        "title": "Filament (optional)",
-        "description": "Leave empty to track electricity only. HaspelSync provides the real consumption, Spoolman the spool prices. Neither is ever modified.",
-        "data": {
-          "haspelsync_url": "HaspelSync URL",
-          "haspelsync_api_key": "HaspelSync API key",
-          "spoolman_url": "Spoolman URL",
-          "filament_fallback": "When no real consumption is available"
-        },
-        "data_description": {
-          "haspelsync_url": "e.g. http://192.168.1.10:4000",
-          "spoolman_url": "e.g. http://192.168.1.10:7912 — read only, never modified."
-        }
-      },
-      "haspelsync_printer": {
-        "title": "HaspelSync printer",
-        "data": {
-          "haspelsync_printer_id": "HaspelSync printer"
         }
       },
       "behaviour": {
@@ -192,8 +146,6 @@
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
       "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
       "invalid_auth": "API key refused.",
-      "host_refused": "HaspelSync refused this host name: use the IP address or add the name under \"Allowed host names\" in HaspelSync.",
-      "no_printers": "HaspelSync monitors no printer.",
       "price_required": "Select the electricity price: a power sensor or energy meter is set."
     }
   },
@@ -203,58 +155,21 @@
         "left": "Left (step sensors)",
         "trapezoidal": "Trapezoidal"
       }
-    },
-    "filament_fallback": {
-      "options": {
-        "none": "Never estimate",
-        "planned_success": "Use the sliced weight for successful prints",
-        "planned_progress": "Sliced weight, × progress for failed/cancelled prints"
-      }
     }
   },
   "entity": {
     "sensor": {
-      "current_print_total_cost": {
-        "name": "Current print total cost"
-      },
-      "current_print_electricity_cost": {
-        "name": "Current print electricity cost"
-      },
-      "current_print_filament_cost": {
-        "name": "Current print filament cost"
+      "current_print_cost": {
+        "name": "Current print cost"
       },
       "current_print_energy": {
         "name": "Current print energy"
-      },
-      "current_print_filament_weight": {
-        "name": "Current print filament weight"
       },
       "current_print_duration": {
         "name": "Current print duration"
       },
       "current_print_cost_per_hour": {
         "name": "Current print cost per hour"
-      },
-      "electricity_price": {
-        "name": "Electricity price"
-      },
-      "last_print_total_cost": {
-        "name": "Last print total cost"
-      },
-      "last_print_electricity_cost": {
-        "name": "Last print electricity cost"
-      },
-      "last_print_filament_cost": {
-        "name": "Last print filament cost"
-      },
-      "last_print_energy": {
-        "name": "Last print energy"
-      },
-      "last_print_filament_weight": {
-        "name": "Last print filament weight"
-      },
-      "last_print_duration": {
-        "name": "Last print duration"
       },
       "current_print_phase": {
         "name": "Current print phase",
@@ -263,6 +178,18 @@
           "active": "Printing",
           "finalizing": "Finalizing"
         }
+      },
+      "electricity_price": {
+        "name": "Electricity price"
+      },
+      "last_print_cost": {
+        "name": "Last print cost"
+      },
+      "last_print_energy": {
+        "name": "Last print energy"
+      },
+      "last_print_duration": {
+        "name": "Last print duration"
       },
       "last_print_result": {
         "name": "Last print result",

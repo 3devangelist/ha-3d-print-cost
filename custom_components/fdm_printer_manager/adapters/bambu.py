@@ -26,11 +26,10 @@ from ..const import (
     CONF_COVER_IMAGE_ENTITY,
     CONF_JOB_NAME_ENTITY,
     CONF_PRINT_STATUS_ENTITY,
-    CONF_PRINT_WEIGHT_ENTITY,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
 )
-from ..units import UnsupportedUnitError, mass_to_g, to_float
+from ..units import to_float
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,7 +38,6 @@ DISCOVERY_KEYS: dict[str, tuple[str, tuple[str, ...]]] = {
     CONF_PRINT_STATUS_ENTITY: ("sensor", ("print_status",)),
     CONF_JOB_NAME_ENTITY: ("sensor", ("subtask_name", "gcode_file")),
     CONF_PROGRESS_ENTITY: ("sensor", ("print_progress",)),
-    CONF_PRINT_WEIGHT_ENTITY: ("sensor", ("print_weight",)),
     CONF_REMAINING_TIME_ENTITY: ("sensor", ("remaining_time",)),
     CONF_COVER_IMAGE_ENTITY: ("image", ("cover_image",)),
 }
@@ -114,35 +112,6 @@ def read_number(hass: HomeAssistant, entity_id: str | None) -> float | None:
     """Numeric state, ``None`` when unknown."""
     text = read_text(hass, entity_id)
     return to_float(text)
-
-
-def read_print_weight(hass: HomeAssistant, entity_id: str | None) -> tuple[float | None, dict[str, float]]:
-    """Total sliced weight (g) and per-slot weights from the attributes.
-
-    ha-bambulab exposes ``{"AMS 1 Tray 1": 12.3, ...}`` (or
-    ``{"External Spool": ...}``) as attributes of ``print_weight``.
-    """
-    if not entity_id:
-        return None, {}
-    state = hass.states.get(entity_id)
-    if state is None:
-        return None, {}
-    unit = state.attributes.get("unit_of_measurement")
-    total = to_float(state.state)
-    try:
-        total_g = mass_to_g(total, unit) if total is not None else None
-    except UnsupportedUnitError:
-        total_g = None
-    slots: dict[str, float] = {}
-    for key, value in state.attributes.items():
-        if not isinstance(key, str):
-            continue
-        if not (key.startswith("AMS ") or key.startswith("External Spool")):
-            continue
-        grams = to_float(value)
-        if grams is not None and grams > 0:
-            slots[key] = grams
-    return total_g, slots
 
 
 def read_remaining_minutes(hass: HomeAssistant, entity_id: str | None) -> float | None:

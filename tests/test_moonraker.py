@@ -49,7 +49,7 @@ def test_empty_filename_is_none() -> None:
 
 def test_metadata_and_remaining_time() -> None:
     meta = parse_metadata({"estimated_time": 4320, "filament_weight_total": 31.7})
-    assert meta == FileMetadata(estimated_time_s=4320.0, filament_weight_g=31.7)
+    assert meta == FileMetadata(estimated_time_s=4320.0)
     reading = KlipperStatus(state="printing", progress=41.2, print_duration_s=1800.0)
     assert remaining_minutes(reading, meta) == 42.0
     # Without slicer metadata: extrapolate from progress.

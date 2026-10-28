@@ -8,10 +8,10 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
-from .const import CONF_HASPELSYNC_API_KEY, CONF_HASPELSYNC_URL, CONF_SPOOLMAN_URL, DOMAIN
+from .const import CONF_API_KEY, DOMAIN
 from .coordinator import PrintCostConfigEntry
 
-TO_REDACT = {CONF_HASPELSYNC_API_KEY, CONF_HASPELSYNC_URL, CONF_SPOOLMAN_URL}
+TO_REDACT = {CONF_API_KEY}
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: PrintCostConfigEntry) -> dict[str, Any]:
@@ -34,10 +34,10 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: PrintCo
             "energy": unit(sources.energy_entity),
             "price": unit(sources.price_entity),
         },
-        "adapters": {
-            "haspelsync": coordinator.haspelsync is not None,
-            "spoolman": coordinator.spoolman is not None,
-            "filament_tracking": coordinator.resolver.enabled,
+        "printer": {
+            "type": str(coordinator.printer_type),
+            "reachable": coordinator.klipper.available if coordinator.klipper else None,
+            "last_reading": str(coordinator.klipper.reading) if coordinator.klipper else None,
         },
         "active_job": active.as_dict() if active else None,
         "finalizing_jobs": [j.as_dict() for j in coordinator.state.finalizing],

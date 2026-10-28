@@ -43,7 +43,6 @@ CONF_PRINTER_SERIAL: Final = "printer_serial"
 CONF_PRINT_STATUS_ENTITY: Final = "print_status_entity"
 CONF_JOB_NAME_ENTITY: Final = "job_name_entity"
 CONF_PROGRESS_ENTITY: Final = "progress_entity"
-CONF_PRINT_WEIGHT_ENTITY: Final = "print_weight_entity"
 CONF_REMAINING_TIME_ENTITY: Final = "remaining_time_entity"
 CONF_COVER_IMAGE_ENTITY: Final = "cover_image_entity"
 
@@ -51,7 +50,6 @@ BAMBU_ENTITY_KEYS: Final = (
     CONF_PRINT_STATUS_ENTITY,
     CONF_JOB_NAME_ENTITY,
     CONF_PROGRESS_ENTITY,
-    CONF_PRINT_WEIGHT_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
     CONF_COVER_IMAGE_ENTITY,
 )
@@ -64,13 +62,6 @@ CONF_ENERGY_ENTITY: Final = "energy_entity"
 CONF_PRICE_ENTITY: Final = "price_entity"
 CONF_INTEGRATION_METHOD: Final = "integration_method"
 
-# Filament (v0.2)
-CONF_HASPELSYNC_URL: Final = "haspelsync_url"
-CONF_HASPELSYNC_API_KEY: Final = "haspelsync_api_key"
-CONF_HASPELSYNC_PRINTER_ID: Final = "haspelsync_printer_id"
-CONF_SPOOLMAN_URL: Final = "spoolman_url"
-CONF_FILAMENT_FALLBACK: Final = "filament_fallback"
-
 # Behaviour
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_CURRENCY: Final = "currency"
@@ -81,11 +72,6 @@ MAX_UPDATE_INTERVAL: Final = 300
 
 # HTTP
 HTTP_TIMEOUT: Final = 10  # seconds
-
-# Filament resolution after the end of a print. Haspelsync books the usage a
-# few seconds after the printer reports a terminal state, so we wait for it.
-FILAMENT_RESOLVE_ATTEMPTS: Final = 8
-FILAMENT_RESOLVE_DELAY: Final = 15  # seconds between attempts
 
 # Power integration: an interval longer than this (HA restart, sensor outage)
 # is still integrated but reported as a gap in the job attributes.
@@ -102,16 +88,4 @@ class IntegrationMethod(StrEnum):
     TRAPEZOIDAL = "trapezoidal"
 
 
-class FilamentFallback(StrEnum):
-    """What to do when no real consumption is available."""
-
-    # Never estimate. Weight/cost stay unknown.
-    NONE = "none"
-    # Use the sliced (planned) weight for successful prints only.
-    PLANNED_SUCCESS = "planned_success"
-    # Same, plus planned weight x progress for failed / cancelled prints.
-    PLANNED_PROGRESS = "planned_progress"
-
-
 DEFAULT_INTEGRATION_METHOD: Final = IntegrationMethod.LEFT
-DEFAULT_FILAMENT_FALLBACK: Final = FilamentFallback.PLANNED_SUCCESS

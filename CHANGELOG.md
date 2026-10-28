@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [0.3.0] — FDM Printer Manager
+## [0.3.0-alpha.1] — FDM Printer Manager (alpha)
 
 - Renamed to **FDM Printer Manager** (domain `fdm_printer_manager`), maintained by @3devangelist.
 - "Add integration" starts with a choice of printer type.
@@ -16,6 +16,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Configure** edits a Klipper printer's connection (IP, port, API key, web interface, name)
   without deleting it.
 - English only (French translation and README removed).
+- **Filament tracking removed** (HaspelSync, Spoolman, filament weight and cost):
+  the integration tracks energy and electricity cost only. Sensors renamed to
+  `current_print_cost` / `last_print_cost`; the separate electricity / filament /
+  total cost and weight sensors are gone.
 
 ## [0.2.x] — upstream (ZoziLaMalice)
 

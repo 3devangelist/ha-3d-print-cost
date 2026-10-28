@@ -55,7 +55,6 @@ class FileMetadata:
     """What the slicer wrote in the G-code header."""
 
     estimated_time_s: float | None = None
-    filament_weight_g: float | None = None
 
 
 def default_web_url(host: str) -> str:
@@ -103,11 +102,8 @@ def parse_status(status: dict[str, Any], klippy_state: str | None = None) -> Kli
 
 
 def parse_metadata(meta: dict[str, Any]) -> FileMetadata:
-    """``server.files.metadata`` → estimated time and sliced weight."""
-    return FileMetadata(
-        estimated_time_s=_num(meta.get("estimated_time")),
-        filament_weight_g=_num(meta.get("filament_weight_total")),
-    )
+    """``server.files.metadata`` → the slicer's estimated print time."""
+    return FileMetadata(estimated_time_s=_num(meta.get("estimated_time")))
 
 
 def remaining_minutes(reading: KlipperStatus, meta: FileMetadata | None) -> float | None:
@@ -232,10 +228,3 @@ class KlipperSource:
         if self.reading.state not in ("printing", "paused"):
             return None
         return remaining_minutes(self.reading, self.meta if self._meta_for == self.reading.filename else None)
-
-    @property
-    def planned_weight_g(self) -> float | None:
-        """Filament weight from the slicer, when the G-code has it."""
-        if self.meta is None or self._meta_for != self.reading.filename:
-            return None
-        return self.meta.filament_weight_g

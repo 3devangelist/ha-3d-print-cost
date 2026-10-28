@@ -4,11 +4,11 @@
   Bambu Lab through the ha-bambulab entities (push);
 * listens to the plug, power, energy and price entities (push);
 * also samples on a timer (default 30 s) so long flat periods are integrated;
-* feeds :class:`PrintTracker`, persists, finalises jobs, fires the event;
+* feeds :class:`PrintTracker`, persists, stores finished jobs, fires the event;
 * keeps the ha-bambulab thumbnail of the last print (the cover image entity
   moves on to the next job, this copy does not).
 
-Business rules live in ``tracker.py``, ``filament.py`` and ``models/``.
+Business rules live in ``tracker.py`` and ``models/``.
 """
 
 from __future__ import annotations
@@ -32,19 +32,13 @@ from homeassistant.util import dt as dt_util
 
 from .adapters import bambu
 from .adapters.electricity import ElectricityReader, ElectricitySources
-from .adapters.haspelsync import HaspelsyncClient
 from .adapters.moonraker import DEFAULT_PORT, KlipperSource, MoonrakerClient, default_web_url
-from .adapters.spoolman import SpoolmanClient
 from .const import (
     BAMBU_ENTITY_KEYS,
     CONF_API_KEY,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
     CONF_ENERGY_ENTITY,
-    CONF_FILAMENT_FALLBACK,
-    CONF_HASPELSYNC_API_KEY,
-    CONF_HASPELSYNC_PRINTER_ID,
-    CONF_HASPELSYNC_URL,
     CONF_HOST,
     CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
@@ -52,32 +46,25 @@ from .const import (
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
     CONF_PRINT_STATUS_ENTITY,
-    CONF_PRINT_WEIGHT_ENTITY,
     CONF_PRINTER_NAME,
     CONF_PRINTER_SERIAL,
     CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
-    CONF_SPOOLMAN_URL,
     CONF_SWITCH_ENTITY,
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
-    DEFAULT_FILAMENT_FALLBACK,
     DEFAULT_INTEGRATION_METHOD,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     EVENT_PRINT_FINISHED,
-    FILAMENT_RESOLVE_ATTEMPTS,
-    FILAMENT_RESOLVE_DELAY,
     HTTP_TIMEOUT,
     KLIPPER_POLL_INTERVAL,
     MAX_SAMPLE_GAP,
-    FilamentFallback,
     IntegrationMethod,
     PrinterType,
 )
-from .filament import FilamentResolver, apply_outcome
-from .models import FilamentStatus, JobPhase, PrintJob
+from .models import JobPhase, PrintJob
 from .storage import JobStore, StoredState
 from .tracker import PrinterSnapshot, PrintTracker, TransitionKind
 
@@ -146,21 +133,6 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             )
         self._polling = False
 
-        self.haspelsync: HaspelsyncClient | None = None
-        if url := self.conf.get(CONF_HASPELSYNC_URL):
-            self.haspelsync = HaspelsyncClient(
-                session, url, self.conf.get(CONF_HASPELSYNC_API_KEY), timeout=HTTP_TIMEOUT
-            )
-        self.spoolman: SpoolmanClient | None = None
-        if url := self.conf.get(CONF_SPOOLMAN_URL):
-            self.spoolman = SpoolmanClient(session, url, timeout=HTTP_TIMEOUT)
-        self.resolver = FilamentResolver(
-            haspelsync=self.haspelsync,
-            haspelsync_printer_id=self.haspelsync_printer_id,
-            spoolman=self.spoolman,
-            fallback=FilamentFallback(self.conf.get(CONF_FILAMENT_FALLBACK, DEFAULT_FILAMENT_FALLBACK)),
-        )
-
         self.last_image: bytes | None = None
 
         self.errors: deque[str] = deque(maxlen=20)
@@ -191,7 +163,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         interval = timedelta(seconds=int(self.conf.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)))
         self._unsubs.append(async_track_time_interval(self.hass, self._on_tick, interval))
 
-        # Jobs that were waiting for filament data when HA stopped.
+        # Jobs that were being stored when HA stopped.
         for job in list(self.state.finalizing):
             self._spawn(self._async_finalize(job))
 
@@ -273,10 +245,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 job_name=reading.filename,
                 progress=reading.progress,
                 remaining_min=self.klipper.remaining_min,
-                planned_weight_g=self.klipper.planned_weight_g,
             )
         hass = self.hass
-        total_g, slots = bambu.read_print_weight(hass, self.conf.get(CONF_PRINT_WEIGHT_ENTITY))
         return PrinterSnapshot(
             timestamp=now,
             status=bambu.read_raw_status(hass, self.conf.get(CONF_PRINT_STATUS_ENTITY)),
@@ -284,8 +254,6 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             job_name=bambu.read_text(hass, self.conf.get(CONF_JOB_NAME_ENTITY)),
             progress=bambu.read_number(hass, self.conf.get(CONF_PROGRESS_ENTITY)),
             remaining_min=bambu.read_remaining_minutes(hass, self.conf.get(CONF_REMAINING_TIME_ENTITY)),
-            planned_weight_g=total_g,
-            planned_slot_weights=slots,
         )
 
     @callback
@@ -297,8 +265,6 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             job = transition.job
             if transition.kind is TransitionKind.STARTED:
                 save_now = True
-                if self.haspelsync is not None:
-                    self._spawn(self._async_capture_slots(job))
             elif transition.kind is TransitionKind.ENDED:
                 save_now = True
                 self.state.finalizing.append(job)
@@ -326,54 +292,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         )
 
     # ------------------------------------------------------------------ #
-    # Filament
+    # End of a print
     # ------------------------------------------------------------------ #
-    @property
-    def haspelsync_printer_id(self) -> str | None:
-        """Printer id on the HaspelSync side (defaults to the Bambu serial)."""
-        return self.conf.get(CONF_HASPELSYNC_PRINTER_ID) or self.printer_serial
-
-    async def _async_capture_slots(self, job: PrintJob) -> None:
-        """Snapshot slot -> spool at print start (used by the fallback)."""
-        assert self.haspelsync is not None
-        printer_id = self.haspelsync_printer_id
-        if not printer_id:
-            return
-        try:
-            slots = await self.haspelsync.get_current_slots(printer_id)
-        except Exception as err:  # noqa: BLE001
-            self._record_error(f"HaspelSync slots: {err}")
-            return
-        job.slot_spools = {label: s.spool_id for label, s in slots.items() if s.spool_id is not None}
-
     async def _async_finalize(self, job: PrintJob, *, capture_image: bool = False) -> None:
-        """Resolve filament (with retries), complete the job, notify.
+        """Store the finished job as the last print and announce it.
 
         The thumbnail is read right away: after a restart the cover image may
         already show another job, so a resumed finalisation keeps none.
         """
         image = await self._async_read_cover_image() if capture_image else None
-        try:
-            if not self.resolver.enabled:
-                job.filament_status = FilamentStatus.DISABLED
-            else:
-                while True:
-                    job.finalize_attempts += 1
-                    last = job.finalize_attempts >= FILAMENT_RESOLVE_ATTEMPTS
-                    outcome = await self.resolver.resolve(job, last_attempt=last)
-                    if outcome.done:
-                        apply_outcome(job, outcome)
-                        break
-                    self.store.async_delay_save(self.state)
-                    await asyncio.sleep(FILAMENT_RESOLVE_DELAY)
-        except asyncio.CancelledError:
-            raise  # HA stopping: job stays FINALIZING in storage and resumes
-        except Exception as err:  # noqa: BLE001 - never lose the electricity part
-            _LOGGER.error("Could not resolve filament for '%s': %s", job.name, err)
-            self._record_error(f"finalize: {err}")
-            job.filament_status = FilamentStatus.UNAVAILABLE
-            job.filament_note = f"error while resolving filament: {err}"
-
         job.phase = JobPhase.COMPLETED
         if job in self.state.finalizing:
             self.state.finalizing.remove(job)
@@ -388,10 +315,11 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         for listener in list(self._finished_listeners):
             listener(payload)
         _LOGGER.info(
-            "Print '%s' finalised: result=%s total=%s %s",
+            "Print '%s' finished: result=%s energy=%s kWh cost=%s %s",
             job.name,
             job.result,
-            summary["total_cost"],
+            summary["energy_kwh"],
+            summary["electricity_cost"],
             self.currency,
         )
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())

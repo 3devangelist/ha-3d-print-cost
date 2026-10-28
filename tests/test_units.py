@@ -8,7 +8,6 @@ from custom_components.fdm_printer_manager.units import (
     UnsupportedUnitError,
     energy_to_kwh,
     is_supported_price_unit,
-    mass_to_g,
     power_to_w,
     price_to_per_kwh,
     to_decimal,
@@ -73,5 +72,3 @@ def test_parsing_states():
     assert to_decimal("0.1405") == Decimal("0.1405")
     assert to_decimal("unavailable") is None
     assert to_decimal(None) is None
-    assert mass_to_g(1.5, "kg") == 1500
-    assert mass_to_g(10, None) == 10

@@ -13,7 +13,6 @@ BAMBU_SENSORS = {
     "print_status": "sensor.x2d_print_status",
     "subtask_name": "sensor.x2d_task_name",
     "print_progress": "sensor.x2d_print_progress",
-    "print_weight": "sensor.x2d_print_weight",
     "remaining_time": "sensor.x2d_remaining_time",
 }
 

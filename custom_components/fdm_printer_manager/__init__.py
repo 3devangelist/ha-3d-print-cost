@@ -1,7 +1,7 @@
 """FDM Printer Manager — your 3D printers in Home Assistant, with the energy and cost of every print.
 
 Printers: Klipper (Moonraker, direct) and Bambu Lab (through ha-bambulab).
-Optional: a smart plug with a meter + price, HaspelSync and Spoolman for filament.
+Optional: a smart plug with a meter + an electricity price for the cost of each print.
 """
 
 from __future__ import annotations

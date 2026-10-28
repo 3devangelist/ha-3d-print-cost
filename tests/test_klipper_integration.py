@@ -40,7 +40,7 @@ def printer():
     with patch.multiple(
         CLIENT,
         status=AsyncMock(side_effect=fake.status),
-        metadata=AsyncMock(return_value=FileMetadata(estimated_time_s=4320, filament_weight_g=31.7)),
+        metadata=AsyncMock(return_value=FileMetadata(estimated_time_s=4320)),
     ):
         yield fake
 
@@ -76,7 +76,6 @@ async def setup_ender(hass: HomeAssistant, **extra) -> MockConfigEntry:
             "energy_entity": ENERGY,
             "price_entity": PRICE,
             "integration_method": "left",
-            "filament_fallback": "none",
             **extra,
         },
     )

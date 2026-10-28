@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/3devangelist/ha-3d-print-cost/issues",
   "loggers": ["custom_components.fdm_printer_manager"],
   "requirements": [],
-  "version": "0.3.0"
+  "version": "0.3.0-alpha.1"
 }

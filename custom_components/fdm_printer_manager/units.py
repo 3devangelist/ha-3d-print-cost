@@ -151,12 +151,3 @@ def is_supported_price_unit(unit: str | None) -> bool:
 # --------------------------------------------------------------------------- #
 # Mass
 # --------------------------------------------------------------------------- #
-_MASS_FACTORS_TO_G: dict[str, float] = {"g": 1.0, "kg": 1000.0, "mg": 0.001}
-
-
-def mass_to_g(value: float, unit: str | None) -> float:
-    """Convert a mass value to grams (unit defaults to g)."""
-    factor = _MASS_FACTORS_TO_G.get(_norm(unit) or "g")
-    if factor is None:
-        raise UnsupportedUnitError(f"Unsupported mass unit: {unit!r}")
-    return value * factor

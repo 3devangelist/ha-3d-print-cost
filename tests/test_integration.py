@@ -8,32 +8,24 @@ import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.image import Image
 from homeassistant.core import Event, HomeAssistant
-from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.fdm_printer_manager.adapters.haspelsync import parse_print_usage
 from custom_components.fdm_printer_manager.const import (
     CONF_COVER_IMAGE_ENTITY,
     CONF_ENERGY_ENTITY,
-    CONF_FILAMENT_FALLBACK,
-    CONF_HASPELSYNC_PRINTER_ID,
-    CONF_HASPELSYNC_URL,
     CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
     CONF_PRINT_STATUS_ENTITY,
-    CONF_PRINT_WEIGHT_ENTITY,
     CONF_PRINTER_DEVICE_ID,
     CONF_PRINTER_NAME,
     CONF_PRINTER_SERIAL,
     CONF_PROGRESS_ENTITY,
-    CONF_SPOOLMAN_URL,
     DOMAIN,
     EVENT_PRINT_FINISHED,
 )
 from custom_components.fdm_printer_manager.diagnostics import async_get_config_entry_diagnostics
-from custom_components.fdm_printer_manager.models import SpoolInfo
 
 from .helpers import BAMBU_SENSORS, SERIAL, register_bambu_printer
 
@@ -57,12 +49,10 @@ def make_entry(hass: HomeAssistant, **extra) -> MockConfigEntry:
             CONF_PRINT_STATUS_ENTITY: STATUS,
             CONF_JOB_NAME_ENTITY: JOB,
             CONF_PROGRESS_ENTITY: BAMBU_SENSORS["print_progress"],
-            CONF_PRINT_WEIGHT_ENTITY: BAMBU_SENSORS["print_weight"],
             CONF_POWER_ENTITY: POWER,
             CONF_ENERGY_ENTITY: ENERGY,
             CONF_PRICE_ENTITY: PRICE,
             CONF_INTEGRATION_METHOD: "left",
-            CONF_FILAMENT_FALLBACK: "planned_success",
             **extra,
         },
     )
@@ -104,7 +94,7 @@ async def test_print_with_tariff_change(hass: HomeAssistant, freezer: FrozenDate
     await hass.async_block_till_done()
 
     assert hass.states.get("sensor.x2d_current_print_phase").state == "idle"
-    assert hass.states.get("sensor.x2d_current_print_total_cost").state == "unknown"
+    assert hass.states.get("sensor.x2d_current_print_cost").state == "unknown"
 
     # 14:00 print starts (meter in Wh: 100 000 Wh = 100 kWh)
     await step(hass, freezer, 0, status="prepare", energy="100000")
@@ -120,13 +110,10 @@ async def test_print_with_tariff_change(hass: HomeAssistant, freezer: FrozenDate
     await hass.async_block_till_done()
 
     expected = Decimal("0.06") * Decimal("0.1876") + Decimal("0.54") * Decimal("0.1405")
-    last_cost = hass.states.get("sensor.x2d_last_print_electricity_cost")
+    last_cost = hass.states.get("sensor.x2d_last_print_cost")
     assert float(last_cost.state) == pytest.approx(float(expected), abs=1e-6)
     assert last_cost.attributes["unit_of_measurement"] == "EUR"
-    # electricity only -> total == electricity (filament tracking disabled)
-    total = hass.states.get("sensor.x2d_last_print_total_cost")
-    assert float(total.state) == pytest.approx(float(expected), abs=1e-6)
-    assert total.attributes["filament_status"] == "disabled"
+    assert "filament_status" not in last_cost.attributes
     assert hass.states.get("sensor.x2d_last_print_result").state == "success"
     assert float(hass.states.get("sensor.x2d_last_print_duration").state) == pytest.approx(1.0)  # hours
 
@@ -136,7 +123,8 @@ async def test_print_with_tariff_change(hass: HomeAssistant, freezer: FrozenDate
     assert events[0].data["energy_kwh"] == pytest.approx(0.6)
     event_state = hass.states.get("event.x2d_print_finished")
     assert event_state.attributes["event_type"] == "print_finished"
-    assert event_state.attributes["total_cost"] == pytest.approx(float(expected), abs=1e-4)
+    assert event_state.attributes["electricity_cost"] == pytest.approx(float(expected), abs=1e-4)
+    assert "total_cost" not in event_state.attributes
 
     # Finish state persists on the printer: no second job / event
     await step(hass, freezer, 5, status="finish", energy="100605")
@@ -217,7 +205,7 @@ async def test_last_print_keeps_its_thumbnail(
     assert hass.states.get("image.x2d_last_print_image").state == "unavailable"
 
     await step(hass, freezer, 0, status="running", energy="100000")
-    current = hass.states.get("sensor.x2d_current_print_total_cost")
+    current = hass.states.get("sensor.x2d_current_print_cost")
     assert current.attributes["entity_picture"] == "/api/image_proxy/cover?token=a"
 
     get_image = AsyncMock(return_value=Image("image/png", PNG))
@@ -229,9 +217,9 @@ async def test_last_print_keeps_its_thumbnail(
 
     image = hass.states.get("image.x2d_last_print_image")
     assert image.state == "2026-10-23T14:30:00+00:00"
-    last = hass.states.get("sensor.x2d_last_print_total_cost")
+    last = hass.states.get("sensor.x2d_last_print_cost")
     assert last.attributes["entity_picture"] == image.attributes["entity_picture"]
-    assert "entity_picture" not in hass.states.get("sensor.x2d_current_print_total_cost").attributes
+    assert "entity_picture" not in hass.states.get("sensor.x2d_current_print_cost").attributes
 
     # The copy survives a restart, whatever the printer shows next.
     assert await hass.config_entries.async_reload(entry.entry_id)
@@ -243,73 +231,9 @@ async def test_last_print_keeps_its_thumbnail(
     assert not list((tmp_path / ".storage").glob("*.image"))
 
 
-async def test_filament_cost_from_haspelsync_and_spoolman(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, events
-) -> None:
-    freezer.move_to("2026-10-23 14:00:00+00:00")
-    set_states(hass, status="idle", energy="0")
-    entry = make_entry(
-        hass,
-        **{
-            CONF_HASPELSYNC_URL: "http://hs:4000",
-            CONF_HASPELSYNC_PRINTER_ID: SERIAL,
-            CONF_SPOOLMAN_URL: "http://spoolman:7912",
-        },
-    )
-    started = dt_util.utcnow()
-    summary = {
-        "consumptionBooked": True,
-        "lastPrintSummary": {
-            "state": "FINISH",
-            "jobName": "Flower Lamp",
-            "endedAt": int((started + timedelta(hours=1)).timestamp() * 1000),
-            "rows": [
-                {"amsId": "A1", "grams": 62.4, "status": "booked", "spoolId": 23},
-                {"amsId": "A2", "grams": 22.2, "status": "booked", "spoolId": 45},
-            ],
-        },
-    }
-    spools = {
-        23: SpoolInfo(spool_id=23, spool_price=Decimal("19.39"), initial_weight_g=1000, material="PLA", name="Black"),
-        45: SpoolInfo(spool_id=45, spool_price=Decimal("22.97"), initial_weight_g=1000, material="PLA", name="White"),
-    }
-
-    async def fake_usage(printer_id, *, job_name, started_at):
-        return parse_print_usage(summary, job_name=job_name, started_at=started_at)
-
-    with (
-        patch(
-            "custom_components.fdm_printer_manager.coordinator.HaspelsyncClient.get_current_slots",
-            AsyncMock(return_value={}),
-        ),
-        patch(
-            "custom_components.fdm_printer_manager.coordinator.HaspelsyncClient.get_print_usage",
-            side_effect=fake_usage,
-        ),
-        patch(
-            "custom_components.fdm_printer_manager.coordinator.SpoolmanClient.get_spool",
-            side_effect=lambda spool_id: spools[spool_id],
-        ),
-    ):
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-        await step(hass, freezer, 0, status="running", energy="0")
-        await step(hass, freezer, 60, status="running", energy="640")
-        await step(hass, freezer, 0, status="finish", energy="640")
-        await hass.async_block_till_done()
-
-    assert len(events) == 1
-    data = events[0].data
-    assert data["filament_weight_g"] == pytest.approx(84.6)
-    assert data["filament_cost"] == pytest.approx(1.72, abs=0.005)
-    assert data["total_cost"] == pytest.approx(data["electricity_cost"] + data["filament_cost"], abs=1e-3)
-    assert [f["spool_id"] for f in data["filaments"]] == [23, 45]
-    assert float(hass.states.get("sensor.x2d_last_print_filament_weight").state) == pytest.approx(84.6)
-
-
 async def test_diagnostics_redacts_secrets(hass: HomeAssistant) -> None:
     set_states(hass, status="idle", energy="0")
-    entry = make_entry(hass, **{CONF_HASPELSYNC_URL: "http://hs:4000", "haspelsync_api_key": "super-secret"})
+    entry = make_entry(hass, api_key="super-secret")
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     diag = await async_get_config_entry_diagnostics(hass, entry)

@@ -1,4 +1,4 @@
-"""The PrintJob aggregate: one physical print and everything it cost.
+"""The PrintJob aggregate: one physical print, its energy and its electricity cost.
 
 Pure logic, no Home Assistant import.
 """
@@ -13,7 +13,6 @@ from enum import StrEnum
 from typing import Any
 
 from .cost import ElectricityAccumulator
-from .filament_usage import FilamentUsage, summarize_usages
 
 ZERO = Decimal(0)
 
@@ -22,7 +21,7 @@ class JobPhase(StrEnum):
     """Where the job is in its life cycle."""
 
     ACTIVE = "active"  # printer preparing / printing / paused
-    FINALIZING = "finalizing"  # electricity frozen, waiting for filament data
+    FINALIZING = "finalizing"  # electricity frozen, being stored and announced
     COMPLETED = "completed"  # everything known, kept as the last print
 
 
@@ -33,16 +32,6 @@ class PrintResult(StrEnum):
     CANCELLED = "cancelled"
     FAILED = "failed"
     UNKNOWN = "unknown"
-
-
-class FilamentStatus(StrEnum):
-    """State of the filament side of the job."""
-
-    DISABLED = "disabled"  # no Haspelsync / Spoolman configured
-    PENDING = "pending"  # not resolved yet (print running or waiting)
-    RESOLVED = "resolved"  # weight and cost known
-    PARTIAL = "partial"  # weight known, cost (or part of it) unknown
-    UNAVAILABLE = "unavailable"  # sources unreachable / no data
 
 
 @dataclass(slots=True)
@@ -57,18 +46,10 @@ class PrintJob:
     finished_at: datetime | None = None
     phase: JobPhase = JobPhase.ACTIVE
     result: PrintResult | None = None
-    printer_state: str | None = None  # raw last state reported by ha-bambulab
+    printer_state: str | None = None  # raw last state reported by the printer
 
     progress: float | None = None
     remaining_min: float | None = None
-    planned_weight_g: float | None = None
-    planned_slot_weights: dict[str, float] = field(default_factory=dict)
-    slot_spools: dict[str, int] = field(default_factory=dict)  # slot -> spool id
-
-    filament_status: FilamentStatus = FilamentStatus.PENDING
-    filament_usages: list[FilamentUsage] = field(default_factory=list)
-    filament_note: str | None = None
-    finalize_attempts: int = 0
 
     # ------------------------------------------------------------------ #
     # Derived values
@@ -111,46 +92,9 @@ class PrintJob:
         """Whether every kWh had a known price."""
         return self.electricity.cost_complete
 
-    @property
-    def filament_weight_g(self) -> float | None:
-        """Total filament weight, when known."""
-        if not self.filament_usages:
-            return None
-        return summarize_usages(self.filament_usages).weight_g
-
-    @property
-    def filament_cost(self) -> Decimal | None:
-        """Total filament cost, ``None`` unless every usage is priced."""
-        if not self.filament_usages:
-            return None
-        return summarize_usages(self.filament_usages).cost
-
-    @property
-    def total_cost(self) -> Decimal | None:
-        """Electricity + filament.
-
-        * filament tracking disabled -> electricity only (documented);
-        * filament cost unknown      -> ``None`` (see ``partial_total_cost``).
-        """
-        elec = self.electricity_cost
-        if elec is None:
-            return None
-        if self.filament_status is FilamentStatus.DISABLED:
-            return elec
-        fil = self.filament_cost
-        if fil is None:
-            return None
-        return elec + fil
-
-    @property
-    def partial_total_cost(self) -> Decimal | None:
-        """Sum of whatever is known, explicitly identified as partial."""
-        parts = [p for p in (self.electricity_cost, self.filament_cost) if p is not None]
-        return sum(parts, ZERO) if parts else None
-
     def cost_per_hour(self, now: datetime | None = None) -> Decimal | None:
         """Cost of the print per hour of printing."""
-        total = self.total_cost if self.total_cost is not None else self.electricity_cost
+        total = self.electricity_cost
         hours = self.duration_s(now) / 3600.0
         if total is None or hours < 1 / 60:  # avoid silly numbers in the first minute
             return None
@@ -159,23 +103,6 @@ class PrintJob:
     # ------------------------------------------------------------------ #
     # Views
     # ------------------------------------------------------------------ #
-    def filaments_summary(self) -> list[dict[str, Any]]:
-        """Compact per-spool detail for attributes and events."""
-        return [
-            {
-                "spool_id": u.spool_id,
-                "slot": u.slot,
-                "material": u.material,
-                "name": u.name,
-                "vendor": u.vendor,
-                "color": u.color,
-                "weight_g": round(u.weight_g, 2),
-                "cost": _round(u.cost, 4),
-                "source": str(u.source),
-            }
-            for u in self.filament_usages
-        ]
-
     def summary(self, now: datetime | None = None) -> dict[str, Any]:
         """Flat, rounded view used for events and attributes."""
         return {
@@ -188,12 +115,6 @@ class PrintJob:
             "energy_kwh": round(self.energy_kwh, 4),
             "electricity_cost": _round(self.electricity_cost, 4),
             "electricity_cost_complete": self.electricity_cost_complete,
-            "filament_status": str(self.filament_status),
-            "filament_weight_g": _round_f(self.filament_weight_g, 2),
-            "filament_cost": _round(self.filament_cost, 4),
-            "total_cost": _round(self.total_cost, 4),
-            "partial_total_cost": _round(self.partial_total_cost, 4),
-            "filaments": self.filaments_summary(),
             "notes": self.notes(),
         }
 
@@ -206,8 +127,6 @@ class PrintJob:
             )
         if self.electricity.gap_seconds:
             notes.append(f"{round(self.electricity.gap_seconds)} s of the print had no fresh sample")
-        if self.filament_note:
-            notes.append(self.filament_note)
         return notes
 
     # ------------------------------------------------------------------ #
@@ -226,14 +145,7 @@ class PrintJob:
             "printer_state": self.printer_state,
             "progress": self.progress,
             "remaining_min": self.remaining_min,
-            "planned_weight_g": self.planned_weight_g,
-            "planned_slot_weights": dict(self.planned_slot_weights),
-            "slot_spools": dict(self.slot_spools),
             "electricity": self.electricity.as_dict(),
-            "filament_status": str(self.filament_status),
-            "filament_usages": [u.as_dict() for u in self.filament_usages],
-            "filament_note": self.filament_note,
-            "finalize_attempts": self.finalize_attempts,
         }
 
     @classmethod
@@ -252,14 +164,7 @@ class PrintJob:
             printer_state=data.get("printer_state"),
             progress=data.get("progress"),
             remaining_min=data.get("remaining_min"),
-            planned_weight_g=data.get("planned_weight_g"),
-            planned_slot_weights=dict(data.get("planned_slot_weights") or {}),
-            slot_spools={k: int(v) for k, v in (data.get("slot_spools") or {}).items()},
             electricity=ElectricityAccumulator.from_dict(data.get("electricity") or {}),
-            filament_status=FilamentStatus(data.get("filament_status", FilamentStatus.PENDING)),
-            filament_usages=[FilamentUsage.from_dict(u) for u in data.get("filament_usages") or []],
-            filament_note=data.get("filament_note"),
-            finalize_attempts=int(data.get("finalize_attempts", 0)),
         )
 
 
@@ -268,7 +173,3 @@ def _round(value: Decimal | None, digits: int) -> float | None:
     if value is None:
         return None
     return float(round(value, digits))
-
-
-def _round_f(value: float | None, digits: int) -> float | None:
-    return None if value is None else round(value, digits)

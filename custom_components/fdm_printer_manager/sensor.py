@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfMass, UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -59,15 +59,8 @@ def _current_attrs(data: PrintCostData) -> dict[str, Any] | None:
         "progress": job.progress,
         "remaining_min": job.remaining_min,
         "started_at": summary["started_at"],
-        "electricity_cost": summary["electricity_cost"],
-        "electricity_cost_complete": summary["electricity_cost_complete"],
-        "filament_status": summary["filament_status"],
-        "filament_cost": summary["filament_cost"],
         "energy_kwh": summary["energy_kwh"],
-        "filament_weight_g": summary["filament_weight_g"],
-        "planned_weight_g": job.planned_weight_g,
-        "partial_total_cost": summary["partial_total_cost"],
-        "filaments": summary["filaments"],
+        "electricity_cost_complete": summary["electricity_cost_complete"],
         "notes": summary["notes"],
     }
 
@@ -83,26 +76,12 @@ def _last_attrs(data: PrintCostData) -> dict[str, Any] | None:
 SENSORS: tuple[PrintCostSensorDescription, ...] = (
     # ---------------- current print ----------------
     PrintCostSensorDescription(
-        key="current_print_total_cost",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY,
-        suggested_display_precision=2,
-        value_fn=lambda d: _money(j.total_cost) if (j := _current(d)) else None,
-        attrs_fn=_current_attrs,
-    ),
-    PrintCostSensorDescription(
-        key="current_print_electricity_cost",
+        key="current_print_cost",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY,
         suggested_display_precision=3,
         value_fn=lambda d: _money(j.electricity_cost) if (j := _current(d)) else None,
-    ),
-    PrintCostSensorDescription(
-        key="current_print_filament_cost",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY,
-        suggested_display_precision=2,
-        value_fn=lambda d: _money(j.filament_cost) if (j := _current(d)) else None,
+        attrs_fn=_current_attrs,
     ),
     PrintCostSensorDescription(
         key="current_print_energy",
@@ -110,13 +89,6 @@ SENSORS: tuple[PrintCostSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=3,
         value_fn=lambda d: round(j.energy_kwh, 6) if (j := _current(d)) else None,
-    ),
-    PrintCostSensorDescription(
-        key="current_print_filament_weight",
-        device_class=SensorDeviceClass.WEIGHT,
-        native_unit_of_measurement=UnitOfMass.GRAMS,
-        suggested_display_precision=1,
-        value_fn=lambda d: j.filament_weight_g if (j := _current(d)) else None,
     ),
     PrintCostSensorDescription(
         key="current_print_duration",
@@ -147,26 +119,12 @@ SENSORS: tuple[PrintCostSensorDescription, ...] = (
     ),
     # ---------------- last print ----------------
     PrintCostSensorDescription(
-        key="last_print_total_cost",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY,
-        suggested_display_precision=2,
-        value_fn=lambda d: _money(d.last_job.total_cost) if d.last_job else None,
-        attrs_fn=_last_attrs,
-    ),
-    PrintCostSensorDescription(
-        key="last_print_electricity_cost",
+        key="last_print_cost",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY,
         suggested_display_precision=3,
         value_fn=lambda d: _money(d.last_job.electricity_cost) if d.last_job else None,
-    ),
-    PrintCostSensorDescription(
-        key="last_print_filament_cost",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY,
-        suggested_display_precision=2,
-        value_fn=lambda d: _money(d.last_job.filament_cost) if d.last_job else None,
+        attrs_fn=_last_attrs,
     ),
     PrintCostSensorDescription(
         key="last_print_energy",
@@ -174,13 +132,6 @@ SENSORS: tuple[PrintCostSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=3,
         value_fn=lambda d: round(d.last_job.energy_kwh, 6) if d.last_job else None,
-    ),
-    PrintCostSensorDescription(
-        key="last_print_filament_weight",
-        device_class=SensorDeviceClass.WEIGHT,
-        native_unit_of_measurement=UnitOfMass.GRAMS,
-        suggested_display_precision=1,
-        value_fn=lambda d: d.last_job.filament_weight_g if d.last_job else None,
     ),
     PrintCostSensorDescription(
         key="last_print_duration",
@@ -230,7 +181,7 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
 
     @property
     def entity_picture(self) -> str | None:
-        """Print thumbnail on the totals, shown by cards instead of the icon.
+        """Print thumbnail on the cost sensors, shown by cards instead of the icon (Bambu Lab).
 
         Current print: the ha-bambulab cover image. Last print: the copy kept
         by ``image.<printer>_last_print_image``. The URL carries an access
@@ -241,9 +192,9 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
             return None
         key = self.entity_description.key
         image: str | None = None
-        if key == "current_print_total_cost" and data.current_job is not None:
+        if key == "current_print_cost" and data.current_job is not None:
             image = self.coordinator.conf.get(CONF_COVER_IMAGE_ENTITY)
-        elif key == "last_print_total_cost" and self.coordinator.last_image is not None:
+        elif key == "last_print_cost" and self.coordinator.last_image is not None:
             image = er.async_get(self.hass).async_get_entity_id(
                 "image", DOMAIN, f"{self.coordinator.config_entry.entry_id}_last_print_image"
             )

@@ -10,7 +10,7 @@ duplicate-state protection — is unit-tested with plain Python objects.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
@@ -31,8 +31,8 @@ class PrinterActivity(StrEnum):
     UNKNOWN = "unknown"  # offline, unavailable, init, slicing... -> no transition
 
 
-# Raw values come from ha-bambulab's ``print_status`` sensor, which is the
-# printer's ``gcode_state`` lower-cased (plus "offline").
+# Raw values: ha-bambulab's ``print_status`` (the printer's ``gcode_state``
+# lower-cased, plus "offline") and Moonraker's ``print_stats.state``.
 _ACTIVE = {"prepare", "running", "pause", "paused", "printing"}
 _SUCCESS = {"finish", "finished", "complete", "completed", "success"}
 _FAILED = {"failed", "failure", "error"}
@@ -74,8 +74,6 @@ class PrinterSnapshot:
     job_name: str | None = None
     progress: float | None = None
     remaining_min: float | None = None
-    planned_weight_g: float | None = None
-    planned_slot_weights: dict[str, float] = field(default_factory=dict)
 
 
 class TransitionKind(StrEnum):
@@ -188,10 +186,6 @@ class PrintTracker:
             job.progress = snap.progress
         if snap.remaining_min is not None:
             job.remaining_min = snap.remaining_min
-        if snap.planned_weight_g:
-            job.planned_weight_g = snap.planned_weight_g
-        if snap.planned_slot_weights:
-            job.planned_slot_weights = dict(snap.planned_slot_weights)
 
 
 def _is_different_job(current: str | None, new: str | None) -> bool:
