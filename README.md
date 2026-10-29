@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/fdm-printer-manager-logo-dark.svg">
+    <img alt="FDM Printer Manager" src="docs/logo/fdm-printer-manager-logo.svg" width="380">
+  </picture>
+</p>
+
 # FDM Printer Manager for Home Assistant
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
