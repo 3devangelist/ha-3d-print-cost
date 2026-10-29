@@ -13,7 +13,7 @@ const STYLE = `
   --bg:#12161b; --surface:#1a2027; --surface-2:#222a33; --line:#2d3743; --fg:#e7ecf1; --muted:#8c99a8;
   --accent:#f0a33a; --accent-ink:#1b1206; --heat:#ff7a45; --ok:#57c27a; --bad:#ef6a5a; --idle:#7d8a99; --run:#f0a33a;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  display:block; min-height:100%; background:var(--bg); color:var(--fg);
+  display:block; min-height:100vh; background:var(--bg); color:var(--fg);
   font-family:"Barlow","Segoe UI",Roboto,ui-sans-serif,system-ui,sans-serif; font-size:15px; line-height:1.45;
   color-scheme:dark;
 }
