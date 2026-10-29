@@ -6,7 +6,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
-from .const import BAMBU_DOMAIN, DOMAIN, PrinterType
+from .const import DOMAIN
 from .coordinator import PrintCostCoordinator
 
 
@@ -31,6 +31,4 @@ class PrintCostEntity(CoordinatorEntity[PrintCostCoordinator]):
         )
         if url := coordinator.configuration_url:
             device_info["configuration_url"] = url
-        if coordinator.printer_type is PrinterType.BAMBU and coordinator.printer_serial:
-            device_info["via_device"] = (BAMBU_DOMAIN, coordinator.printer_serial)
         self._attr_device_info = device_info
