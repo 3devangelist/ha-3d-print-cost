@@ -14,18 +14,18 @@
         "title": "Smart plug",
         "description": "The plug the printer is connected to. A plug without energy metering works too: there is just no consumption or cost.",
         "data": {
-          "switch_entity": "Plug",
-          "power_entity": "Power sensor (W)",
-          "energy_entity": "Energy meter (Wh / kWh)",
-          "price_entity": "Electricity price",
-          "integration_method": "Power integration method"
+          "switch_entity": "Smart plug",
+          "power_entity": "Power sensor (found from the plug)",
+          "energy_entity": "Energy meter (found from the plug)",
+          "price_entity": "Price entity (instead of a fixed price)",
+          "price_per_kwh": "Price per kWh"
         },
         "data_description": {
           "switch_entity": "The switch that powers the printer.",
           "power_entity": "Optional.",
           "energy_entity": "Optional. Recommended: a cumulative meter is exact, even across restarts.",
-          "price_entity": "Needed when a power sensor or energy meter is set. Any entity in EUR/kWh, c€/kWh or EUR/MWh; it may change during a print.",
-          "integration_method": "Only used when no energy meter is available."
+          "price_entity": "Optional: a sensor or input_number whose price may change (tariffs). Used instead of the fixed price.",
+          "price_per_kwh": "What you pay per kWh, e.g. 0.16. Needed for the cost."
         }
       },
       "klipper": {
@@ -77,7 +77,7 @@
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
       "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
       "invalid_auth": "API key refused.",
-      "price_required": "Select the electricity price: a power sensor or energy meter is set."
+      "price_required": "Type the price per kWh (or pick a price entity): the plug measures energy."
     },
     "abort": {
       "already_configured": "This printer is already configured."
@@ -103,18 +103,18 @@
         "title": "Smart plug",
         "description": "The plug the printer is connected to. A plug without energy metering works too: there is just no consumption or cost.",
         "data": {
-          "switch_entity": "Plug",
-          "power_entity": "Power sensor (W)",
-          "energy_entity": "Energy meter (Wh / kWh)",
-          "price_entity": "Electricity price",
-          "integration_method": "Power integration method"
+          "switch_entity": "Smart plug",
+          "power_entity": "Power sensor (found from the plug)",
+          "energy_entity": "Energy meter (found from the plug)",
+          "price_entity": "Price entity (instead of a fixed price)",
+          "price_per_kwh": "Price per kWh"
         },
         "data_description": {
           "switch_entity": "The switch that powers the printer.",
           "power_entity": "Optional.",
           "energy_entity": "Optional. Recommended: a cumulative meter is exact, even across restarts.",
-          "price_entity": "Needed when a power sensor or energy meter is set. Any entity in EUR/kWh, c€/kWh or EUR/MWh; it may change during a print.",
-          "integration_method": "Only used when no energy meter is available."
+          "price_entity": "Optional: a sensor or input_number whose price may change (tariffs). Used instead of the fixed price.",
+          "price_per_kwh": "What you pay per kWh, e.g. 0.16. Needed for the cost."
         }
       },
       "behaviour": {
@@ -149,7 +149,7 @@
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
       "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
       "invalid_auth": "API key refused.",
-      "price_required": "Select the electricity price: a power sensor or energy meter is set."
+      "price_required": "Type the price per kWh (or pick a price entity): the plug measures energy."
     }
   },
   "selector": {
@@ -217,6 +217,18 @@
           "failed": "Failed",
           "unknown": "Unknown"
         }
+      },
+      "energy_total": {
+        "name": "Energy total"
+      },
+      "cost_total": {
+        "name": "Cost total"
+      },
+      "energy_today": {
+        "name": "Energy today"
+      },
+      "cost_today": {
+        "name": "Cost today"
       }
     },
     "event": {
@@ -239,6 +251,20 @@
     "switch": {
       "show_last_print": {
         "name": "Show last print"
+      },
+      "safe_power": {
+        "name": "Safe power"
+      }
+    },
+    "button": {
+      "pause_print": {
+        "name": "Pause print"
+      },
+      "resume_print": {
+        "name": "Resume print"
+      },
+      "cancel_print": {
+        "name": "Cancel print"
       }
     }
   }

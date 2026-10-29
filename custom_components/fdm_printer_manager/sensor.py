@@ -11,6 +11,7 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
+    SensorStateClass,
 )
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
@@ -23,6 +24,7 @@ from .const import (
     CONF_HOST,
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
+    CONF_PRICE_FIXED,
     CONF_SWITCH_ENTITY,
     DOMAIN,
 )
@@ -110,6 +112,39 @@ SENSORS: tuple[PrintCostSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         suggested_display_precision=1,
         value_fn=lambda d: d.nozzle_temp,
+    ),
+    # ---------------- the printer's own counters ----------------
+    PrintCostSensorDescription(
+        key="energy_total",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda d: round(d.energy_total_kwh, 6) if d.energy_total_kwh is not None else None,
+    ),
+    PrintCostSensorDescription(
+        key="cost_total",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=CURRENCY,
+        suggested_display_precision=2,
+        value_fn=lambda d: _money(d.cost_total),
+    ),
+    PrintCostSensorDescription(
+        key="energy_today",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=3,
+        value_fn=lambda d: round(d.energy_today_kwh, 6) if d.energy_today_kwh is not None else None,
+    ),
+    PrintCostSensorDescription(
+        key="cost_today",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=CURRENCY,
+        suggested_display_precision=2,
+        value_fn=lambda d: _money(d.cost_today),
     ),
     # ---------------- current print ----------------
     PrintCostSensorDescription(
@@ -259,5 +294,6 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
             "power_entity": conf.get(CONF_POWER_ENTITY),
             "energy_entity": conf.get(CONF_ENERGY_ENTITY),
             "price_entity": conf.get(CONF_PRICE_ENTITY),
+            "price_per_kwh": conf.get(CONF_PRICE_FIXED),
             "reachable": self.coordinator.klipper.available if self.coordinator.klipper else None,
         }

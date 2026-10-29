@@ -52,9 +52,13 @@ Everything happens in that one window:
      connection without one.
    - *Bambu Lab*: pick the printer from the Bambu Lab integration; its entities
      are found automatically.
-3. **Smart plug** — the switch the printer is plugged into. Power sensor and
-   energy meter are optional; the electricity price is asked only when one of
-   them is set.
+3. **Smart plug** — the switch the printer is plugged into. Its power sensor
+   and energy meter are found automatically; type the price per kWh once (it is
+   reused for the next printers). The printer then gets its own counters:
+   energy and cost in total and today.
+
+Easiest: use the **FDM Printers** page in the sidebar (Add integration →
+FDM Printer Manager → "Only add the FDM Printers panel" the first time).
 
 The printer appears as a device with its name. For Klipper the device page has
 a **Visit** button that opens Mainsail / Fluidd.
@@ -219,16 +223,16 @@ restart recovery, last print, `print_finished` event.
   (Moonraker), plug without meter, edit the connection without deleting the
   printer, link to the printer's web interface; filament tracking removed
   (energy cost only)
-- 🚧 permanent history of every print
+- ✅ **0.3.0-alpha.2/3** — FDM Printers sidebar page, permanent print history, safe power
+  switch, Pause / Resume / Cancel, the printer's own energy and cost counters, typed price
 - 🚧 to-do list entry per print (⏳ while printing, ✅ / ❌ at the end)
 - 🚧 run a script / notify when a print ends
 - 🚧 printer down while printing: notify, wait, close as failed if it comes back idle
-- 🚧 safe power: shut the printer's host down before cutting the plug, never while printing
 - 🚧 auto power-off after a successful print, once the nozzle is cold
 - 🚧 "Mark success" / "Mark failed" buttons
 - 🚧 Bambu Lab direct LAN connection (no other integration)
 - 🚧 OctoPrint
-- 🚧 dashboard that lists every printer automatically
+- 🚧 LLM assistant to import an existing setup (to think about)
 - 🚧 guide: sending each print to Google Sheets
 
 ## License

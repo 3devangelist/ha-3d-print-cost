@@ -47,7 +47,7 @@ async def test_add_klipper_printer_with_plug_only(hass: HomeAssistant, bypass_se
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.89"})
     assert result["step_id"] == "electricity"
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"switch_entity": "switch.escritorio_tomada_ender6", "integration_method": "left"}
+        result["flow_id"], {"switch_entity": "switch.escritorio_tomada_ender6"}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "ender6"  # host name used when no name is typed
@@ -69,7 +69,7 @@ async def test_port_typed_with_the_ip(hass: HomeAssistant, bypass_setup) -> None
     result = await _open_klipper(hass)
     with _moonraker():
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.89:7126"})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"integration_method": "left"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["data"]["host"] == "192.168.1.89"
     assert result["data"]["port"] == 7126
     assert result["data"]["web_url"] == "http://192.168.1.89/"
@@ -93,7 +93,7 @@ async def test_api_key_asked_only_when_moonraker_wants_one(hass: HomeAssistant, 
     with _moonraker():
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {"api_key": "right"})
     assert result["step_id"] == "electricity"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"integration_method": "left"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["data"]["api_key"] == "right"
 
 
@@ -128,7 +128,7 @@ async def test_edit_klipper_ip_keeps_the_entry(hass: HomeAssistant, bypass_setup
             result["flow_id"], {"printer_name": "Ender 6", "host": "192.168.1.91", "port": 7125}
         )
     assert result["step_id"] == "electricity"
-    result = await hass.config_entries.options.async_configure(result["flow_id"], {"integration_method": "left"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert result["step_id"] == "behaviour"
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"update_interval": 30, "currency": "EUR"}

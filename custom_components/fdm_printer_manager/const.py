@@ -44,6 +44,16 @@ PANEL_ICON: Final = "mdi:printer-3d-nozzle"
 PANEL_ELEMENT: Final = "fdm-printer-panel"
 STATIC_URL: Final = "/fdm_printer_manager_static"
 
+# Safe power: how long to wait for the printer's computer to shut down before cutting the plug.
+SAFE_POWER_WAIT: Final = 180  # seconds
+SAFE_POWER_POLL: Final = 5  # seconds between "is it down yet?" checks
+
+# Print history kept per printer (newest first).
+HISTORY_LIMIT: Final = 500
+
+ACTIVE_STATES: Final = ("printing", "paused", "running", "pause", "prepare", "slicing")
+PAUSED_STATES: Final = ("paused", "pause")
+
 CONF_PRINTER_DEVICE_ID: Final = "printer_device_id"
 CONF_PRINTER_NAME: Final = "printer_name"
 CONF_PRINTER_SERIAL: Final = "printer_serial"
@@ -69,6 +79,7 @@ CONF_SWITCH_ENTITY: Final = "switch_entity"
 CONF_POWER_ENTITY: Final = "power_entity"
 CONF_ENERGY_ENTITY: Final = "energy_entity"
 CONF_PRICE_ENTITY: Final = "price_entity"
+CONF_PRICE_FIXED: Final = "price_per_kwh"  # typed price, used when no price entity is chosen
 CONF_INTEGRATION_METHOD: Final = "integration_method"
 
 # Behaviour

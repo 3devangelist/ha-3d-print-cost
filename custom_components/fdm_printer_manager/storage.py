@@ -16,7 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import STORAGE_DIR, Store
 
 from .const import STORAGE_KEY_PREFIX, STORAGE_VERSION
-from .models import PrintJob
+from .models import ElectricityAccumulator, PrintJob
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,6 +30,12 @@ class StoredState:
     active_job: PrintJob | None = None
     finalizing: list[PrintJob] = field(default_factory=list)
     last_job: PrintJob | None = None
+    # Counters kept by the integration for each printer (from the plug's readings)
+    total: ElectricityAccumulator | None = None
+    today: ElectricityAccumulator | None = None
+    today_date: str | None = None
+    # Finished prints, newest first (flat summaries, see PrintJob.summary)
+    history: list[dict[str, Any]] = field(default_factory=list)
 
 
 class JobStore:
@@ -51,6 +57,10 @@ class JobStore:
         state.active_job = _job_or_none(raw.get("active_job"))
         state.last_job = _job_or_none(raw.get("last_job"))
         state.finalizing = [j for j in (_job_or_none(d) for d in raw.get("finalizing") or []) if j]
+        state.total = _acc_or_none(raw.get("total"))
+        state.today = _acc_or_none(raw.get("today"))
+        state.today_date = raw.get("today_date")
+        state.history = [h for h in raw.get("history") or [] if isinstance(h, dict)]
         return state
 
     async def async_save(self, state: StoredState) -> None:
@@ -80,7 +90,21 @@ def _serialise(state: StoredState) -> dict[str, Any]:
         "active_job": state.active_job.as_dict() if state.active_job else None,
         "finalizing": [j.as_dict() for j in state.finalizing],
         "last_job": state.last_job.as_dict() if state.last_job else None,
+        "total": state.total.as_dict() if state.total else None,
+        "today": state.today.as_dict() if state.today else None,
+        "today_date": state.today_date,
+        "history": state.history,
     }
+
+
+def _acc_or_none(data: Any) -> ElectricityAccumulator | None:
+    if not isinstance(data, dict):
+        return None
+    try:
+        return ElectricityAccumulator.from_dict(data)
+    except (KeyError, TypeError, ValueError) as err:
+        _LOGGER.error("Dropping unreadable energy counter: %s", err)
+        return None
 
 
 def _job_or_none(data: Any) -> PrintJob | None:

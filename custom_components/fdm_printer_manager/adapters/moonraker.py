@@ -159,6 +159,36 @@ class MoonrakerClient:
             raise MoonrakerConnectionError(f"{url}: not a Moonraker response")
         return data["result"]
 
+    async def _post(self, path: str) -> dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        try:
+            async with self._session.post(url, headers=self._headers, timeout=self._timeout) as resp:
+                if resp.status in (401, 403):
+                    raise MoonrakerAuthError(f"HTTP {resp.status} from {url}")
+                if resp.status >= 400:
+                    raise MoonrakerConnectionError(f"HTTP {resp.status} from {url}")
+                return await resp.json(content_type=None) or {}
+        except MoonrakerError:
+            raise
+        except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+            raise MoonrakerConnectionError(f"{url}: {err}") from err
+
+    async def pause(self) -> None:
+        """Pause the running print."""
+        await self._post("/printer/print/pause")
+
+    async def resume(self) -> None:
+        """Resume a paused print."""
+        await self._post("/printer/print/resume")
+
+    async def cancel(self) -> None:
+        """Cancel the running or paused print."""
+        await self._post("/printer/print/cancel")
+
+    async def shutdown_host(self) -> None:
+        """Shut the printer's computer down (Moonraker ``machine.shutdown``)."""
+        await self._post("/machine/shutdown")
+
     async def server_info(self) -> dict[str, Any]:
         """Moonraker version and Klipper state."""
         return await self._get("/server/info")

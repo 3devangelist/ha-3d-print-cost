@@ -56,6 +56,18 @@
       },
       "nozzle_temperature": {
         "default": "mdi:printer-3d-nozzle-heat"
+      },
+      "energy_total": {
+        "default": "mdi:counter"
+      },
+      "cost_total": {
+        "default": "mdi:cash-multiple"
+      },
+      "energy_today": {
+        "default": "mdi:lightning-bolt"
+      },
+      "cost_today": {
+        "default": "mdi:cash"
       }
     },
     "event": {
@@ -75,6 +87,23 @@
           "off": "mdi:printer-3d-nozzle",
           "on": "mdi:history"
         }
+      },
+      "safe_power": {
+        "default": "mdi:power-plug",
+        "state": {
+          "off": "mdi:power-plug-off"
+        }
+      }
+    },
+    "button": {
+      "pause_print": {
+        "default": "mdi:pause"
+      },
+      "resume_print": {
+        "default": "mdi:play"
+      },
+      "cancel_print": {
+        "default": "mdi:stop"
       }
     }
   }

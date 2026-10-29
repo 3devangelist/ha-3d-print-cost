@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from homeassistant.components import frontend
+import voluptuous as vol
+from homeassistant.components import frontend, websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import Platform
@@ -29,7 +30,7 @@ from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE, Platform.EVENT, Platform.SWITCH]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.IMAGE, Platform.EVENT, Platform.SWITCH, Platform.BUTTON]
 
 # Entities of the removed history and G-code estimate features.
 REMOVED_KEYS = ("print_history", "gcode_estimate", "gcode_file", "estimate_gcode", "refresh_gcode_files")
@@ -81,8 +82,11 @@ async def _async_update_listener(hass: HomeAssistant, entry: PrintCostConfigEntr
 
 
 async def _async_ensure_panel(hass: HomeAssistant) -> None:
-    """Register the "FDM Printers" sidebar panel once."""
+    """Register the "FDM Printers" sidebar panel (and its websocket command) once."""
     data = hass.data.setdefault(DOMAIN, {})
+    if not data.get("ws"):
+        websocket_api.async_register_command(hass, ws_history)
+        data["ws"] = True
     if data.get("panel"):
         return
     if not data.get("static") and hass.http is not None:
@@ -129,3 +133,29 @@ def _manifest_version() -> str:
 
     manifest = json.loads((Path(__file__).parent / "manifest.json").read_text(encoding="utf-8"))
     return str(manifest.get("version", "0"))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/history",
+        vol.Optional("entry_id"): str,
+        vol.Optional("limit", default=50): vol.All(int, vol.Range(min=1, max=500)),
+        vol.Optional("offset", default=0): vol.All(int, vol.Range(min=0)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_history(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Finished prints of every printer (or one), newest first."""
+    rows: list[dict] = []
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.data.get(CONF_PANEL) or entry.state is not ConfigEntryState.LOADED:
+            continue
+        if msg.get("entry_id") and entry.entry_id != msg["entry_id"]:
+            continue
+        coordinator: PrintCostCoordinator = entry.runtime_data
+        currency = coordinator.currency
+        rows.extend({"entry_id": entry.entry_id, "currency": currency, **h} for h in coordinator.state.history)
+    rows.sort(key=lambda r: r.get("finished_at") or "", reverse=True)
+    start = msg["offset"]
+    connection.send_result(msg["id"], {"total": len(rows), "rows": rows[start : start + msg["limit"]]})

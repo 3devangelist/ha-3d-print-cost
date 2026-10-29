@@ -31,12 +31,12 @@ from .const import (
     CONF_CURRENCY,
     CONF_ENERGY_ENTITY,
     CONF_HOST,
-    CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
     CONF_PANEL,
     CONF_PORT,
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
+    CONF_PRICE_FIXED,
     CONF_PRINT_STATUS_ENTITY,
     CONF_PRINTER_DEVICE_ID,
     CONF_PRINTER_NAME,
@@ -47,13 +47,11 @@ from .const import (
     CONF_SWITCH_ENTITY,
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
-    DEFAULT_INTEGRATION_METHOD,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     HTTP_TIMEOUT,
     MAX_UPDATE_INTERVAL,
     MIN_UPDATE_INTERVAL,
-    IntegrationMethod,
     PrinterType,
 )
 
@@ -171,17 +169,10 @@ def electricity_schema(defaults: dict[str, Any]) -> vol.Schema:
             _opt(CONF_SWITCH_ENTITY, defaults): _entity(["switch", "light", "input_boolean"]),
             _opt(CONF_POWER_ENTITY, defaults): _entity("sensor", "power"),
             _opt(CONF_ENERGY_ENTITY, defaults): _entity("sensor", "energy"),
-            _opt(CONF_PRICE_ENTITY, defaults): _entity(["sensor", "input_number", "number"]),
-            vol.Required(
-                CONF_INTEGRATION_METHOD,
-                default=defaults.get(CONF_INTEGRATION_METHOD, DEFAULT_INTEGRATION_METHOD),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[str(m) for m in IntegrationMethod],
-                    translation_key=CONF_INTEGRATION_METHOD,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
+            _opt(CONF_PRICE_FIXED, defaults): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=10, step="any", mode=selector.NumberSelectorMode.BOX)
             ),
+            _opt(CONF_PRICE_ENTITY, defaults): _entity(["sensor", "input_number", "number"]),
         }
     )
 
@@ -217,8 +208,9 @@ def _clean(user_input: dict[str, Any]) -> dict[str, Any]:
 def validate_electricity(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, str]:
     """A price is needed only when the plug measures energy; units must be supported."""
     errors: dict[str, str] = {}
-    if (data.get(CONF_POWER_ENTITY) or data.get(CONF_ENERGY_ENTITY)) and not data.get(CONF_PRICE_ENTITY):
-        errors[CONF_PRICE_ENTITY] = "price_required"
+    has_price = data.get(CONF_PRICE_ENTITY) or data.get(CONF_PRICE_FIXED) is not None
+    if (data.get(CONF_POWER_ENTITY) or data.get(CONF_ENERGY_ENTITY)) and not has_price:
+        errors[CONF_PRICE_FIXED] = "price_required"
     errors.update(
         validate_units(hass, data.get(CONF_POWER_ENTITY), data.get(CONF_ENERGY_ENTITY), data.get(CONF_PRICE_ENTITY))
     )

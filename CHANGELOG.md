@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0-alpha.3]
+
+- **Safe power** switch per printer (`switch.<printer>_safe_power`), for any dashboard:
+  never turns off while printing or paused; Klipper shuts its computer down first and
+  the plug is cut once it is down (at most 3 minutes).
+- **Pause / Resume / Cancel** buttons per printer (Klipper via Moonraker, Bambu via the
+  Bambu Lab integration's buttons), available only when they apply.
+- **The printer's own counters**, created automatically when the plug measures energy:
+  energy total, cost total, energy today, cost today (Energy dashboard ready).
+- **Price per kWh typed in** when adding a printer (no price entity needed); a price
+  entity for changing tariffs is still possible under Advanced.
+- **Print history** of every finished print (last 500 per printer), shown in the panel.
+- The power integration method is no longer asked: the plug's energy meter is used when
+  there is one, otherwise power is integrated automatically.
+- Panel: one Add printer button, idle cards show today's energy / cost and the total
+  cost, Pause / Resume / Cancel with confirmation, plug toggle with confirmation and
+  shutdown progress, "Printing now" and "Recent prints" lists, searchable lists (any
+  words, accents ignored) for plug, sensors and price, mouse wheel never changes a value.
+
 ## [0.3.0-alpha.2] — FDM Printers panel (alpha)
 
 - New **FDM Printers** page in the Home Assistant sidebar (admins only): a card per

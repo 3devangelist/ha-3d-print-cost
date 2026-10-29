@@ -17,5 +17,5 @@
     "custom_components.fdm_printer_manager"
   ],
   "requirements": [],
-  "version": "0.3.0-alpha.2"
+  "version": "0.3.0-alpha.3"
 }
