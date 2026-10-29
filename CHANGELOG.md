@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0-alpha.2] — FDM Printers panel (alpha)
+
+- New **FDM Printers** page in the Home Assistant sidebar (admins only): a card per
+  printer (state, file, progress, time left, nozzle, energy, cost, plug, link to the
+  web interface) and an **Add printer** / **Edit** wizard in the app's own layout.
+  The wizard drives the integration's normal config and options flows.
+- "Add integration" offers "Only add the FDM Printers panel to the sidebar", so the
+  page exists before the first printer.
+- The plug step in the panel finds the plug's power and energy sensors on its device
+  and reuses the electricity price of the other printers.
+- New sensors: printer state (with the panel's settings as attributes), print
+  progress, print file, print time left, nozzle temperature.
+
 ## [0.3.0-alpha.1] — FDM Printer Manager (alpha)
 
 - Renamed to **FDM Printer Manager** (domain `fdm_printer_manager`), maintained by @3devangelist.

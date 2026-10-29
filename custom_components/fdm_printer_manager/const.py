@@ -35,6 +35,15 @@ CONF_WEB_URL: Final = "web_url"
 
 KLIPPER_POLL_INTERVAL: Final = 5  # seconds
 
+# The "FDM Printers" sidebar panel. A special entry (``panel: True``) makes it
+# available before any printer is added; every printer entry also shows it.
+CONF_PANEL: Final = "panel"
+PANEL_URL_PATH: Final = "fdm-printers"
+PANEL_TITLE: Final = "FDM Printers"
+PANEL_ICON: Final = "mdi:printer-3d-nozzle"
+PANEL_ELEMENT: Final = "fdm-printer-panel"
+STATIC_URL: Final = "/fdm_printer_manager_static"
+
 CONF_PRINTER_DEVICE_ID: Final = "printer_device_id"
 CONF_PRINTER_NAME: Final = "printer_name"
 CONF_PRINTER_SERIAL: Final = "printer_serial"

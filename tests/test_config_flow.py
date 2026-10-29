@@ -53,7 +53,7 @@ def set_electric_states(hass: HomeAssistant, price_unit: str = "EUR/kWh") -> Non
 async def _start_bambu(hass: HomeAssistant):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     assert result["type"] is FlowResultType.MENU
-    assert result["menu_options"] == ["klipper", "bambu_device"]
+    assert result["menu_options"][:2] == ["klipper", "bambu_device"]
     return await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "bambu_device"})
 
 

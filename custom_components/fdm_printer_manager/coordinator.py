@@ -82,6 +82,12 @@ class PrintCostData:
     finalizing_job: PrintJob | None
     last_job: PrintJob | None
     price_per_kwh: Decimal | None
+    # Live printer reading (shown by the panel even when nothing is printing)
+    printer_status: str | None = None
+    progress: float | None = None
+    filename: str | None = None
+    remaining_min: float | None = None
+    nozzle_temp: float | None = None
 
     @property
     def current_job(self) -> PrintJob | None:
@@ -132,6 +138,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 )
             )
         self._polling = False
+        self._last_snapshot: PrinterSnapshot | None = None
 
         self.last_image: bytes | None = None
 
@@ -259,6 +266,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     @callback
     def _process(self, now: datetime) -> None:
         snap = self.build_snapshot(now)
+        self._last_snapshot = snap
         transitions = self.tracker.process(snap)
         save_now = False
         for transition in transitions:
@@ -281,6 +289,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.state.active_job = self.tracker.active_job
 
     def _publish(self, now: datetime, price: Decimal | None) -> None:
+        snap = self._last_snapshot
         self.async_set_updated_data(
             PrintCostData(
                 now=now,
@@ -288,6 +297,11 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 finalizing_job=self.state.finalizing[-1] if self.state.finalizing else None,
                 last_job=self.state.last_job,
                 price_per_kwh=price,
+                printer_status=snap.status if snap else None,
+                progress=snap.progress if snap else None,
+                filename=snap.job_name if snap else None,
+                remaining_min=snap.remaining_min if snap else None,
+                nozzle_temp=self.klipper.reading.nozzle_temp if self.klipper else None,
             )
         )
 

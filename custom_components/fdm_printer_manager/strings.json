@@ -6,7 +6,8 @@
         "description": "What kind of printer is it?",
         "menu_options": {
           "klipper": "Klipper (Moonraker)",
-          "bambu_device": "Bambu Lab (through the Bambu Lab integration)"
+          "bambu_device": "Bambu Lab (through the Bambu Lab integration)",
+          "panel": "Only add the FDM Printers panel to the sidebar"
         }
       },
       "electricity": {
@@ -65,6 +66,9 @@
         "data": {
           "api_key": "API key"
         }
+      },
+      "panel": {
+        "title": "FDM Printers panel"
       }
     },
     "error": {
@@ -158,6 +162,21 @@
   },
   "entity": {
     "sensor": {
+      "printer_status": {
+        "name": "Printer state"
+      },
+      "print_progress": {
+        "name": "Print progress"
+      },
+      "print_file": {
+        "name": "Print file"
+      },
+      "print_time_left": {
+        "name": "Print time left"
+      },
+      "nozzle_temperature": {
+        "name": "Nozzle temperature"
+      },
       "current_print_cost": {
         "name": "Current print cost"
       },

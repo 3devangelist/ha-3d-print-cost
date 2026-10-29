@@ -12,12 +12,20 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CONF_COVER_IMAGE_ENTITY, DOMAIN
+from .const import (
+    CONF_COVER_IMAGE_ENTITY,
+    CONF_ENERGY_ENTITY,
+    CONF_HOST,
+    CONF_POWER_ENTITY,
+    CONF_PRICE_ENTITY,
+    CONF_SWITCH_ENTITY,
+    DOMAIN,
+)
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator, PrintCostData
 from .entity import PrintCostEntity
 from .models import PrintJob, PrintResult
@@ -74,6 +82,35 @@ def _last_attrs(data: PrintCostData) -> dict[str, Any] | None:
 
 
 SENSORS: tuple[PrintCostSensorDescription, ...] = (
+    # ---------------- live printer ----------------
+    PrintCostSensorDescription(
+        key="printer_status",
+        value_fn=lambda d: d.printer_status,
+    ),
+    PrintCostSensorDescription(
+        key="print_progress",
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        value_fn=lambda d: d.progress,
+    ),
+    PrintCostSensorDescription(
+        key="print_file",
+        value_fn=lambda d: d.filename,
+    ),
+    PrintCostSensorDescription(
+        key="print_time_left",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        suggested_display_precision=0,
+        value_fn=lambda d: round(d.remaining_min) if d.remaining_min is not None else None,
+    ),
+    PrintCostSensorDescription(
+        key="nozzle_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        value_fn=lambda d: d.nozzle_temp,
+    ),
     # ---------------- current print ----------------
     PrintCostSensorDescription(
         key="current_print_cost",
@@ -204,6 +241,23 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Compact attributes (no large payloads)."""
+        if self.entity_description.key == "printer_status":
+            return self._printer_attrs()
         if self.coordinator.data is None or self.entity_description.attrs_fn is None:
             return None
         return self.entity_description.attrs_fn(self.coordinator.data)
+
+    def _printer_attrs(self) -> dict[str, Any]:
+        """Configuration the FDM Printers panel needs to draw and edit this printer (no secrets)."""
+        conf = self.coordinator.conf
+        return {
+            "entry_id": self.coordinator.config_entry.entry_id,
+            "printer_type": str(self.coordinator.printer_type),
+            "host": conf.get(CONF_HOST),
+            "web_url": self.coordinator.configuration_url,
+            "switch_entity": conf.get(CONF_SWITCH_ENTITY),
+            "power_entity": conf.get(CONF_POWER_ENTITY),
+            "energy_entity": conf.get(CONF_ENERGY_ENTITY),
+            "price_entity": conf.get(CONF_PRICE_ENTITY),
+            "reachable": self.coordinator.klipper.available if self.coordinator.klipper else None,
+        }

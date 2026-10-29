@@ -41,6 +41,21 @@
       },
       "last_print_cost": {
         "default": "mdi:receipt-text"
+      },
+      "printer_status": {
+        "default": "mdi:printer-3d"
+      },
+      "print_progress": {
+        "default": "mdi:progress-clock"
+      },
+      "print_file": {
+        "default": "mdi:file-outline"
+      },
+      "print_time_left": {
+        "default": "mdi:timer-sand"
+      },
+      "nozzle_temperature": {
+        "default": "mdi:printer-3d-nozzle-heat"
       }
     },
     "event": {

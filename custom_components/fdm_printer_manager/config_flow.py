@@ -33,6 +33,7 @@ from .const import (
     CONF_HOST,
     CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
+    CONF_PANEL,
     CONF_PORT,
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
@@ -244,9 +245,24 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         """Options flow."""
         return PrintCostOptionsFlow()
 
+    @classmethod
+    @callback
+    def async_supports_options_flow(cls, config_entry: ConfigEntry) -> bool:
+        """The panel-only entry has nothing to configure."""
+        return not config_entry.data.get(CONF_PANEL)
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """What kind of printer."""
-        return self.async_show_menu(step_id="user", menu_options=["klipper", "bambu_device"])
+        """What kind of printer (or just the sidebar panel, until it exists)."""
+        options = ["klipper", "bambu_device"]
+        if not any(e.data.get(CONF_PANEL) for e in self._async_current_entries(include_ignore=False)):
+            options.append("panel")
+        return self.async_show_menu(step_id="user", menu_options=options)
+
+    async def async_step_panel(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Only add the "FDM Printers" sidebar panel; printers are then added from there."""
+        await self.async_set_unique_id(CONF_PANEL)
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title="FDM Printers panel", data={CONF_PANEL: True})
 
     async def async_step_klipper(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Klipper: only the IP address. Port, name and web interface are filled in automatically."""
