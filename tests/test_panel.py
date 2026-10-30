@@ -14,20 +14,20 @@ from custom_components.fdm_printer_manager.const import DOMAIN, PANEL_URL_PATH
 CLIENT = "custom_components.fdm_printer_manager.coordinator.MoonrakerClient"
 
 
-async def test_panel_only_entry_adds_the_sidebar_panel(hass: HomeAssistant) -> None:
+async def test_first_add_integration_creates_the_panel_in_one_click(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert result["menu_options"] == ["klipper", "bambu_device", "panel"]
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "panel"})
     assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "FDM Printers"
+    assert result["description"] == "panel"
     await hass.async_block_till_done()
     assert PANEL_URL_PATH in hass.data[DATA_PANELS]
     panel = hass.data[DATA_PANELS][PANEL_URL_PATH]
     assert panel.sidebar_title == "FDM Printers"
     assert panel.require_admin
 
-    # Offered only once.
+    # From then on: the printer types.
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert result["menu_options"] == ["klipper", "bambu_device"]
+    assert result["menu_options"] == ["klipper", "bambu_lan", "bambu_device"]
 
     # Gone when nothing of the integration is loaded any more.
     entry = hass.config_entries.async_entries(DOMAIN)[0]

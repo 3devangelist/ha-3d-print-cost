@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0-alpha.4]
+
+- **Bambu Lab direct (LAN)**: a new printer type that talks to the printer itself
+  (IP address, serial number and access code; MQTT over TLS on port 8883). No other
+  integration needed. State, file, progress, time left, nozzle, Pause / Resume / Cancel.
+  The printer must have LAN only mode on (and Developer mode on recent firmware).
+- **Found on the network**: Klipper printers announced by Moonraker (zeroconf) and Bambu
+  Lab printers announcing themselves on the LAN (SSDP) appear in Home Assistant's
+  *Discovered* card and in the FDM Printers page. A Bambu printer only needs its access
+  code; a Klipper printer only a click.
+- The first **Add integration** creates the FDM Printers page directly (no menu); the
+  next ones ask for the printer type.
+- "Bambu Lab (via Bambu Lab integration)" stays available for ha-bambulab users.
+- Diagnostics redact the access code.
+
 ## [0.3.0-alpha.3]
 
 - **Safe power** switch per printer (`switch.<printer>_safe_power`), for any dashboard:

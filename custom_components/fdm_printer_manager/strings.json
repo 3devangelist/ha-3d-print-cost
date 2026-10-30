@@ -6,8 +6,8 @@
         "description": "What kind of printer is it?",
         "menu_options": {
           "klipper": "Klipper (Moonraker)",
-          "bambu_device": "Bambu Lab (through the Bambu Lab integration)",
-          "panel": "Only add the FDM Printers panel to the sidebar"
+          "bambu_lan": "Bambu Lab (local network)",
+          "bambu_device": "Bambu Lab (through the Bambu Lab integration)"
         }
       },
       "electricity": {
@@ -67,20 +67,41 @@
           "api_key": "API key"
         }
       },
-      "panel": {
-        "title": "FDM Printers panel"
+      "zeroconf_confirm": {
+        "title": "Klipper printer found",
+        "description": "Add **{name}** ({host})? Next you pick the smart plug it is connected to."
+      },
+      "bambu_lan": {
+        "title": "Bambu Lab printer (LAN)",
+        "description": "Everything is on the printer's screen: Settings → WLAN / Network (IP address and access code) and Settings → Device (serial number). If the printer refuses the connection, turn on LAN mode on the printer (on recent firmware also Developer mode).",
+        "data": {
+          "printer_name": "Name",
+          "host": "IP address",
+          "printer_serial": "Serial number",
+          "access_code": "Access code"
+        },
+        "data_description": {
+          "printer_name": "Leave empty to use the printer's own name.",
+          "host": "e.g. 192.168.1.90",
+          "access_code": "8 characters, shown on the printer's screen."
+        }
       }
     },
     "error": {
       "unsupported_power_unit": "Unsupported unit (expected W or kW).",
       "unsupported_energy_unit": "Unsupported unit (expected Wh, kWh or MWh).",
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
-      "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
-      "invalid_auth": "API key refused.",
+      "cannot_connect": "Cannot connect. Check the IP address and that the printer is on.",
+      "invalid_auth": "Refused: check the access code (Bambu Lab) or the API key (Klipper).",
       "price_required": "Type the price per kWh (or pick a price entity): the plug measures energy."
     },
     "abort": {
-      "already_configured": "This printer is already configured."
+      "already_configured": "This printer is already configured.",
+      "already_in_progress": "This printer is already being added."
+    },
+    "flow_title": "{name}",
+    "create_entry": {
+      "panel": "Done. Open **FDM Printers** in the sidebar to add your printers (refresh the page if it does not show up yet)."
     }
   },
   "options": {
@@ -141,14 +162,28 @@
           "api_key": "Only if Moonraker requires one (trusted_clients not set for Home Assistant).",
           "web_url": "Mainsail or Fluidd. Leave empty for http://<IP>/. Opens with \"Visit\" on the device page."
         }
+      },
+      "bambu_lan": {
+        "title": "Bambu Lab printer (LAN)",
+        "description": "Change the connection. The printer keeps its history and entities.",
+        "data": {
+          "printer_name": "Name",
+          "host": "IP address",
+          "access_code": "Access code"
+        },
+        "data_description": {
+          "printer_name": "Leave empty to use the printer's own name.",
+          "host": "e.g. 192.168.1.90",
+          "access_code": "8 characters, shown on the printer's screen."
+        }
       }
     },
     "error": {
       "unsupported_power_unit": "Unsupported unit (expected W or kW).",
       "unsupported_energy_unit": "Unsupported unit (expected Wh, kWh or MWh).",
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
-      "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
-      "invalid_auth": "API key refused.",
+      "cannot_connect": "Cannot connect. Check the IP address and that the printer is on.",
+      "invalid_auth": "Refused: check the access code (Bambu Lab) or the API key (Klipper).",
       "price_required": "Type the price per kWh (or pick a price entity): the plug measures energy."
     }
   },

@@ -12,13 +12,17 @@ from pathlib import Path
 import voluptuous as vol
 from homeassistant.components import frontend, websocket_api
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
+from .adapters.bambu_lan import BambuAnnouncement, async_listen_ssdp
 from .const import (
+    CONF_HOST,
     CONF_PANEL,
+    CONF_PRINTER_NAME,
+    CONF_PRINTER_SERIAL,
     DOMAIN,
     PANEL_ELEMENT,
     PANEL_ICON,
@@ -87,6 +91,9 @@ async def _async_ensure_panel(hass: HomeAssistant) -> None:
     if not data.get("ws"):
         websocket_api.async_register_command(hass, ws_history)
         data["ws"] = True
+    if "ssdp" not in data:
+        data["ssdp"] = []  # set before awaiting so two entries never start two listeners
+        data["ssdp"] = await async_listen_ssdp(lambda found: _on_bambu_found(hass, found))
     if data.get("panel"):
         return
     if not data.get("static") and hass.http is not None:
@@ -125,6 +132,28 @@ def _remove_panel_if_unused(hass: HomeAssistant, unloading: PrintCostConfigEntry
     if not others and data.get("panel"):
         frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
         data["panel"] = False
+    if not others and "ssdp" in data:
+        for transport in data.pop("ssdp") or []:
+            transport.close()
+
+
+def _on_bambu_found(hass: HomeAssistant, found: BambuAnnouncement) -> None:
+    """A Bambu Lab printer announced itself: offer it once per run (HA dedupes by serial too)."""
+    seen: set[str] = hass.data.setdefault(DOMAIN, {}).setdefault("seen", set())
+    if found.serial in seen:
+        return
+    seen.add(found.serial)
+    hass.async_create_task(
+        hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_INTEGRATION_DISCOVERY},
+            data={
+                CONF_HOST: found.host,
+                CONF_PRINTER_SERIAL: found.serial,
+                CONF_PRINTER_NAME: found.name or found.model,
+            },
+        )
+    )
 
 
 def _manifest_version() -> str:

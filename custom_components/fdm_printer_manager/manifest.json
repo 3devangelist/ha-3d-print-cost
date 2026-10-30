@@ -17,5 +17,8 @@
     "custom_components.fdm_printer_manager"
   ],
   "requirements": [],
-  "version": "0.3.0-alpha.3"
+  "version": "0.3.0-alpha.4",
+  "zeroconf": [
+    "_moonraker._tcp.local."
+  ]
 }

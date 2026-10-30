@@ -16,8 +16,11 @@ that electricity **cost**. Filament is out of scope.
 
 - **Klipper**: type the printer's IP address. Nothing else to install —
   Home Assistant talks to Moonraker directly.
-- **Bambu Lab**: through the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)
-  for now. A direct LAN (offline) connection is planned.
+- **Bambu Lab**: directly on the LAN (IP, serial number, access code — no cloud, no
+  other integration), or through the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)
+  if you already use it.
+- **Found automatically**: Klipper printers (Moonraker zeroconf) and Bambu Lab printers
+  (SSDP on the LAN) show up as *Discovered*.
 - **OctoPrint**: planned, for older machines.
 - **Any smart plug**. With an energy meter you also get consumption and cost;
   a plain on/off plug works too.
@@ -25,7 +28,7 @@ that electricity **cost**. Filament is out of scope.
 > Based on [ha-3d-print-cost](https://github.com/ZoziLaMalice/ha-3d-print-cost)
 > by ZoziLaMalice (MIT). Thanks for the clean base.
 
-> **Status: alpha (0.3.0-alpha.1).** Expect breaking changes. Klipper and Bambu (via ha-bambulab) work;
+> **Status: alpha (0.3.0-alpha.4).** Expect breaking changes. Klipper, Bambu LAN and Bambu (via ha-bambulab) work;
 > print history, to-do list, safe power-off and the other items in the
 > [roadmap](#roadmap) are being added.
 
@@ -34,6 +37,9 @@ that electricity **cost**. Filament is out of scope.
 1. HACS → ⋮ → **Custom repositories** → add
    `https://github.com/3devangelist/ha-3d-print-cost`, category **Integration**.
 2. Install **FDM Printer Manager**, restart Home Assistant.
+3. **Settings → Devices & services → Add integration → FDM Printer Manager.** The first
+   time this only adds the **FDM Printers** page to the sidebar — one click, no
+   questions. Add the printers from that page.
 
 Manual install: copy `custom_components/fdm_printer_manager` into your
 `config/custom_components/` folder and restart.
@@ -43,22 +49,27 @@ Manual install: copy `custom_components/fdm_printer_manager` into your
 **Settings → Devices & services → Add integration → FDM Printer Manager.**
 Everything happens in that one window:
 
-1. **What kind of printer?** Klipper or Bambu Lab.
+1. **What kind of printer?** Klipper, Bambu Lab (LAN) or Bambu Lab (via the Bambu
+   Lab integration). Printers found on the network are listed first.
 2. **Connection**
    - *Klipper*: just the IP address (add `:port` only if Moonraker does not
      use 7125). The connection is tested before you can continue. Name, port
      and web interface (`http://<IP>/`, i.e. Mainsail or Fluidd) are filled in
      automatically. An API key is asked only if your Moonraker refuses the
      connection without one.
-   - *Bambu Lab*: pick the printer from the Bambu Lab integration; its entities
-     are found automatically.
+   - *Bambu Lab (LAN)*: IP address, serial number and access code (printer screen →
+     Settings → LAN only mode; recent firmware also needs **Developer mode**). A printer
+     found on the network already has IP and serial filled in.
+   - *Bambu Lab (via the Bambu Lab integration)*: pick the printer from ha-bambulab;
+     its entities are found automatically.
 3. **Smart plug** — the switch the printer is plugged into. Its power sensor
    and energy meter are found automatically; type the price per kWh once (it is
    reused for the next printers). The printer then gets its own counters:
    energy and cost in total and today.
 
-Easiest: use the **FDM Printers** page in the sidebar (Add integration →
-FDM Printer Manager → "Only add the FDM Printers panel" the first time).
+Easiest: use the **FDM Printers** page in the sidebar. Klipper needs Moonraker's
+`[zeroconf]` section to be discovered; Bambu printers announce themselves every few
+seconds while LAN mode is on.
 
 The printer appears as a device with its name. For Klipper the device page has
 a **Visit** button that opens Mainsail / Fluidd.
@@ -66,7 +77,8 @@ a **Visit** button that opens Mainsail / Fluidd.
 ## Edit a printer
 
 **Configure** on the printer's entry changes the connection (Klipper: IP
-address, port, API key, web interface, name; Bambu Lab: its entities), the
+address, port, API key, web interface, name; Bambu LAN: IP, access code, name;
+Bambu via ha-bambulab: its entities), the
 plug, meters and price — without deleting it. The
 device, its entities and its history are kept, and a print in progress
 survives the reload.
@@ -177,6 +189,7 @@ actions:
 | Symptom                    | Check                                                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------------------------------ |
 | No print detected (Klipper) | open `http://<IP>:7125/server/info` in a browser: it must answer. If Moonraker asks for an API key, set it in **Configure**. |
+| Bambu LAN "access code refused" / cannot connect | LAN only mode (and Developer mode on recent firmware) must be on; the code changes when LAN mode is toggled. Port 8883 must be reachable. |
 | No print detected (Bambu)  | the _print status_ entity must report `prepare` / `running` / `pause` (ha-bambulab `print_status`).    |
 | Two prints merged / split  | configure the _job name_ entity.                                                                       |
 | Electricity cost `unknown` | the price entity was `unknown`/`unavailable` or in an unsupported unit; see `notes`.                   |
@@ -205,7 +218,7 @@ custom_components/fdm_printer_manager/
 ├── models/          PrintJob, ElectricityAccumulator                  ← pure Python
 ├── units.py         unit normalisation                                ← pure Python
 ├── tracker.py       print life cycle state machine                    ← pure Python
-├── adapters/        moonraker (Klipper, HTTP), bambu, electricity (HA states)
+├── adapters/        moonraker (Klipper, HTTP), bambu_lan (MQTT/TLS, SSDP), bambu (ha-bambulab), electricity
 ├── coordinator.py   listeners, timer, storage, finalisation, event
 ├── sensor.py / event.py / config_flow.py / diagnostics.py / storage.py
 ```
@@ -225,12 +238,13 @@ restart recovery, last print, `print_finished` event.
   (energy cost only)
 - ✅ **0.3.0-alpha.2/3** — FDM Printers sidebar page, permanent print history, safe power
   switch, Pause / Resume / Cancel, the printer's own energy and cost counters, typed price
+- ✅ **0.3.0-alpha.4** — Bambu Lab direct LAN, discovery (Moonraker zeroconf, Bambu SSDP),
+  one-click panel on the first Add integration
 - 🚧 to-do list entry per print (⏳ while printing, ✅ / ❌ at the end)
 - 🚧 run a script / notify when a print ends
 - 🚧 printer down while printing: notify, wait, close as failed if it comes back idle
 - 🚧 auto power-off after a successful print, once the nozzle is cold
 - 🚧 "Mark success" / "Mark failed" buttons
-- 🚧 Bambu Lab direct LAN connection (no other integration)
 - 🚧 OctoPrint
 - 🚧 LLM assistant to import an existing setup (to think about)
 - 🚧 guide: sending each print to Google Sheets

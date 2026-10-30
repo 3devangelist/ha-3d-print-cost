@@ -282,6 +282,10 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
             return None
         return self.entity_description.attrs_fn(self.coordinator.data)
 
+    @property
+    def _source(self):
+        return self.coordinator.klipper or self.coordinator.bambu_lan
+
     def _printer_attrs(self) -> dict[str, Any]:
         """Configuration the FDM Printers panel needs to draw and edit this printer (no secrets)."""
         conf = self.coordinator.conf
@@ -295,5 +299,7 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
             "energy_entity": conf.get(CONF_ENERGY_ENTITY),
             "price_entity": conf.get(CONF_PRICE_ENTITY),
             "price_per_kwh": conf.get(CONF_PRICE_FIXED),
-            "reachable": self.coordinator.klipper.available if self.coordinator.klipper else None,
+            "reachable": source.available
+            if (source := self.coordinator.klipper or self.coordinator.bambu_lan)
+            else None,
         }

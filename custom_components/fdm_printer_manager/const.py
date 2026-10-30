@@ -24,7 +24,8 @@ class PrinterType(StrEnum):
     """How the integration talks to the printer."""
 
     KLIPPER = "klipper"  # Moonraker HTTP API, direct
-    BAMBU = "bambu"  # through the ha-bambulab integration (direct LAN mode planned)
+    BAMBU = "bambu"  # through the ha-bambulab integration
+    BAMBU_LAN = "bambu_lan"  # Bambu Lab printer over the local network (MQTT), direct
 
 
 # Direct connection (Klipper today; OctoPrint and Bambu LAN later)
@@ -32,6 +33,7 @@ CONF_HOST: Final = "host"
 CONF_PORT: Final = "port"
 CONF_API_KEY: Final = "api_key"
 CONF_WEB_URL: Final = "web_url"
+CONF_ACCESS_CODE: Final = "access_code"  # Bambu LAN
 
 KLIPPER_POLL_INTERVAL: Final = 5  # seconds
 

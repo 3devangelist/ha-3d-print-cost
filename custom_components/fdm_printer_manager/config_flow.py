@@ -14,8 +14,10 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResu
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .adapters import bambu
+from .adapters.bambu_lan import BambuAuthError, BambuError, BambuLanClient
 from .adapters.electricity import validate_units
 from .adapters.moonraker import (
     DEFAULT_PORT,
@@ -26,6 +28,7 @@ from .adapters.moonraker import (
 )
 from .const import (
     BAMBU_DOMAIN,
+    CONF_ACCESS_CODE,
     CONF_API_KEY,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
@@ -162,6 +165,35 @@ def normalise_klipper(data: dict[str, Any], hostname: str | None) -> dict[str, A
     return result
 
 
+def bambu_lan_schema(defaults: dict[str, Any], *, with_serial: bool = True) -> vol.Schema:
+    """Bambu Lab over the local network: IP, serial number, access code (all on the printer's screen)."""
+    fields: dict[Any, Any] = {
+        _opt(CONF_PRINTER_NAME, defaults): selector.TextSelector(),
+        vol.Required(CONF_HOST, description={"suggested_value": defaults.get(CONF_HOST)}): selector.TextSelector(),
+    }
+    if with_serial:
+        fields[
+            vol.Required(CONF_PRINTER_SERIAL, description={"suggested_value": defaults.get(CONF_PRINTER_SERIAL)})
+        ] = selector.TextSelector()
+    fields[vol.Required(CONF_ACCESS_CODE, description={"suggested_value": defaults.get(CONF_ACCESS_CODE)})] = (
+        selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
+    )
+    return vol.Schema(fields)
+
+
+async def validate_bambu_lan(host: str, serial: str, code: str) -> dict[str, str]:
+    """Connect over MQTT and wait for a first report."""
+    client = BambuLanClient(host, serial, code, lambda: None)
+    try:
+        await client.async_test()
+    except BambuAuthError:
+        return {CONF_ACCESS_CODE: "invalid_auth"}
+    except BambuError as err:
+        _LOGGER.debug("Bambu LAN %s not reachable: %s", host, err)
+        return {"base": "cannot_connect"}
+    return {}
+
+
 def electricity_schema(defaults: dict[str, Any]) -> vol.Schema:
     """Smart plug step: the switch, and optionally its meter and the price."""
     return vol.Schema(
@@ -230,6 +262,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         self._data: dict[str, Any] = {}
         self._discovered: dict[str, str] = {}
         self._klipper: dict[str, Any] = {}
+        self._bambu: dict[str, Any] = {}
 
     @staticmethod
     @callback
@@ -244,17 +277,92 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         return not config_entry.data.get(CONF_PANEL)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """What kind of printer (or just the sidebar panel, until it exists)."""
-        options = ["klipper", "bambu_device"]
+        """First time: add the sidebar page in one click. Afterwards: what kind of printer."""
         if not any(e.data.get(CONF_PANEL) for e in self._async_current_entries(include_ignore=False)):
-            options.append("panel")
-        return self.async_show_menu(step_id="user", menu_options=options)
+            return await self.async_step_panel()
+        return self.async_show_menu(step_id="user", menu_options=["klipper", "bambu_lan", "bambu_device"])
 
     async def async_step_panel(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Only add the "FDM Printers" sidebar panel; printers are then added from there."""
+        """Add the "FDM Printers" sidebar page; printers are then added from there."""
         await self.async_set_unique_id(CONF_PANEL)
         self._abort_if_unique_id_configured()
-        return self.async_create_entry(title="FDM Printers panel", data={CONF_PANEL: True})
+        return self.async_create_entry(title="FDM Printers", data={CONF_PANEL: True}, description="panel")
+
+    # ------------------------------------------------------------------ #
+    # Discovery
+    # ------------------------------------------------------------------ #
+    async def async_step_zeroconf(self, discovery_info: ZeroconfServiceInfo) -> ConfigFlowResult:
+        """A Klipper printer announced by Moonraker (``[zeroconf]`` in moonraker.conf)."""
+        host = str(discovery_info.host)
+        port = int(discovery_info.port or DEFAULT_PORT)
+        await self.async_set_unique_id(f"klipper_{host.lower()}_{port}")
+        self._abort_if_unique_id_configured()
+        name = (discovery_info.hostname or "").rstrip(".").removesuffix(".local") or host
+        self._klipper = {CONF_HOST: host, CONF_PORT: port, CONF_PRINTER_NAME: name}
+        self.context["title_placeholders"] = {"name": name}
+        return await self.async_step_zeroconf_confirm()
+
+    async def async_step_zeroconf_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Confirm the discovered Klipper printer, then pick its plug."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors, hostname = await validate_klipper(self.hass, self._klipper)
+            if errors.get(CONF_API_KEY):
+                return await self.async_step_klipper_auth()
+            if not errors:
+                return await self._async_klipper_done(hostname)
+            errors = {"base": "cannot_connect"}
+        return self.async_show_form(
+            step_id="zeroconf_confirm",
+            description_placeholders={"name": self._klipper[CONF_PRINTER_NAME], "host": self._klipper[CONF_HOST]},
+            errors=errors,
+        )
+
+    async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
+        """A Bambu Lab printer heard on the network (SSDP on UDP 2021)."""
+        serial = str(discovery_info[CONF_PRINTER_SERIAL]).upper()
+        host = str(discovery_info[CONF_HOST])
+        await self.async_set_unique_id(f"bambu_{serial}")
+        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+        name = discovery_info.get(CONF_PRINTER_NAME) or f"Bambu {serial[-4:]}"
+        self._bambu = {CONF_HOST: host, CONF_PRINTER_SERIAL: serial, CONF_PRINTER_NAME: name}
+        self.context["title_placeholders"] = {"name": name}
+        return await self.async_step_bambu_lan()
+
+    # ------------------------------------------------------------------ #
+    # Bambu Lab over the local network
+    # ------------------------------------------------------------------ #
+    async def async_step_bambu_lan(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """IP address, serial number and access code (prefilled when discovered)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            host = str(cleaned[CONF_HOST]).strip()
+            serial = str(cleaned.get(CONF_PRINTER_SERIAL) or self._bambu.get(CONF_PRINTER_SERIAL, "")).strip().upper()
+            code = str(cleaned[CONF_ACCESS_CODE]).strip()
+            if self.source != "integration_discovery":
+                await self.async_set_unique_id(f"bambu_{serial}")
+                self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+            errors = await validate_bambu_lan(host, serial, code)
+            if not errors:
+                name = (cleaned.get(CONF_PRINTER_NAME) or "").strip() or self._bambu.get(CONF_PRINTER_NAME)
+                self._data.update(
+                    {
+                        CONF_PRINTER_TYPE: PrinterType.BAMBU_LAN,
+                        CONF_HOST: host,
+                        CONF_PRINTER_SERIAL: serial,
+                        CONF_ACCESS_CODE: code,
+                        CONF_PRINTER_NAME: name or f"Bambu {serial[-4:]}",
+                    }
+                )
+                return await self.async_step_electricity()
+            self._bambu.update({CONF_HOST: host, CONF_PRINTER_SERIAL: serial})
+        return self.async_show_form(
+            step_id="bambu_lan",
+            data_schema=bambu_lan_schema({**self._bambu, **(user_input or {})}),
+            description_placeholders={"name": self._bambu.get(CONF_PRINTER_NAME, "")},
+            errors=errors,
+        )
 
     async def async_step_klipper(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Klipper: only the IP address. Port, name and web interface are filled in automatically."""
@@ -379,6 +487,8 @@ class PrintCostOptionsFlow(OptionsFlow):
         """Printer connection (Klipper) or entities (Bambu)."""
         if self._is_klipper:
             return await self.async_step_klipper()
+        if self._current.get(CONF_PRINTER_TYPE) == PrinterType.BAMBU_LAN:
+            return await self.async_step_bambu_lan()
         if user_input is not None:
             self._options.update(_with_cleared(user_input, bambu_schema({})))
             return await self.async_step_electricity()
@@ -402,6 +512,26 @@ class PrintCostOptionsFlow(OptionsFlow):
                 return await self.async_step_electricity()
         return self.async_show_form(
             step_id="klipper", data_schema=klipper_schema(user_input or self._current), errors=errors
+        )
+
+    async def async_step_bambu_lan(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Change the IP address, access code or name of a Bambu LAN printer (history is kept)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            cleaned = _clean(user_input)
+            host = str(cleaned[CONF_HOST]).strip()
+            code = str(cleaned[CONF_ACCESS_CODE]).strip()
+            errors = await validate_bambu_lan(host, self._current[CONF_PRINTER_SERIAL], code)
+            if not errors:
+                name = (cleaned.get(CONF_PRINTER_NAME) or "").strip() or self.config_entry.title
+                self._options.update({CONF_HOST: host, CONF_ACCESS_CODE: code, CONF_PRINTER_NAME: name})
+                if name != self.config_entry.title:
+                    self.hass.config_entries.async_update_entry(self.config_entry, title=name)
+                return await self.async_step_electricity()
+        return self.async_show_form(
+            step_id="bambu_lan",
+            data_schema=bambu_lan_schema(user_input or self._current, with_serial=False),
+            errors=errors,
         )
 
     async def async_step_electricity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

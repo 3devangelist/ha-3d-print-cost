@@ -33,11 +33,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .adapters import bambu
+from .adapters.bambu_lan import BambuLanClient
 from .adapters.electricity import ElectricityReader, ElectricitySources
 from .adapters.moonraker import DEFAULT_PORT, KlipperSource, MoonrakerClient, default_web_url
 from .const import (
     ACTIVE_STATES,
     BAMBU_ENTITY_KEYS,
+    CONF_ACCESS_CODE,
     CONF_API_KEY,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
@@ -159,6 +161,16 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                     timeout=HTTP_TIMEOUT,
                 )
             )
+        self.bambu_lan: BambuLanClient | None = None
+        if self.printer_type is PrinterType.BAMBU_LAN:
+            self.bambu_lan = BambuLanClient(
+                self.conf[CONF_HOST],
+                self.conf[CONF_PRINTER_SERIAL],
+                self.conf[CONF_ACCESS_CODE],
+                self._on_bambu_update,
+            )
+        self._last_bambu_process: float = 0.0
+        self._last_bambu_state: str | None = None
         self._polling = False
         self._last_snapshot: PrinterSnapshot | None = None
         # Safe power: "on" / "off" follow the plug; "shutting_down" while waiting to cut it.
@@ -192,6 +204,10 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             await self.klipper.async_update()
             self._unsubs.append(
                 async_track_time_interval(self.hass, self._async_poll_klipper, timedelta(seconds=KLIPPER_POLL_INTERVAL))
+            )
+        if self.bambu_lan is not None:
+            self.bambu_lan.start(
+                lambda coro: self.config_entry.async_create_background_task(self.hass, coro, f"{DOMAIN}_bambu_lan")
             )
         interval = timedelta(seconds=int(self.conf.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)))
         self._unsubs.append(async_track_time_interval(self.hass, self._on_tick, interval))
@@ -245,6 +261,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             return False
         if self.klipper is not None:
             return self.klipper.available
+        if self.bambu_lan is not None:
+            return self.bambu_lan.available
         return self._bambu_button(_BAMBU_BUTTONS[action]) is not None
 
     async def async_control(self, action: str) -> None:
@@ -255,6 +273,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             await getattr(self.klipper.client, action)()
             await self.klipper.async_update()
             self._process(dt_util.utcnow())
+            return
+        if self.bambu_lan is not None:
+            await self.bambu_lan.async_command({"pause": "pause", "resume": "resume", "cancel": "stop"}[action])
             return
         button = self._bambu_button(_BAMBU_BUTTONS[action])
         await self.hass.services.async_call("button", "press", {"entity_id": button}, blocking=True)
@@ -328,6 +349,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._unsubs.clear()
         for task in list(self._tasks):
             task.cancel()
+        if self.bambu_lan is not None:
+            await self.bambu_lan.stop()
         self._sync_state()
         await self.store.async_save(self.state)
 
@@ -386,8 +409,31 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             return self.conf.get(CONF_WEB_URL) or default_web_url(self.conf[CONF_HOST])
         return None
 
+    @callback
+    def _on_bambu_update(self) -> None:
+        """A Bambu LAN report arrived: run the tracker (at most every 2 s unless the state changed)."""
+        if self.bambu_lan is None:
+            return
+        state = self.bambu_lan.reading.state
+        now = self.hass.loop.time()
+        if state == self._last_bambu_state and now - self._last_bambu_process < 2:
+            return
+        self._last_bambu_state = state
+        self._last_bambu_process = now
+        self._process(dt_util.utcnow())
+
     def build_snapshot(self, now: datetime) -> PrinterSnapshot:
         """Read the printer and the electrical inputs."""
+        if self.bambu_lan is not None:
+            reading = self.bambu_lan.reading
+            return PrinterSnapshot(
+                timestamp=now,
+                status=reading.state,
+                electricity=self.reader.sample(now),
+                job_name=reading.filename,
+                progress=reading.progress,
+                remaining_min=reading.remaining_min,
+            )
         if self.klipper is not None:
             reading = self.klipper.reading
             return PrinterSnapshot(
@@ -469,13 +515,20 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 progress=snap.progress if snap else None,
                 filename=snap.job_name if snap else None,
                 remaining_min=snap.remaining_min if snap else None,
-                nozzle_temp=self.klipper.reading.nozzle_temp if self.klipper else None,
+                nozzle_temp=self._nozzle_temp(),
                 energy_total_kwh=self.state.total.total_energy_kwh if self.state.total else None,
                 cost_total=self._counter_cost(self.state.total),
                 energy_today_kwh=self.state.today.total_energy_kwh if self.state.today else None,
                 cost_today=self._counter_cost(self.state.today),
             )
         )
+
+    def _nozzle_temp(self) -> float | None:
+        if self.klipper is not None:
+            return self.klipper.reading.nozzle_temp
+        if self.bambu_lan is not None:
+            return self.bambu_lan.reading.nozzle_temp
+        return None
 
     @staticmethod
     def _counter_cost(acc: ElectricityAccumulator | None) -> Decimal | None:

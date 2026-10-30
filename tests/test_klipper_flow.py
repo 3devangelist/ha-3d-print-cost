@@ -13,6 +13,8 @@ from custom_components.fdm_printer_manager.const import DOMAIN
 
 CLIENT = "custom_components.fdm_printer_manager.config_flow.MoonrakerClient"
 
+pytestmark = pytest.mark.usefixtures("panel_entry")
+
 
 @pytest.fixture
 async def bypass_setup(hass: HomeAssistant):

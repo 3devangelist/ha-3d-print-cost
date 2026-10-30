@@ -1,6 +1,6 @@
 [project]
 name = "ha-3d-print-cost"
-version = "0.3.0a3"
+version = "0.3.0a4"
 description = "Home Assistant integration: add 3D printers (Klipper, Bambu Lab) in one window and track every print, its energy and its cost."
 readme = "README.md"
 license = { text = "MIT" }

@@ -130,12 +130,15 @@ details summary{cursor:pointer;margin-bottom:10px}
 
 const TYPE_INFO = {
   klipper: { label: "Klipper", hint: "Moonraker · just the IP address" },
-  bambu_device: { label: "Bambu Lab", hint: "Through the Bambu Lab integration" },
+  bambu_lan: { label: "Bambu Lab (LAN)", hint: "Direct · IP, serial number and access code" },
+  bambu_device: { label: "Bambu Lab (via Bambu Lab integration)", hint: "Uses a printer already set up in ha-bambulab" },
 };
 
 const FIELD_LABELS = {
   host: "IP address",
   api_key: "API key",
+  printer_serial: "Serial number",
+  access_code: "Access code",
   printer_name: "Name",
   port: "Moonraker port",
   web_url: "Web interface",
@@ -257,12 +260,51 @@ class FdmPrinterPanel extends HTMLElement {
       ]);
       this._registry = registry.filter((e) => e.platform === DOMAIN);
       this._entries = entries;
+      await this._loadDiscovered();
     } catch (err) {
       console.error("FDM Printers: cannot load registry", err);
       this._registry = [];
     }
     await this._loadHistory(false);
     if (this._view === "list") this._render();
+  }
+
+  /** Discovery flows of this domain waiting for the user (Klipper via zeroconf, Bambu via SSDP). */
+  async _loadDiscovered() {
+    try {
+      const flows = await this._hass.callWS({ type: "config_entries/flow/progress" });
+      this._discovered = flows.filter((f) => f.handler === DOMAIN && ["zeroconf", "integration_discovery"].includes(f.context?.source));
+    } catch (err) {
+      this._discovered = [];
+    }
+  }
+
+  _renderDiscovered() {
+    const found = this._discovered || [];
+    if (!found.length) return "";
+    const items = found
+      .map((f) => {
+        const name = f.context?.title_placeholders?.name || f.step_id;
+        const kind = f.context?.source === "zeroconf" ? "Klipper" : "Bambu Lab";
+        return `<button class="type" data-act="found" data-flow="${esc(f.flow_id)}"><b>${esc(name)}</b><small>${kind} · found on the network</small></button>`;
+      })
+      .join("");
+    return `<h2>Found on the network</h2><div class="types">${items}</div>`;
+  }
+
+  async _continueFound(flowId) {
+    this._view = "flow";
+    this._flow = { kind: "config", title: "Add printer", discovered: true };
+    this._data = {};
+    this._busy = true;
+    this._render();
+    try {
+      this._setResult(await this._hass.callApi("GET", `config/config_entries/flow/${flowId}`));
+    } catch (err) {
+      this._flow.error = String(err?.body?.message || err?.message || err);
+    }
+    this._busy = false;
+    this._render();
   }
 
   async _loadHistory(render = true) {
@@ -337,6 +379,7 @@ class FdmPrinterPanel extends HTMLElement {
           <button class="btn pri" data-act="add">＋ Add printer</button>
         </div>
         ${printers.length ? `<div class="grid">${printers.map((p) => this._card(p)).join("")}</div>` : `<p class="empty">No printers yet. Use “＋ Add printer” to add the first one.</p>`}
+        ${this._renderDiscovered()}
         ${printers.length ? this._renderNow(active) + this._renderHistory(printers) : ""}
       </main>`;
   }
@@ -355,7 +398,7 @@ class FdmPrinterPanel extends HTMLElement {
     const left = num(s("print_time_left"));
     const nozzle = num(s("nozzle_temperature"));
     const unit = s("cost_total")?.attributes?.unit_of_measurement || s("current_print_cost")?.attributes?.unit_of_measurement || "";
-    const type = attrs.printer_type === "klipper" ? "Klipper" : "Bambu Lab";
+    const type = attrs.printer_type === "klipper" ? "Klipper" : attrs.printer_type === "bambu_lan" ? "Bambu Lab · LAN" : "Bambu Lab";
     const where = attrs.host ? ` · ${esc(attrs.host)}` : "";
     const fileShown = file && !["unknown", "unavailable"].includes(file) ? file : "";
     const lastResult = s("last_print_result")?.state;
@@ -525,7 +568,7 @@ class FdmPrinterPanel extends HTMLElement {
 
   _dropFlow() {
     const flow = this._flow;
-    if (flow?.id && this._hass) this._hass.callApi("DELETE", `${this._flowBase(flow.kind)}/${flow.id}`).catch(() => {});
+    if (flow?.id && this._hass && !flow.discovered) this._hass.callApi("DELETE", `${this._flowBase(flow.kind)}/${flow.id}`).catch(() => {});
     if (flow) flow.id = null;
   }
 
@@ -591,7 +634,8 @@ class FdmPrinterPanel extends HTMLElement {
         return `<button class="type" data-act="menu" data-step="${esc(o)}"><b>${esc(info.label)}</b><small>${esc(info.hint)}</small></button>`;
       })
       .join("");
-    return `<div class="types">${cards}<button class="type" disabled><b>OctoPrint</b><small>Older machines</small><span class="soon">planned</span></button></div>`;
+    const found = this._renderDiscovered();
+    return `${found}${found ? "<h2>Or add one by hand</h2>" : ""}<div class="types">${cards}<button class="type" disabled><b>OctoPrint</b><small>Older machines</small><span class="soon">planned</span></button></div>`;
   }
 
   _renderForm(r) {
@@ -600,6 +644,8 @@ class FdmPrinterPanel extends HTMLElement {
     const hint =
       {
         klipper: `<div class="banner info">Type the printer's IP address. Name, port and web interface are filled in automatically.</div>`,
+        zeroconf_confirm: `<div class="banner info">Klipper printer <b>${esc(r.description_placeholders?.name || "")}</b> found at ${esc(r.description_placeholders?.host || "")}. Add it?</div>`,
+        bambu_lan: `<div class="banner info">On the printer: Settings → LAN only mode on (and Developer mode on recent firmware). The access code is shown there too.</div>`,
         klipper_auth: `<div class="banner info">This printer only accepts connections with a Moonraker API key.</div>`,
         electricity: `<div class="banner info">Pick the plug the printer is connected to. Its power and energy sensors are found automatically.</div>`,
       }[r.step_id] || "";
@@ -616,7 +662,7 @@ class FdmPrinterPanel extends HTMLElement {
       for (const n of names) main.push(this._field(byName[n], errors[n]));
     }
     const adv = advanced.length ? `<details ${errors.price_entity ? "open" : ""}><summary>Advanced</summary>${advanced.join("")}</details>` : "";
-    let submitLabel = "Next →";
+    let submitLabel = r.step_id === "zeroconf_confirm" ? "Add →" : "Next →";
     if (this._flow.kind === "options" && r.step_id === "behaviour") submitLabel = "Save";
     if (this._flow.kind === "config" && r.step_id === "electricity") submitLabel = "Add printer";
     return `${hint}${base}<form id="form" autocomplete="off">${main.join("")}${adv}<div class="wbtns"><span></span><button class="btn pri" type="submit">${submitLabel}</button></div></form>`;
@@ -640,7 +686,8 @@ class FdmPrinterPanel extends HTMLElement {
     const label = FIELD_LABELS[name] || name;
     const sel = field.selector || {};
     const value = this._data[name];
-    const err = error ? `<span class="e">${esc(ERRORS[error] || error)}</span>` : "";
+    const msg = name === "access_code" && error === "invalid_auth" ? "The printer refused this access code." : ERRORS[error] || error;
+    const err = error ? `<span class="e">${esc(msg)}</span>` : "";
     const auto = ["power_entity", "energy_entity"].includes(name) && this._flow?.result?.step_id === "electricity";
     const hint = auto ? `<span class="h">${value ? "Found from the plug." : "Not found on this plug — search one, or leave empty."}</span>` : "";
     const req = field.required || name === "switch_entity" || auto ? "" : ` <span class="h">(optional)</span>`;
@@ -660,7 +707,7 @@ class FdmPrinterPanel extends HTMLElement {
       return `<div class="f"><label for="f-${esc(name)}">${esc(label)}${req}</label><input id="f-${esc(name)}" data-name="${esc(name)}" data-num="1" type="number" step="any" value="${esc(value ?? "")}">${err}</div>`;
     }
     const type = sel.text?.type === "password" ? "password" : "text";
-    const ph = name === "host" ? "192.168.1.89" : "";
+    const ph = name === "host" ? "192.168.1.89" : name === "access_code" ? "8 characters" : "";
     const big = name === "host" ? " big" : "";
     return `<div class="f${big}"><label for="f-${esc(name)}">${esc(label)}${req}</label><input id="f-${esc(name)}" data-name="${esc(name)}" type="${type}" value="${esc(value ?? "")}" placeholder="${ph}" spellcheck="false">${err}</div>`;
   }
@@ -895,13 +942,18 @@ class FdmPrinterPanel extends HTMLElement {
         ev.preventDefault();
         this._submit(this._collect());
       });
-      root.querySelector('[data-name="host"]')?.focus();
+      const code = root.querySelector('[data-name="access_code"]');
+      (code && !code.value && this._data.host ? code : root.querySelector('[data-name="host"]'))?.focus();
     }
   }
 
   async _action(el) {
     const act = el.dataset.act;
     if (act === "add") return this._startAdd();
+    if (act === "found") {
+      this._dropFlow(); // leaving the menu flow of "Add printer"
+      return this._continueFound(el.dataset.flow);
+    }
     if (act === "edit") return this._startEdit(el.dataset.entry);
     if (act === "back") return this._backToList();
     if (act === "menu") return this._submit({ next_step_id: el.dataset.step });

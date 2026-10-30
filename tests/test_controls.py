@@ -134,7 +134,7 @@ async def test_pause_resume_cancel_buttons(hass: HomeAssistant, printer) -> None
 
 
 async def test_history_websocket(hass: HomeAssistant, hass_ws_client, freezer, printer) -> None:
-    freezer.move_to("2026-10-29 10:00:00+00:00")
+    # No fixed date here: the websocket access token is checked against the real clock.
     entry = await setup(hass)
     coordinator = entry.runtime_data
     for name, state in (("a.gcode", "complete"), ("b.gcode", "cancelled")):
