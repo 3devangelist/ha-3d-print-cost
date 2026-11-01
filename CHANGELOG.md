@@ -28,6 +28,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     (`kind`: `down`, `back`, `resumed`, `interrupted`, `stalled`) and, optionally, your notify
     actions (e.g. `notify.mobile_app_phone`).
   - The printer status sensor has an `alert` attribute (`down` / `stalled`).
+- **New access code (Bambu Lab LAN)**: when the printer refuses its access code (it changes
+  when LAN Only mode is turned off and on), Home Assistant asks for the new one (re-authentication,
+  also shown at the top of the FDM Printers page, with **📷 Take photo**). The history is kept.
 - Last print attributes and the history: `result_by` (`user`, `watchdog`, or empty for the
   printer's own verdict).
 

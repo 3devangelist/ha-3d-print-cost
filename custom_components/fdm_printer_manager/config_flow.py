@@ -7,6 +7,7 @@ Add printer: printer type → connection (or Bambu device + entities) → smart 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -521,6 +522,47 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def _create(self) -> ConfigFlowResult:
         return self.async_create_entry(title=self._data[CONF_PRINTER_NAME], data=self._data)
+
+    # ------------------------------------------------------------------ #
+    # Re-authentication (Bambu Lab LAN: the access code changed)
+    # ------------------------------------------------------------------ #
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        """The printer refused the access code."""
+        entry = self._get_reauth_entry()
+        self.context["title_placeholders"] = {"name": entry.title}
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Type the new access code (and the IP address, if it changed too)."""
+        entry = self._get_reauth_entry()
+        current = {**entry.data, **entry.options}
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            host = str(user_input[CONF_HOST]).strip()
+            code = str(user_input[CONF_ACCESS_CODE]).strip()
+            errors = await validate_bambu_lan(host, current[CONF_PRINTER_SERIAL], code)
+            if not errors:
+                changes = {CONF_HOST: host, CONF_ACCESS_CODE: code}
+                # Options override the data: an older code kept there must go too.
+                if any(k in entry.options for k in changes):
+                    self.hass.config_entries.async_update_entry(entry, options={**entry.options, **changes})
+                return self.async_update_reload_and_abort(entry, data={**entry.data, **changes})
+        defaults = {CONF_HOST: current.get(CONF_HOST), **(user_input or {})}
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, description={"suggested_value": defaults.get(CONF_HOST)}): (
+                        selector.TextSelector()
+                    ),
+                    vol.Required(CONF_ACCESS_CODE): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                }
+            ),
+            description_placeholders={"name": entry.title},
+            errors=errors,
+        )
 
 
 # --------------------------------------------------------------------------- #

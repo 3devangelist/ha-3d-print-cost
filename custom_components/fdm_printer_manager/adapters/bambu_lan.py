@@ -180,11 +180,13 @@ class BambuLanClient:
         *,
         port: int = MQTT_PORT,
         use_tls: bool = True,
+        on_auth_failed: Callable[[], None] | None = None,
     ) -> None:
         self.host = host
         self.serial = serial
         self.access_code = access_code
         self._on_update = on_update
+        self._on_auth_failed = on_auth_failed
         self._port = port
         self._tls = use_tls
         self._merged: dict[str, Any] = {}
@@ -271,6 +273,8 @@ class BambuLanClient:
             except asyncio.CancelledError:
                 raise
             except BambuAuthError:
+                if not self.auth_failed and self._on_auth_failed is not None:
+                    self._on_auth_failed()  # once per refusal streak: ask the user for the new code
                 self.auth_failed = True
                 _LOGGER.warning("Bambu %s: access code refused", self.host)
                 delay = 300

@@ -202,6 +202,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 self.conf[CONF_PRINTER_SERIAL],
                 self.conf[CONF_ACCESS_CODE],
                 self._on_bambu_update,
+                on_auth_failed=self._on_bambu_auth_failed,
             )
         self._last_bambu_process: float = 0.0
         self._last_bambu_state: str | None = None
@@ -597,6 +598,12 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._last_bambu_state = state
         self._last_bambu_process = now
         self._process(dt_util.utcnow())
+
+    @callback
+    def _on_bambu_auth_failed(self) -> None:
+        """The access code was refused (it changes when LAN Only is turned off and on): ask for the new one."""
+        _LOGGER.warning("%s: access code refused, asking for the new one", self.printer_name)
+        self.config_entry.async_start_reauth(self.hass)
 
     def build_snapshot(self, now: datetime) -> PrinterSnapshot:
         """Read the printer and the electrical inputs."""

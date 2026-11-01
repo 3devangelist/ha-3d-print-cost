@@ -126,6 +126,7 @@ td.n{font-family:var(--mono);text-align:right}
 .banner.err{background:rgba(239,106,90,.14);color:var(--bad)}
 .banner.ok{background:rgba(87,194,122,.14);color:var(--ok)}
 .banner.info{background:var(--surface-2);color:var(--fg)}
+.banner.warn{background:rgba(255,152,0,.15);color:var(--fg)}
 .wbtns{display:flex;justify-content:space-between;gap:8px;margin-top:8px;flex-wrap:wrap}
 details{margin:4px 0 12px;color:var(--muted);font-size:.88rem}
 details summary{cursor:pointer;margin-bottom:10px}
@@ -166,6 +167,9 @@ const TYPE_INFO = {
   bambu_lan: { label: "Bambu Lab (LAN)", hint: "Direct · IP, serial number and access code" },
   bambu_device: { label: "Bambu Lab (via Bambu Lab integration)", hint: "Uses a printer already set up in ha-bambulab" },
 };
+
+// Forms with "Take photo" (the printer's LAN Only page fills them in).
+const PHOTO_STEPS = ["bambu_lan", "reauth_confirm"];
 
 const FIELD_LABELS = {
   host: "IP address",
@@ -387,8 +391,10 @@ class FdmPrinterPanel extends HTMLElement {
     try {
       const flows = await this._hass.callWS({ type: "config_entries/flow/progress" });
       this._discovered = flows.filter((f) => f.handler === DOMAIN && ["zeroconf", "integration_discovery"].includes(f.context?.source));
+      this._reauth = flows.filter((f) => f.handler === DOMAIN && f.context?.source === "reauth");
     } catch (err) {
       this._discovered = [];
+      this._reauth = [];
     }
   }
 
@@ -519,6 +525,12 @@ class FdmPrinterPanel extends HTMLElement {
           <div><h1>Printers</h1><div class="sub">${printers.length} printer${printers.length === 1 ? "" : "s"} · ${active.length} printing</div></div>
           <button class="btn pri" data-act="add">＋ Add printer</button>
         </div>
+        ${(this._reauth || [])
+          .map(
+            (f) =>
+              `<div class="banner warn">🔑 <b>${esc(f.context?.title_placeholders?.name || "A Bambu Lab printer")}</b> refused its access code. <button class="btn sm" data-act="found" data-flow="${esc(f.flow_id)}">Type the new code</button></div>`,
+          )
+          .join("")}
         ${printers.length ? `<div class="grid">${printers.map((p) => this._card(p)).join("")}</div>` : `<p class="empty">No printers yet. Use “＋ Add printer” to add the first one.</p>`}
         ${this._renderDiscovered(true)}
         ${printers.length ? this._renderNow(active) + this._renderHistory(printers) : ""}
@@ -713,7 +725,7 @@ class FdmPrinterPanel extends HTMLElement {
 
   _setResult(result) {
     if (result.step_id !== this._flow.result?.step_id) Object.assign(this._photo, { status: "", kind: "", filled: {}, warnings: [] });
-    if (result.step_id === "bambu_lan" && this._photo.ai === undefined) this._loadPhotoAi();
+    if (PHOTO_STEPS.includes(result.step_id) && this._photo.ai === undefined) this._loadPhotoAi();
     this._flow.id = result.flow_id || this._flow.id;
     this._flow.result = result;
     this._data = {};
@@ -827,6 +839,7 @@ class FdmPrinterPanel extends HTMLElement {
       {
         klipper: `<div class="banner info">Type the printer's IP address. Name, port and web interface are filled in automatically.</div>`,
         zeroconf_confirm: `<div class="banner info">Klipper printer <b>${esc(r.description_placeholders?.name || "")}</b> found at ${esc(r.description_placeholders?.host || "")}. Add it?</div>`,
+        reauth_confirm: `<div class="banner warn">The printer refused its access code: it changes when LAN Only mode is turned off and on again. Type the new one, shown on the printer's LAN Only page (or take a photo of it).</div>${this._renderPhoto()}`,
         bambu_lan: `<div class="banner info">On the printer, turn on <b>LAN Only mode</b> and then <b>Developer Mode</b> (A1: Settings → page 3 → LAN Only Mode; P1: Settings → WLAN; X1/H2: Settings → LAN Only). The IP address and the 8-character access code are shown on that same page. The printer must be switched on. <a class="link" href="${LAN_GUIDE_URL}" target="_blank" rel="noreferrer">Step-by-step guide</a></div>${this._renderPhoto()}`,
         klipper_auth: `<div class="banner info">This printer only accepts connections with a Moonraker API key.</div>`,
         electricity: `<div class="banner info">Pick the plug the printer is connected to. Its power and energy sensors are found automatically.</div>`,
@@ -1139,7 +1152,7 @@ class FdmPrinterPanel extends HTMLElement {
     } catch (_err) {
       this._photo.ai = null;
     }
-    if (this._view === "flow" && this._flow?.result?.step_id === "bambu_lan" && !this._busy) {
+    if (this._view === "flow" && PHOTO_STEPS.includes(this._flow?.result?.step_id) && !this._busy) {
       Object.assign(this._data, this._collect());
       this._render();
     }

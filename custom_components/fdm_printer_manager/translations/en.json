@@ -85,6 +85,18 @@
           "host": "e.g. 192.168.1.90",
           "access_code": "8 characters, shown on the printer's screen."
         }
+      },
+      "reauth_confirm": {
+        "title": "New access code",
+        "description": "{name} refused its access code. It changes when LAN Only mode is turned off and on again. Type the new one, shown on the printer's LAN Only page.",
+        "data": {
+          "host": "IP address",
+          "access_code": "Access code"
+        },
+        "data_description": {
+          "host": "Shown on the same page. Change it only if it changed too.",
+          "access_code": "8 characters."
+        }
       }
     },
     "error": {
@@ -97,7 +109,8 @@
     },
     "abort": {
       "already_configured": "This printer is already configured.",
-      "already_in_progress": "This printer is already being added."
+      "already_in_progress": "This printer is already being added.",
+      "reauth_successful": "Access code updated. The printer is connected again."
     },
     "flow_title": "{name}",
     "create_entry": {
