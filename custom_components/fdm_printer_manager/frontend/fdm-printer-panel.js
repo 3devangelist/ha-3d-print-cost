@@ -126,7 +126,17 @@ details summary{cursor:pointer;margin-bottom:10px}
 .confirm{background:rgba(239,106,90,.1);border:1px solid rgba(239,106,90,.4);border-radius:9px;padding:12px;margin-top:12px}
 .busy{opacity:.6;pointer-events:none}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--line);color:var(--fg);padding:10px 14px;border-radius:8px;z-index:9;max-width:90vw}
+.cam{margin:8px 14px 0;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#000;cursor:zoom-in;position:relative}
+.cam img{width:100%;height:100%;object-fit:contain;display:block}
+.cam .live{position:absolute;top:6px;left:6px;font:600 .62rem var(--mono);letter-spacing:.08em;background:rgba(0,0,0,.6);color:var(--run);padding:2px 6px;border-radius:4px}
+.zoom{position:fixed;inset:0;z-index:8;background:rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px}
+.zoom .zcam{width:min(100%,1200px);max-height:calc(100vh - 90px);display:flex;justify-content:center}
+.zoom img{max-width:100%;max-height:calc(100vh - 90px);object-fit:contain;border-radius:8px;background:#000}
+.zoom .zhd{width:min(100%,1200px);display:flex;justify-content:space-between;align-items:center;color:var(--fg);font-weight:700}
 `;
+
+// A printer's camera on its card: live while printing, a still image refreshed every minute otherwise.
+const SNAPSHOT_EVERY_MS = 60000;
 
 const TYPE_INFO = {
   klipper: { label: "Klipper", hint: "Moonraker · just the IP address" },
@@ -228,6 +238,9 @@ class FdmPrinterPanel extends HTMLElement {
     this._showPrice = false;
     this._toast = null;
     this._scanning = false;
+    this._cams = new Map(); // key -> {img, mode, at}; kept across renders so a live stream is not restarted
+    this._zoom = null; // camera entity shown full size
+    this._onVisibility = () => (document.hidden ? this._stopCams() : this._attachCams());
   }
 
   set hass(hass) {
@@ -246,10 +259,80 @@ class FdmPrinterPanel extends HTMLElement {
   connectedCallback() {
     this._render();
     this._historyTimer = setInterval(() => this._view === "list" && this._loadHistory(), 60000);
+    this._camTimer = setInterval(() => this._attachCams(), 15000);
+    document.addEventListener("visibilitychange", this._onVisibility);
   }
   disconnectedCallback() {
     clearInterval(this._historyTimer);
+    clearInterval(this._camTimer);
+    document.removeEventListener("visibilitychange", this._onVisibility);
+    this._stopCams();
     this._dropFlow();
+  }
+
+  // ------------------------------------------------------------------ cameras
+  /** URL of a camera entity (camera.*: live stream or one still) or of a ha-bambulab image entity. */
+  _camUrl(entity, live) {
+    const st = this._st(entity);
+    if (!st || st.state === "unavailable") return null;
+    if (entity.startsWith("image.")) return st.attributes.entity_picture || null;
+    const token = st.attributes.access_token;
+    if (!token) return null;
+    return live
+      ? `/api/camera_proxy_stream/${entity}?token=${token}`
+      : `/api/camera_proxy/${entity}?token=${token}&t=${Date.now()}`;
+  }
+
+  /** Put the kept <img> elements back into the placeholders of the last render. */
+  _attachCams() {
+    if (!this.shadowRoot || !this._hass) return;
+    const seen = new Set();
+    if (!document.hidden) {
+      this.shadowRoot.querySelectorAll("[data-cam]").forEach((box) => {
+        const entity = box.dataset.cam;
+        const live = box.dataset.live === "1" && !entity.startsWith("image.");
+        const key = `${box.dataset.slot || "card"}:${entity}`;
+        seen.add(key);
+        let cam = this._cams.get(key);
+        if (!cam) {
+          const img = document.createElement("img");
+          img.alt = "Printer camera";
+          img.decoding = "async";
+          cam = { img, mode: null, at: 0, url: null };
+          this._cams.set(key, cam);
+        }
+        const mode = live ? "live" : "still";
+        const now = Date.now();
+        const imageEntityChanged = entity.startsWith("image.") && cam.url !== this._camUrl(entity, false);
+        if (cam.mode !== mode || (mode === "still" && (now - cam.at >= SNAPSHOT_EVERY_MS || imageEntityChanged))) {
+          const url = this._camUrl(entity, live);
+          if (url) {
+            cam.img.src = url;
+            cam.url = url;
+            cam.mode = mode;
+            cam.at = now;
+          }
+        }
+        if (cam.img.parentNode !== box) box.prepend(cam.img);
+      });
+    }
+    for (const [key, cam] of this._cams) {
+      if (seen.has(key)) continue;
+      cam.img.removeAttribute("src"); // closes the live stream
+      this._cams.delete(key);
+    }
+  }
+
+  _stopCams() {
+    for (const cam of this._cams.values()) cam.img.removeAttribute("src");
+    this._cams.clear();
+  }
+
+  /** Full-size view of one camera, live, over the page. */
+  _renderZoom() {
+    if (!this._zoom || !this._avail(this._zoom)) return "";
+    const printer = this._printers().find((p) => this._st(p.ents.printer_status)?.attributes?.camera_entity === this._zoom);
+    return `<div class="zoom" data-act="zoomclose"><div class="zhd"><span>${esc(printer?.entry.title || "Camera")}</span><button class="btn sm" data-act="zoomclose">✕ Close</button></div><div class="zcam" data-cam="${esc(this._zoom)}" data-slot="zoom" data-live="1"></div></div>`;
   }
 
   // ------------------------------------------------------------------ data
@@ -382,7 +465,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.5.1</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.6.0</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -390,8 +473,10 @@ class FdmPrinterPanel extends HTMLElement {
     else if (this._view === "list") body = this._renderList();
     else body = this._renderFlow();
     const toast = this._toast ? `<div class="toast">${esc(this._toast)}</div>` : "";
-    this.shadowRoot.innerHTML = `<style>${STYLE}</style>${top}${body}${toast}`;
+    const zoom = this._view === "list" ? this._renderZoom() : "";
+    this.shadowRoot.innerHTML = `<style>${STYLE}</style>${top}${body}${toast}${zoom}`;
     this._bind();
+    this._attachCams();
   }
 
   _renderList() {
@@ -465,6 +550,14 @@ class FdmPrinterPanel extends HTMLElement {
       powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !cooling ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || cooling ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>`;
     }
 
+    // Camera: only when the printer has one (Klipper webcam found by the integration, or ha-bambulab's own).
+    const camEntity = attrs.camera_entity;
+    const camLive = active && !String(camEntity || "").startsWith("image.");
+    const camHtml =
+      camEntity && this._avail(camEntity)
+        ? `<div class="cam" data-act="camzoom" data-entity="${esc(camEntity)}" data-cam="${esc(camEntity)}" data-live="${camLive ? 1 : 0}" title="Open full size">${camLive ? `<span class="live">● LIVE</span>` : ""}</div>`
+        : "";
+
     let ask = "";
     if (this._ask?.entry === eid && this._ask.kind === "power")
       ask = `<div class="ask">Turn ${esc(p.entry.title)} off? ${nozzle != null && nozzle >= (power?.attributes?.cool_to ?? 80) ? `The nozzle is at ${Math.round(nozzle)}°: it waits for it to cool below ${power?.attributes?.cool_to ?? 80}° first. ` : ""}${attrs.printer_type === "klipper" ? "Its computer shuts down first; the plug is cut once it is down (at most 3 minutes)." : "The plug is cut now."}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
@@ -475,6 +568,7 @@ class FdmPrinterPanel extends HTMLElement {
       <article class="pc ${cls}">
         <div class="stripe"></div>
         <div class="hd"><div><div class="nm">${esc(p.entry.title)}</div><div class="ty">${type}${where}</div></div><span class="state ${cls}">${esc(shown)}</span></div>
+        ${camHtml}
         <div class="job">${esc(active ? fileShown || "—" : lastLine || "—")}</div>
         <div class="prog"><i style="width:${active && progress != null ? Math.min(100, progress) : 0}%"></i></div>
         <div class="meta"><span>${active && progress != null ? `${Math.round(progress)}%${paused ? " · paused" : ""}` : ""}</span><span>${active && left != null ? `${fmtMin(left)} left` : ""}</span></div>
@@ -1005,6 +1099,10 @@ class FdmPrinterPanel extends HTMLElement {
       return this._render();
     }
     if (act === "doremove") return this._remove();
+    if (act === "camzoom" || act === "zoomclose") {
+      this._zoom = act === "camzoom" ? el.dataset.entity : null;
+      return this._render();
+    }
     if (act === "askno") {
       this._ask = null;
       return this._render();

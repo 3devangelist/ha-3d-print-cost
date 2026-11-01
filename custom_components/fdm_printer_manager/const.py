@@ -36,6 +36,7 @@ CONF_WEB_URL: Final = "web_url"
 CONF_ACCESS_CODE: Final = "access_code"  # Bambu LAN
 
 KLIPPER_POLL_INTERVAL: Final = 5  # seconds
+WEBCAM_CHECK_INTERVAL: Final = 1800  # seconds: look for a newly installed (or removed) camera
 
 # The "FDM Printers" sidebar panel. A special entry (``panel: True``) makes it
 # available before any printer is added; every printer entry also shows it.

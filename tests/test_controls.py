@@ -55,6 +55,7 @@ def printer():
         resume=AsyncMock(side_effect=fake.recorder("resume")),
         cancel=AsyncMock(side_effect=fake.recorder("cancel")),
         shutdown_host=AsyncMock(side_effect=fake.recorder("shutdown")),
+        webcams=AsyncMock(return_value=[]),
     ):
         yield fake
 

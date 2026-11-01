@@ -80,6 +80,11 @@
         "default": "mdi:image-outline"
       }
     },
+    "camera": {
+      "camera": {
+        "default": "mdi:cctv"
+      }
+    },
     "switch": {
       "show_last_print": {
         "default": "mdi:history",

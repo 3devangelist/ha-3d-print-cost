@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 
 import aiohttp
 
@@ -55,6 +55,45 @@ class FileMetadata:
     """What the slicer wrote in the G-code header."""
 
     estimated_time_s: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Webcam:
+    """A camera Moonraker knows about (crowsnest, mjpg-streamer, ...), with absolute URLs."""
+
+    name: str
+    snapshot_url: str | None
+    stream_url: str | None  # only when it is an MJPEG stream an <img> / HA can relay as is
+
+
+# Webcam services whose stream URL is a plain MJPEG stream.
+MJPEG_SERVICES = ("mjpegstreamer", "mjpegstreamer-adaptive", "uv4l-mjpeg", "ipstream")
+
+
+def parse_webcams(result: dict[str, Any], web_url: str) -> list[Webcam]:
+    """``server.webcams.list`` → the enabled cameras, URLs made absolute.
+
+    Webcam URLs are usually relative to the printer's web interface
+    (``/webcam/?action=stream``), not to Moonraker's port, so they are
+    resolved against ``web_url`` (``http://<host>/``).
+    """
+    cams: list[Webcam] = []
+    for cam in result.get("webcams") or []:
+        if not isinstance(cam, dict) or cam.get("enabled") is False:
+            continue
+        snapshot = str(cam.get("snapshot_url") or "").strip()
+        stream = str(cam.get("stream_url") or "").strip()
+        if not snapshot and not stream:
+            continue
+        service = str(cam.get("service") or "mjpegstreamer").lower()
+        cams.append(
+            Webcam(
+                name=str(cam.get("name") or "Camera"),
+                snapshot_url=urljoin(web_url, snapshot) if snapshot else None,
+                stream_url=urljoin(web_url, stream) if stream and service in MJPEG_SERVICES else None,
+            )
+        )
+    return cams
 
 
 def default_web_url(host: str) -> str:
@@ -210,6 +249,16 @@ class MoonrakerClient:
         """Slicer metadata of a G-code file."""
         result = await self._get(f"/server/files/metadata?filename={quote(filename)}")
         return parse_metadata(result)
+
+    async def webcams(self, web_url: str) -> list[Webcam]:
+        """Enabled cameras. An older Moonraker without the webcam API has none."""
+        try:
+            result = await self._get("/server/webcams/list")
+        except MoonrakerConnectionError as err:
+            if "HTTP 404" in str(err):
+                return []
+            raise
+        return parse_webcams(result, web_url)
 
     async def hostname(self) -> str | None:
         """Hostname of the printer, used as default name. ``None`` if Klipper is down."""

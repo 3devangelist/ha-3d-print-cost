@@ -36,7 +36,14 @@ from homeassistant.util import dt as dt_util
 from .adapters import bambu
 from .adapters.bambu_lan import BambuLanClient
 from .adapters.electricity import ElectricityReader, ElectricitySources
-from .adapters.moonraker import DEFAULT_PORT, KlipperSource, MoonrakerClient, default_web_url
+from .adapters.moonraker import (
+    DEFAULT_PORT,
+    KlipperSource,
+    MoonrakerClient,
+    MoonrakerError,
+    Webcam,
+    default_web_url,
+)
 from .const import (
     ACTIVE_STATES,
     BAMBU_ENTITY_KEYS,
@@ -75,6 +82,7 @@ from .const import (
     SAFE_POWER_COOL_TIMEOUT,
     SAFE_POWER_POLL,
     SAFE_POWER_WAIT,
+    WEBCAM_CHECK_INTERVAL,
     IntegrationMethod,
     PrinterType,
 )
@@ -92,6 +100,8 @@ _BAMBU_BUTTONS: dict[str, tuple[str, ...]] = {
 }
 # ha-bambulab sensor keys for the nozzle temperature
 _BAMBU_NOZZLE_KEYS: tuple[str, ...] = ("nozzle_temp", "nozzle_temperature")
+# ha-bambulab camera: a camera entity (X1 / H2), or an image entity refreshed from the camera (A1 / P1)
+_BAMBU_CAMERA_KEYS: tuple[str, ...] = ("camera", "p1p_camera", "chamber_image")
 
 type PrintCostConfigEntry = ConfigEntry[PrintCostCoordinator]
 
@@ -183,6 +193,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.power_phase: str | None = None
         self.power_cut_at: datetime | None = None
         self._power_task: asyncio.Task | None = None
+        # Klipper camera found through Moonraker (None: no camera, or not checked yet).
+        self.webcam: Webcam | None = None
+        self._webcam_checked = False
 
         self.last_image: bytes | None = None
 
@@ -208,8 +221,12 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._unsubs.append(async_track_state_change_event(self.hass, watched, self._on_state_change))
         if self.klipper is not None:
             await self.klipper.async_update()
+            await self.async_check_webcam()
             self._unsubs.append(
                 async_track_time_interval(self.hass, self._async_poll_klipper, timedelta(seconds=KLIPPER_POLL_INTERVAL))
+            )
+            self._unsubs.append(
+                async_track_time_interval(self.hass, self._async_webcam_tick, timedelta(seconds=WEBCAM_CHECK_INTERVAL))
             )
         if self.bambu_lan is not None:
             self.bambu_lan.start(
@@ -455,7 +472,46 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             await self.klipper.async_update()
         finally:
             self._polling = False
+        if not self.klipper.available:
+            self._webcam_checked = False  # look again when it comes back
+        elif not self._webcam_checked:
+            self._spawn(self.async_check_webcam())
         self._process(dt_util.utcnow())
+
+    async def _async_webcam_tick(self, now: datetime) -> None:
+        await self.async_check_webcam()
+
+    async def async_check_webcam(self) -> None:
+        """Look for an enabled camera on the Klipper printer: at start, when it comes back, every 30 minutes."""
+        if self.klipper is None or not self.klipper.available:
+            return
+        self._webcam_checked = True
+        try:
+            cams = await self.klipper.client.webcams(self.configuration_url or default_web_url(self.conf[CONF_HOST]))
+        except MoonrakerError as err:
+            _LOGGER.debug("%s: cannot list webcams: %s", self.printer_name, err)
+            self._webcam_checked = False
+            return
+        except Exception:  # a camera check must never break the printer
+            _LOGGER.exception("%s: webcam check failed", self.printer_name)
+            return
+        webcam = cams[0] if cams else None
+        if webcam == self.webcam:
+            return
+        _LOGGER.info("%s: camera %s", self.printer_name, f"found ({webcam.name})" if webcam else "gone")
+        self.webcam = webcam
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    @property
+    def camera_entity(self) -> str | None:
+        """Camera the panel shows: ours for Klipper, ha-bambulab's own for Bambu (never a second one)."""
+        if self.klipper is not None:
+            if self.webcam is None:
+                return None
+            return er.async_get(self.hass).async_get_entity_id("camera", DOMAIN, f"{self.config_entry.entry_id}_camera")
+        if self.printer_type is PrinterType.BAMBU:
+            return self._bambu_entity("camera", _BAMBU_CAMERA_KEYS) or self._bambu_entity("image", _BAMBU_CAMERA_KEYS)
+        return None
 
     # ------------------------------------------------------------------ #
     # Printer identity (used by the entities' device info)

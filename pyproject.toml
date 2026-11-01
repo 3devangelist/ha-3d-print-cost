@@ -1,6 +1,6 @@
 [project]
 name = "ha-3d-print-cost"
-version = "0.5.1"
+version = "0.6.0"
 description = "Home Assistant integration: add 3D printers (Klipper, Bambu Lab) in one window and track every print, its energy and its cost."
 readme = "README.md"
 license = { text = "MIT" }
@@ -9,6 +9,7 @@ requires-python = ">=3.13"
 [dependency-groups]
 dev = [
   "pytest-homeassistant-custom-component",
+  "PyTurboJPEG",  # imported by Home Assistant's camera component
   "ruff",
 ]
 

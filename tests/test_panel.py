@@ -61,6 +61,7 @@ async def test_printer_entry_exposes_live_sensors_for_the_panel(hass: HomeAssist
         CLIENT,
         status=AsyncMock(return_value=reading),
         metadata=AsyncMock(side_effect=MoonrakerConnectionError("no metadata")),
+        webcams=AsyncMock(return_value=[]),
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
