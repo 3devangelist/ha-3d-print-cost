@@ -3,6 +3,37 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.10.0]
+
+### Added
+
+- **Printer lights on the card**: a 💡 button per light the printer really has, and a
+  `light.<printer>_light_<name>` entity. Klipper: LEDs (`led`, `neopixel`, `dotstar`, `pca9533`,
+  `pca9632`, switched with `SET_LED`) and `output_pin`s named like a light (`caselight`,
+  `Luz_interior`, `chamber_led`… with `SET_PIN`); turned back on as they were. Bambu Lab over LAN:
+  the chamber light (`ledctrl`). Printers added through ha-bambulab show its own chamber light.
+  Found with read-only requests (`printer.objects.list`, `printer.gcode.help`); no light, no button.
+- **Baby steps (live Z offset) on Klipper printers**: while printing, the card shows the Z offset with
+  ▼ / ▲ buttons and steps of 0.005 / 0.01 / 0.025 / 0.05 mm (`SET_GCODE_OFFSET Z_ADJUST=… MOVE=1`),
+  never more than ±1 mm from 0, and Reset. Optional **Save** (off by default, Configure → Advanced)
+  runs `Z_OFFSET_APPLY_PROBE` (or `_ENDSTOP`); SAVE_CONFIG stays yours. New action
+  `fdm_printer_manager.babystep` and diagnostic sensor `sensor.<printer>_z_offset`.
+  Only offered when Klipper knows `SET_GCODE_OFFSET`; can be turned off per printer.
+- **Filaments of a multi-material unit on the card**: one chip per slot with the real colour, the
+  type (PLA, PETG…), % left when known, the active slot outlined. AFC / Box Turtle and the Elegoo
+  CANVAS (Centauri Carbon with the "cosmos" firmware, read from `AFC` / `AFC_lane …`), Happy Hare
+  (`mmu`), Spoolman's active spool (no unit), the Bambu Lab AMS and external spool (LAN). New sensor
+  `sensor.<printer>_filaments` (active material; every slot in the attributes). Nothing without a unit.
+- **Printers name themselves**: a Bambu Lab printer is named after its model ("Bambu Lab A1 mini"),
+  read from the serial number or the model code it announces, instead of a network host name
+  ("micromachine"); "Read from photo" fills the Name field when it is empty. Printers installed
+  under a shared host name (`cosmos`, `micromachine`, `mainsailos`…) are renamed at start: the
+  device name follows; a name you gave the device and the entity IDs never change.
+
+### Changed
+
+- Bambu Lab LAN: partial AMS reports are merged into the last full one.
+
 ## [0.9.0]
 
 ### Added

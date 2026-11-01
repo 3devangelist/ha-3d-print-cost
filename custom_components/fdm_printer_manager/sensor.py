@@ -13,11 +13,20 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfTemperature, UnitOfTime
-from homeassistant.core import HomeAssistant
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfEnergy,
+    UnitOfLength,
+    UnitOfTemperature,
+    UnitOfTime,
+)
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import filament
+from .adapters.klipper_extras import BABYSTEP_LIMIT, BABYSTEP_STEPS
 from .const import (
     CONF_COVER_IMAGE_ENTITY,
     CONF_ENERGY_ENTITY,
@@ -227,9 +236,60 @@ async def async_setup_entry(
     entry: PrintCostConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Create the sensors."""
+    """Create the sensors; the filament and Z offset ones when the printer turns out to have them."""
     coordinator = entry.runtime_data
     async_add_entities(PrintCostSensor(coordinator, description) for description in SENSORS)
+    added: set[str] = set()
+
+    @callback
+    def _add_extras() -> None:
+        new: list[SensorEntity] = []
+        if "filaments" not in added and coordinator.filament_slots:
+            new.append(FilamentSensor(coordinator))
+        if "z_offset" not in added and coordinator.babystep_enabled:
+            new.append(ZOffsetSensor(coordinator))
+        if new:
+            added.update(entity.key for entity in new)
+            async_add_entities(new)
+
+    _add_extras()
+    entry.async_on_unload(coordinator.async_add_listener(_add_extras))
+
+
+class FilamentSensor(PrintCostEntity, SensorEntity):
+    """Filaments of the multi-material unit: the active material; every slot in the attributes."""
+
+    key = "filaments"
+
+    def __init__(self, coordinator: PrintCostCoordinator) -> None:
+        super().__init__(coordinator, self.key, "sensor")
+
+    @property
+    def native_value(self) -> str | None:
+        """Active material, else "2/4 loaded"."""
+        return filament.summary(self.coordinator.filament_slots)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Every slot: name, material, colour, % left, active, empty."""
+        return {"slots": [slot.as_dict() for slot in self.coordinator.filament_slots]}
+
+
+class ZOffsetSensor(PrintCostEntity, SensorEntity):
+    """Live Z offset of a Klipper printer (moved by the baby steps)."""
+
+    key = "z_offset"
+    _attr_native_unit_of_measurement = UnitOfLength.MILLIMETERS
+    _attr_suggested_display_precision = 3
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: PrintCostCoordinator) -> None:
+        super().__init__(coordinator, self.key, "sensor")
+
+    @property
+    def native_value(self) -> float | None:
+        """mm; unknown while the printer does not answer."""
+        return self.coordinator.z_offset
 
 
 class PrintCostSensor(PrintCostEntity, SensorEntity):
@@ -286,6 +346,18 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
     def _source(self):
         return self.coordinator.klipper or self.coordinator.bambu_lan
 
+    def _babystep_attrs(self) -> dict[str, Any] | None:
+        """Z offset buttons on the card (Klipper): steps, limit, current offset, whether "save" is on."""
+        coordinator = self.coordinator
+        if not coordinator.babystep_enabled:
+            return None
+        return {
+            "z_offset": coordinator.z_offset,
+            "steps": list(BABYSTEP_STEPS),
+            "limit": BABYSTEP_LIMIT,
+            "save": coordinator.babystep_save is not None,
+        }
+
     def _printer_attrs(self) -> dict[str, Any]:
         """Configuration the FDM Printers panel needs to draw and edit this printer (no secrets)."""
         conf = self.coordinator.conf
@@ -300,6 +372,10 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
             "price_entity": conf.get(CONF_PRICE_ENTITY),
             "price_per_kwh": conf.get(CONF_PRICE_FIXED),
             "camera_entity": self.coordinator.camera_entity,
+            # Card extras: only what the printer has
+            "lights": self.coordinator.light_entities(),
+            "filaments": [slot.as_dict() for slot in self.coordinator.filament_slots],
+            "babystep": self._babystep_attrs(),
             "alert": str(alert) if (alert := self.coordinator.watchdog.alert) else None,
             "reachable": source.available
             if (source := self.coordinator.klipper or self.coordinator.bambu_lan)

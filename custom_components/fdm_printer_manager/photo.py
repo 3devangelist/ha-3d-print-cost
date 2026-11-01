@@ -20,6 +20,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
+from .naming import bambu_model, bambu_name
+
 _LOGGER = logging.getLogger(__name__)
 
 AI_TASK_DOMAIN = "ai_task"
@@ -73,6 +75,8 @@ def normalise_fields(raw: dict[str, Any]) -> dict[str, Any]:
     serial = re.sub(r"[^A-Za-z0-9]", "", str(raw.get("serial") or "")).upper()
     code = re.sub(r"\s", "", str(raw.get("access_code") or ""))
     fields = {k: v for k, v in (("host", ip), ("printer_serial", serial), ("access_code", code)) if v}
+    if len(serial) in (15, 18) and bambu_model(serial):
+        fields["printer_name"] = bambu_name(serial)  # the panel fills the Name field only when it is empty
     warnings = []
     if raw.get("ip") and not ip:
         warnings.append("host")

@@ -104,6 +104,9 @@ CONF_SSH_USERNAME: Final = "ssh_username"
 CONF_SSH_PASSWORD: Final = "ssh_password"
 CONF_SSH_KEY: Final = "ssh_private_key"
 CONF_SSH_COMMAND: Final = "ssh_command"
+# Klipper: Z offset buttons on the card while printing ("baby steps"); "save" keeps the offset (Z_OFFSET_APPLY_*)
+CONF_BABYSTEP: Final = "babystep"
+CONF_BABYSTEP_SAVE: Final = "babystep_save"
 
 DEFAULT_UPDATE_INTERVAL: Final = 30  # seconds
 MIN_UPDATE_INTERVAL: Final = 10
@@ -122,6 +125,7 @@ EVENT_TYPE_PRINT_FINISHED: Final = "print_finished"
 EVENT_PRINT_MARKED: Final = f"{DOMAIN}_print_marked"  # a finished print was marked success / failed by hand
 
 SERVICE_MARK_PRINT: Final = "mark_print"
+SERVICE_BABYSTEP: Final = "babystep"
 
 # Watching a running print (printer down, stuck or interrupted print, no progress)
 EVENT_ALERT: Final = f"{DOMAIN}_alert"

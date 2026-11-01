@@ -35,6 +35,8 @@ from .const import (
     CONF_ALERTS,
     CONF_API_KEY,
     CONF_AUTO_OFF,
+    CONF_BABYSTEP,
+    CONF_BABYSTEP_SAVE,
     CONF_CLOSE_MINUTES,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
@@ -78,7 +80,7 @@ from .const import (
     PROBE_TIMEOUT,
     PrinterType,
 )
-from .naming import friendly_name
+from .naming import bambu_name, friendly_name, is_generic
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -260,6 +262,12 @@ def behaviour_schema(defaults: dict[str, Any], hass_currency: str, *, with_ssh: 
         ),
     }
     if with_ssh:
+        fields[vol.Optional(CONF_BABYSTEP, default=bool(defaults.get(CONF_BABYSTEP, True)))] = (
+            selector.BooleanSelector()
+        )
+        fields[vol.Optional(CONF_BABYSTEP_SAVE, default=bool(defaults.get(CONF_BABYSTEP_SAVE, False)))] = (
+            selector.BooleanSelector()
+        )
         fields[_opt(CONF_SSH_USERNAME, defaults)] = selector.TextSelector()
         fields[vol.Optional(CONF_SSH_PASSWORD)] = selector.TextSelector(
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
@@ -406,7 +414,8 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         host = str(discovery_info[CONF_HOST])
         await self.async_set_unique_id(f"bambu_{serial}")
         self._abort_if_unique_id_configured(updates={CONF_HOST: host})
-        name = discovery_info.get(CONF_PRINTER_NAME) or f"Bambu {serial[-4:]}"
+        name = discovery_info.get(CONF_PRINTER_NAME)
+        name = name if name and not is_generic(name) else bambu_name(serial)
         self._bambu = {CONF_HOST: host, CONF_PRINTER_SERIAL: serial, CONF_PRINTER_NAME: name}
         self.context["title_placeholders"] = {"name": name}
         return await self.async_step_bambu_lan()
@@ -438,6 +447,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured(updates={CONF_HOST: host})
             errors = await validate_bambu_lan(host, serial, code)
             if not errors:
+                # Left empty: the model ("Bambu Lab A1 mini"), read from the serial number.
                 name = (cleaned.get(CONF_PRINTER_NAME) or "").strip() or self._bambu.get(CONF_PRINTER_NAME)
                 self._data.update(
                     {
@@ -445,11 +455,13 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_HOST: host,
                         CONF_PRINTER_SERIAL: serial,
                         CONF_ACCESS_CODE: code,
-                        CONF_PRINTER_NAME: name or f"Bambu {serial[-4:]}",
+                        CONF_PRINTER_NAME: name if name and not is_generic(name) else bambu_name(serial),
                     }
                 )
                 return await self.async_step_electricity()
             self._bambu.update({CONF_HOST: host, CONF_PRINTER_SERIAL: serial})
+            if not (cleaned.get(CONF_PRINTER_NAME) or self._bambu.get(CONF_PRINTER_NAME)) and serial:
+                self._bambu[CONF_PRINTER_NAME] = bambu_name(serial)  # shown in the Name field next time
         return self.async_show_form(
             step_id="bambu_lan",
             data_schema=bambu_lan_schema({**self._bambu, **(user_input or {})}),
@@ -698,6 +710,8 @@ class PrintCostOptionsFlow(OptionsFlow):
             )
             if self._is_klipper:
                 self._options.update(self._ssh_options(user_input))
+                self._options[CONF_BABYSTEP] = bool(user_input.get(CONF_BABYSTEP, True))
+                self._options[CONF_BABYSTEP_SAVE] = bool(user_input.get(CONF_BABYSTEP_SAVE, False))
             return await self.async_step_alerts()
         return self.async_show_form(
             step_id="behaviour",

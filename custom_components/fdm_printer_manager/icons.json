@@ -1,6 +1,12 @@
 {
   "entity": {
     "sensor": {
+      "filaments": {
+        "default": "mdi:printer-3d-nozzle-outline"
+      },
+      "z_offset": {
+        "default": "mdi:arrow-collapse-vertical"
+      },
       "current_print_energy": {
         "default": "mdi:lightning-bolt"
       },
@@ -109,6 +115,11 @@
       },
       "cancel_print": {
         "default": "mdi:stop"
+      }
+    },
+    "light": {
+      "printer_light": {
+        "default": "mdi:lightbulb"
       }
     }
   }

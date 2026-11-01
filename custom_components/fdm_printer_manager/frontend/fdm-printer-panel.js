@@ -59,6 +59,17 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .meta{display:flex;justify-content:space-between;gap:8px;padding:4px 14px 0;font:500 .74rem var(--mono);color:var(--muted);min-height:1.5em}
 .temps{padding:6px 14px 0;font-family:var(--mono);font-size:.85rem;color:var(--heat);min-height:1.5em}
 .ctrl{display:flex;gap:6px;padding:8px 14px 0;flex-wrap:wrap}
+.btn.light.on{border-color:var(--accent);color:var(--accent)}
+.fil{display:flex;gap:6px;padding:8px 14px 0;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);font:500 .74rem var(--mono)}
+.chip i{width:11px;height:11px;border-radius:50%;border:1px solid var(--muted);flex:none}
+.chip.act{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.chip.empty{opacity:.5}
+.chip small{color:var(--muted)}
+.z{display:flex;gap:6px;align-items:center;padding:8px 14px 0;flex-wrap:wrap}
+.z b{font-family:var(--mono);font-size:.85rem;min-width:7.5em}
+.stp{all:unset;cursor:pointer;font:500 .7rem var(--mono);padding:2px 5px;border-radius:4px;color:var(--muted)}
+.stp.on{color:var(--accent-ink);background:var(--accent)}
 .ft{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin-top:12px;background:var(--line);border-top:1px solid var(--line)}
 .ft div{background:var(--surface);padding:8px 8px;min-width:0}
 .k{font:500 .62rem var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
@@ -505,7 +516,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.8.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.10.0</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -626,7 +637,46 @@ class FdmPrinterPanel extends HTMLElement {
         ? `<div class="cam" data-act="camzoom" data-entity="${esc(camEntity)}" data-cam="${esc(camEntity)}" data-live="${camLive ? 1 : 0}" title="Open full size">${camLive ? `<span class="live">● LIVE</span>` : ""}</div>`
         : "";
 
+    // Lights the printer has (Klipper LEDs / light pins, the Bambu chamber light): one toggle each.
+    const lightHtml = (attrs.lights || [])
+      .filter((l) => this._st(l.entity))
+      .map((l) => {
+        const st = this._st(l.entity).state;
+        return `<button class="btn sm light ${st === "on" ? "on" : ""}" data-act="light" data-entity="${esc(l.entity)}" ${st === "unavailable" ? "disabled" : ""} title="${st === "on" ? "Turn off" : "Turn on"}">💡 ${esc(l.name)}</button>`;
+      })
+      .join("");
+
+    // Filaments of a multi-material unit (AFC / CANVAS, Happy Hare, AMS): real colour, type, % left; the active one outlined.
+    const slots = attrs.filaments || [];
+    const filHtml = slots.length
+      ? `<div class="fil">${slots
+          .map(
+            (f) =>
+              `<span class="chip ${f.active ? "act" : ""} ${f.empty ? "empty" : ""}" title="${esc(f.name)}${f.tool ? ` · ${esc(f.tool)}` : ""}${f.active ? " · in use" : ""}"><i style="background:${esc(f.color || "transparent")}"></i>${esc(f.material || (f.empty ? "empty" : "?"))}${f.remaining != null ? ` <small>${Math.round(f.remaining)}%</small>` : ""}</span>`,
+          )
+          .join("")}</div>`
+      : "";
+
+    // Baby steps (Klipper): move the nozzle while printing; "Save" only when turned on in the options.
+    const bs = attrs.babystep;
+    let zHtml = "";
+    if (bs && (active || (bs.save && bs.z_offset))) {
+      const step = this._zstep?.[eid] ?? 0.01;
+      const z = bs.z_offset;
+      const zText = z != null ? `${z > 0 ? "+" : ""}${z.toFixed(3)} mm` : "—";
+      const moves = active
+        ? `<button class="btn sm" data-act="zstep" data-entry="${esc(eid)}" data-dir="down" title="Nozzle closer to the bed">▼ ${step}</button>
+           <button class="btn sm" data-act="zstep" data-entry="${esc(eid)}" data-dir="up" title="Nozzle further from the bed">▲ ${step}</button>
+           <span>${(bs.steps || []).map((v) => `<button class="stp ${v === step ? "on" : ""}" data-act="zsize" data-entry="${esc(eid)}" data-step="${v}">${v}</button>`).join("")}</span>
+           ${z ? `<button class="btn sm" data-act="zreset" data-entry="${esc(eid)}" title="Back to 0">Reset</button>` : ""}`
+        : "";
+      const save = bs.save && z ? `<button class="btn sm" data-act="zasksave" data-entry="${esc(eid)}" title="Keep this offset">Save</button>` : "";
+      zHtml = `<div class="z"><span class="k">Z offset</span><b>${zText}</b>${moves}${save}</div>`;
+    }
+
     let ask = "";
+    if (this._ask?.entry === eid && this._ask.kind === "zsave")
+      ask = `<div class="ask">Keep the Z offset ${bs?.z_offset != null ? `(${bs.z_offset.toFixed(3)} mm)` : ""}? It is applied now; run SAVE_CONFIG when the printer is idle to keep it after a restart (Klipper restarts).<div class="row"><button class="btn sm" data-act="askno">Not now</button><button class="btn sm" data-act="zsave" data-entry="${esc(eid)}">Save</button></div></div>`;
     if (this._ask?.entry === eid && this._ask.kind === "power")
       ask = `<div class="ask">Turn ${esc(p.entry.title)} off? ${nozzle != null && nozzle >= (power?.attributes?.cool_to ?? 80) ? `The nozzle is at ${Math.round(nozzle)}°: it waits for it to cool below ${power?.attributes?.cool_to ?? 80}° first. ` : ""}${attrs.printer_type === "klipper" ? "Its computer shuts down first; the plug is cut once it is down (at most 3 minutes)." : "The plug is cut now."}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
     if (this._ask?.entry === eid && this._ask.kind === "cancel")
@@ -643,7 +693,9 @@ class FdmPrinterPanel extends HTMLElement {
         <div class="prog"><i style="width:${active && progress != null ? Math.min(100, progress) : 0}%"></i></div>
         <div class="meta"><span>${active && progress != null ? `${Math.round(progress)}%${paused ? " · paused" : ""}` : ""}</span><span>${active && left != null ? `${fmtMin(left)} left` : ""}</span></div>
         <div class="temps">${nozzle != null ? `▲ ${nozzle.toFixed(1)}°` : ""}</div>
-        ${ctl.length ? `<div class="ctrl">${ctl.join("")}</div>` : ""}
+        ${filHtml}
+        ${ctl.length || lightHtml ? `<div class="ctrl">${ctl.join("")}${lightHtml}</div>` : ""}
+        ${zHtml}
         <div class="ft">${foot}</div>
         ${ask}
         <div class="act">
@@ -1330,6 +1382,7 @@ class FdmPrinterPanel extends HTMLElement {
     const filled = {};
     for (const [name, value] of Object.entries(res.fields || {})) {
       if (!names.includes(name)) continue;
+      if (name === "printer_name" && String(this._data.printer_name || "").trim()) continue; // a name typed by the user wins
       this._data[name] = value;
       filled[name] = true;
     }
@@ -1487,6 +1540,32 @@ class FdmPrinterPanel extends HTMLElement {
       return this._call("button", "press", el.dataset.entity, what === "cancel" ? "Cancelling the print…" : what === "pause" ? "Pausing…" : "Resuming…");
     }
     if (act === "mark") return this._mark(el.dataset.entry, el.dataset.result, el.dataset.job);
+    if (act === "light") return this._call("light", "toggle", el.dataset.entity, "Switching the light…");
+    if (act === "zsize") {
+      this._zstep = { ...(this._zstep || {}), [el.dataset.entry]: Number(el.dataset.step) };
+      return this._render();
+    }
+    if (act === "zasksave") {
+      this._ask = { kind: "zsave", entry: el.dataset.entry };
+      return this._render();
+    }
+    if (act === "zstep" || act === "zreset" || act === "zsave") {
+      this._ask = null;
+      const data = { entry_id: el.dataset.entry };
+      if (act === "zstep") Object.assign(data, { direction: el.dataset.dir, step: this._zstep?.[el.dataset.entry] ?? 0.01 });
+      if (act === "zreset") data.reset = true;
+      if (act === "zsave") data.save = true;
+      return this._service("babystep", data, act === "zsave" ? "Saving the Z offset…" : act === "zreset" ? "Z offset back to 0" : `Z ${data.direction === "up" ? "+" : "−"}${data.step} mm`);
+    }
+  }
+
+  async _service(service, data, message) {
+    this._flash(message);
+    try {
+      await this._hass.callService(DOMAIN, service, data);
+    } catch (err) {
+      this._flash(String(err?.message || err));
+    }
   }
 
   async _mark(entryId, result, jobId) {

@@ -33,7 +33,12 @@ SN: 0309AB123456789
 def test_normalise_cleans_the_values() -> None:
     out = normalise_fields({"ip": " 192.168.001.050 ", "serial": "0309 ab12-3456 789", "access_code": "4f7a 9c2e"})
     assert out == {
-        "fields": {"host": "192.168.1.50", "printer_serial": "0309AB123456789", "access_code": "4f7a9c2e"},
+        "fields": {
+            "host": "192.168.1.50",
+            "printer_serial": "0309AB123456789",
+            "access_code": "4f7a9c2e",
+            "printer_name": "Bambu Lab A1 mini",  # the model, from the serial number
+        },
         "warnings": [],
     }
 
@@ -132,7 +137,12 @@ async def test_read_photo_with_ai_and_the_photo_is_deleted(hass: HomeAssistant, 
         "status": "ok",
         "source": "ai",
         "entity": "OpenAI AI Task",
-        "fields": {"host": "192.168.1.123", "printer_serial": "0309AB123456789", "access_code": "4f7a9c2e"},
+        "fields": {
+            "host": "192.168.1.123",
+            "printer_serial": "0309AB123456789",
+            "access_code": "4f7a9c2e",
+            "printer_name": "Bambu Lab A1 mini",
+        },
         "warnings": [],
     }
     assert seen[0].data["entity_id"] == "ai_task.openai"
@@ -162,7 +172,12 @@ async def test_parse_photo_text(ws) -> None:
     assert result == {
         "status": "ok",
         "source": "ocr",
-        "fields": {"host": "192.168.1.123", "printer_serial": "0309AB123456789", "access_code": "4f7a9c2e"},
+        "fields": {
+            "host": "192.168.1.123",
+            "printer_serial": "0309AB123456789",
+            "access_code": "4f7a9c2e",
+            "printer_name": "Bambu Lab A1 mini",
+        },
         "warnings": [],
     }
     assert (await _call(ws, 2, type=f"{DOMAIN}/parse_photo_text", text="nothing here"))["status"] == "empty"

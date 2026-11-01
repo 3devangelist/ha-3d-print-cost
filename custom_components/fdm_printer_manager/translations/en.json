@@ -81,7 +81,7 @@
           "access_code": "Access code"
         },
         "data_description": {
-          "printer_name": "Leave empty to use the printer's own name.",
+          "printer_name": "Filled with the printer's model (from the serial number). Change it if you like.",
           "host": "e.g. 192.168.1.90",
           "access_code": "8 characters, shown on the printer's screen."
         }
@@ -157,6 +157,8 @@
           "update_interval": "Sampling interval while printing",
           "currency": "Currency",
           "auto_off_minutes": "Turn the printer off after a print (minutes)",
+          "babystep": "Z offset buttons while printing",
+          "babystep_save": "Allow saving the Z offset",
           "ssh_username": "SSH user name",
           "ssh_password": "SSH password",
           "ssh_private_key": "SSH private key",
@@ -164,6 +166,8 @@
         },
         "data_description": {
           "auto_off_minutes": "After a print ends (finished, cancelled or failed) and this long without a new one, the printer is turned off safely: nozzle below 80 °C, its computer shut down, the plug cut once it stops answering. 0 = never. Needs a smart plug.",
+          "babystep": "Baby steps: the card shows buttons that move the nozzle up or down while printing (SET_GCODE_OFFSET), at most 1 mm from 0. Only when Klipper knows the command.",
+          "babystep_save": "Adds a Save button that keeps the offset (Z_OFFSET_APPLY_PROBE or Z_OFFSET_APPLY_ENDSTOP). Run SAVE_CONFIG yourself when the printer is idle. Off by default.",
           "ssh_username": "Advanced: only for a printer whose Moonraker cannot shut its computer down. The Elegoo Centauri Carbon needs nothing here: it is recognised and shut down over SSH as root by itself. Leave empty to not use SSH.",
           "ssh_password": "Optional. Leave empty to keep the stored one (or for a login without a password).",
           "ssh_private_key": "Optional, instead of the password (OpenSSH format). Leave empty to keep the stored one.",
@@ -197,7 +201,7 @@
           "access_code": "Access code"
         },
         "data_description": {
-          "printer_name": "Leave empty to use the printer's own name.",
+          "printer_name": "Leave empty to use the printer's model, e.g. Bambu Lab A1 mini.",
           "host": "e.g. 192.168.1.90",
           "access_code": "8 characters, shown on the printer's screen."
         }
@@ -253,6 +257,12 @@
       "options": {
         "success": "Success",
         "failed": "Failed"
+      }
+    },
+    "babystep_direction": {
+      "options": {
+        "up": "Up (further from the bed)",
+        "down": "Down (closer to the bed)"
       }
     }
   },
@@ -325,6 +335,12 @@
       },
       "cost_today": {
         "name": "Cost today"
+      },
+      "filaments": {
+        "name": "Filaments"
+      },
+      "z_offset": {
+        "name": "Z offset"
       }
     },
     "event": {
@@ -367,6 +383,11 @@
       "cancel_print": {
         "name": "Cancel print"
       }
+    },
+    "light": {
+      "printer_light": {
+        "name": "{light}"
+      }
     }
   },
   "services": {
@@ -385,6 +406,32 @@
         "job_id": {
           "name": "Print ID",
           "description": "Optional. The print to mark (the `job_id` of the print history). Empty: the last print."
+        }
+      }
+    },
+    "babystep": {
+      "name": "Baby step",
+      "description": "Move the nozzle up or down while a Klipper printer prints (live Z offset), put the offset back to 0, or keep it.",
+      "fields": {
+        "entry_id": {
+          "name": "Printer",
+          "description": "The Klipper printer."
+        },
+        "direction": {
+          "name": "Direction",
+          "description": "Up: further from the bed. Down: closer to the bed."
+        },
+        "step": {
+          "name": "Step",
+          "description": "How far, in mm: 0.005, 0.01, 0.025 or 0.05."
+        },
+        "reset": {
+          "name": "Reset",
+          "description": "Put the Z offset back to 0."
+        },
+        "save": {
+          "name": "Save",
+          "description": "Keep the offset (Z_OFFSET_APPLY_PROBE / ENDSTOP). Needs \"Allow saving the Z offset\" in the options; run SAVE_CONFIG when idle."
         }
       }
     }

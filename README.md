@@ -122,6 +122,32 @@ host keys are not checked (local network, the key changes on every firmware
 reinstall). The password and key are never logged and are redacted from
 diagnostics.
 
+## Lights, baby steps and filaments
+
+The card only shows what the printer really has (read once, read-only:
+`printer.objects.list` and `printer.gcode.help` on Klipper).
+
+- **Lights**: 💡 one button per light — Klipper LEDs (`SET_LED`) and
+  `output_pin`s named like a light (`SET_PIN`), the Bambu Lab chamber light.
+  Also `light.<printer>_light_<name>`.
+- **Baby steps** (Klipper, while printing): Z offset with ▼ / ▲, steps of
+  0.005 / 0.01 / 0.025 / 0.05 mm, at most ±1 mm, and Reset. **Save** is off
+  by default (Configure → Advanced); it applies the offset to the probe or
+  endstop, then run `SAVE_CONFIG` yourself when the printer is idle. Action:
+
+  ```yaml
+  action: fdm_printer_manager.babystep
+  data:
+    entry_id: <the printer's entry id>
+    direction: down # or up
+    step: 0.01
+  ```
+
+- **Filaments**: one chip per slot of a multi-material unit, with its real
+  colour, type and % left; the active slot is outlined. AFC / Box Turtle /
+  Elegoo CANVAS (Centauri Carbon, "cosmos" firmware), Happy Hare, Spoolman's
+  active spool, Bambu Lab AMS (LAN). Also `sensor.<printer>_filaments`.
+
 ## Watching prints
 
 On by default (**Edit → Watch prints**). Nothing is ever resumed automatically.

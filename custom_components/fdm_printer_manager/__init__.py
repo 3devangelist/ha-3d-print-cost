@@ -16,6 +16,7 @@ from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEnt
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 
@@ -26,14 +27,17 @@ from .const import (
     CONF_PANEL,
     CONF_PRINTER_NAME,
     CONF_PRINTER_SERIAL,
+    CONF_PRINTER_TYPE,
     DOMAIN,
     PANEL_ELEMENT,
     PANEL_ICON,
     PANEL_TITLE,
     PANEL_URL_PATH,
     STATIC_URL,
+    PrinterType,
 )
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
+from .naming import bambu_model, bambu_name, friendly_name, is_generic
 from .outcome import history_stats
 from .scanner import async_scan_network, async_start_scanning
 from .services import async_setup_services
@@ -49,6 +53,7 @@ PLATFORMS: list[Platform] = [
     Platform.SWITCH,
     Platform.BUTTON,
     Platform.CAMERA,
+    Platform.LIGHT,
 ]
 
 # Entities of the removed history and G-code estimate features.
@@ -71,12 +76,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) ->
         for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
             if entity.unique_id == f"{entry.entry_id}_{key}":
                 registry.async_remove(entity.entity_id)
+    _rename_generic(hass, entry)
     coordinator = PrintCostCoordinator(hass, entry)
     await coordinator.async_start()
     entry.runtime_data = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+def better_name(entry: PrintCostConfigEntry) -> str | None:
+    """A readable name for a printer still called by a shared hostname ("cosmos", "micromachine"), else ``None``."""
+    if not is_generic(entry.title):
+        return None
+    conf = {**entry.data, **entry.options}
+    if (conf.get(CONF_PRINTER_TYPE) or PrinterType.BAMBU) == PrinterType.KLIPPER:
+        name = friendly_name(entry.title, str(conf.get(CONF_HOST) or ""))
+    elif bambu_model(conf.get(CONF_PRINTER_SERIAL)):
+        name = bambu_name(conf.get(CONF_PRINTER_SERIAL))
+    else:
+        return None
+    return name if name != entry.title else None
+
+
+def _rename_generic(hass: HomeAssistant, entry: PrintCostConfigEntry) -> None:
+    """Rename a printer added under a shared hostname.
+
+    A name the user gave the device is kept, and entity IDs never change.
+    """
+    if (name := better_name(entry)) is None:
+        return
+    _LOGGER.info("Renaming printer %s to %s", entry.title, name)
+    options = {**entry.options, CONF_PRINTER_NAME: name} if CONF_PRINTER_NAME in entry.options else entry.options
+    hass.config_entries.async_update_entry(
+        entry, title=name, data={**entry.data, CONF_PRINTER_NAME: name}, options=options
+    )
+    registry = dr.async_get(hass)
+    device = registry.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    if device is not None and device.name_by_user is None:
+        registry.async_update_device(device.id, name=name)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -> bool:
@@ -179,7 +217,7 @@ def _on_bambu_found(hass: HomeAssistant, found: BambuAnnouncement) -> None:
             data={
                 CONF_HOST: found.host,
                 CONF_PRINTER_SERIAL: found.serial,
-                CONF_PRINTER_NAME: found.name or found.model,
+                CONF_PRINTER_NAME: bambu_name(found.serial, found.model, found.name),
             },
         )
     )

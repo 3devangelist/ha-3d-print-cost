@@ -206,7 +206,7 @@ async def test_add_bambu_lan(hass: HomeAssistant) -> None:
     assert result["step_id"] == "electricity"
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Bambu 1934"
+    assert result["title"] == "Bambu Lab A1"  # the model, read from the serial number
     assert result["data"]["printer_type"] == "bambu_lan"
     assert result["data"]["printer_serial"] == SERIAL
     assert result["result"].unique_id == f"bambu_{SERIAL}"
@@ -290,4 +290,4 @@ async def test_ssdp_announcement_starts_one_discovery_flow(hass: HomeAssistant) 
     flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert len(flows) == 1
     assert flows[0]["step_id"] == "bambu_lan"
-    assert flows[0]["context"]["title_placeholders"] == {"name": "A1"}
+    assert flows[0]["context"]["title_placeholders"] == {"name": "Bambu Lab A1"}

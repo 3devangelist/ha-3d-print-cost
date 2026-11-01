@@ -39,8 +39,17 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .adapters import bambu
-from .adapters.bambu_lan import BambuLanClient
+from .adapters.bambu_lan import BambuLanClient, light_on
 from .adapters.electricity import ElectricityReader, ElectricitySources
+from .adapters.klipper_extras import (
+    BABYSTEP_RESET,
+    KlipperLight,
+    babystep_gcode,
+    light_color,
+    light_gcode,
+    light_level,
+    z_offset,
+)
 from .adapters.moonraker import (
     DEFAULT_PORT,
     KlipperSource,
@@ -66,6 +75,8 @@ from .const import (
     CONF_ALERTS,
     CONF_API_KEY,
     CONF_AUTO_OFF,
+    CONF_BABYSTEP,
+    CONF_BABYSTEP_SAVE,
     CONF_CLOSE_MINUTES,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
@@ -118,6 +129,7 @@ from .const import (
     IntegrationMethod,
     PrinterType,
 )
+from .filament import FilamentSlot, bambu_slots, klipper_slots
 from .finish import async_run_end_actions
 from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
 from .outcome import MARKABLE, mark_history
@@ -144,6 +156,10 @@ _BAMBU_BUTTONS: dict[str, tuple[str, ...]] = {
 _BAMBU_NOZZLE_KEYS: tuple[str, ...] = ("nozzle_temp", "nozzle_temperature")
 # ha-bambulab camera: a camera entity (X1 / H2), or an image entity refreshed from the camera (A1 / P1)
 _BAMBU_CAMERA_KEYS: tuple[str, ...] = ("camera", "p1p_camera", "chamber_image")
+# ha-bambulab chamber light (shown on the card; this integration does not make a second one)
+_BAMBU_LIGHT_KEYS: tuple[str, ...] = ("chamber_light",)
+# Bambu LAN: the one light this integration switches itself
+BAMBU_LAN_LIGHT = "light_chamber"
 
 type PrintCostConfigEntry = ConfigEntry[PrintCostCoordinator]
 
@@ -245,6 +261,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         # Klipper camera found through Moonraker (None: no camera, or not checked yet).
         self.webcam: Webcam | None = None
         self._webcam_checked = False
+        # Colour (or pin value) of each Klipper light when it was turned off, to turn it back on as it was.
+        self._light_last: dict[str, tuple[float, ...]] = {}
 
         self.last_image: bytes | None = None
 
@@ -757,6 +775,126 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         if self.printer_type is PrinterType.BAMBU:
             return self._bambu_entity("camera", _BAMBU_CAMERA_KEYS) or self._bambu_entity("image", _BAMBU_CAMERA_KEYS)
         return None
+
+    # ------------------------------------------------------------------ #
+    # Lights, baby steps, filaments (only what the printer really has)
+    # ------------------------------------------------------------------ #
+    def _klipper_lights(self) -> dict[str, KlipperLight]:
+        features = self.klipper.features if self.klipper is not None else None
+        return {light.key: light for light in features.lights} if features else {}
+
+    @property
+    def own_lights(self) -> dict[str, str]:
+        """Lights this integration switches itself, key → name (Klipper LEDs / light pins, Bambu LAN chamber light)."""
+        if self.klipper is not None:
+            return {key: light.label for key, light in self._klipper_lights().items()}
+        if self.bambu_lan is not None and light_on(self.bambu_lan.report) is not None:
+            return {BAMBU_LAN_LIGHT: "Chamber light"}
+        return {}
+
+    def light_is_on(self, key: str) -> bool | None:
+        """On / off as last read, ``None`` when unknown."""
+        if self.klipper is not None:
+            light = self._klipper_lights().get(key)
+            level = light_level(light, self.klipper.reading.extras) if light else None
+            return None if level is None else level > 0
+        if self.bambu_lan is not None and key == BAMBU_LAN_LIGHT:
+            return light_on(self.bambu_lan.report)
+        return None
+
+    async def async_set_light(self, key: str, on: bool) -> None:
+        """Turn one light on or off on the printer."""
+        if self.klipper is not None and (light := self._klipper_lights().get(key)) is not None:
+            if not self.klipper.available:
+                raise HomeAssistantError(f"{self.printer_name} is not answering")
+            if not on and (color := light_color(light, self.klipper.reading.extras)) and any(c > 0 for c in color):
+                self._light_last[key] = color
+            try:
+                await self.klipper.client.gcode(light_gcode(light, on, self._light_last.get(key)))
+            except MoonrakerError as err:
+                raise HomeAssistantError(f"{self.printer_name}: {err}") from err
+            await self.klipper.async_update()
+            self._process(dt_util.utcnow())
+            return
+        if self.bambu_lan is not None and key == BAMBU_LAN_LIGHT:
+            await self.bambu_lan.async_light(on)
+            return
+        raise HomeAssistantError(f"{self.printer_name} has no light {key}")
+
+    def light_entities(self) -> list[dict[str, Any]]:
+        """Lights for the card: ours, or ha-bambulab's chamber light."""
+        registry = er.async_get(self.hass)
+        lights = [
+            {"key": key, "name": name, "entity": entity}
+            for key, name in self.own_lights.items()
+            if (entity := registry.async_get_entity_id("light", DOMAIN, f"{self.config_entry.entry_id}_{key}"))
+        ]
+        if self.printer_type is PrinterType.BAMBU and (entity := self._bambu_entity("light", _BAMBU_LIGHT_KEYS)):
+            lights.append({"key": "light_chamber", "name": "Chamber light", "entity": entity})
+        return lights
+
+    @property
+    def z_offset(self) -> float | None:
+        """Live Z offset of a Klipper printer (mm), when it can be baby-stepped."""
+        features = self.klipper.features if self.klipper is not None else None
+        if not features or not features.babystep or not self.klipper.available:
+            return None
+        return z_offset(self.klipper.reading.extras)
+
+    @property
+    def babystep_enabled(self) -> bool:
+        """Baby steps are offered for this printer (Klipper knows SET_GCODE_OFFSET and the option is on)."""
+        features = self.klipper.features if self.klipper is not None else None
+        return bool(features and features.babystep and self.conf.get(CONF_BABYSTEP, True))
+
+    @property
+    def babystep_save(self) -> str | None:
+        """The command that keeps the offset, when the user turned "save" on."""
+        features = self.klipper.features if self.klipper is not None else None
+        if not features or not self.conf.get(CONF_BABYSTEP_SAVE, False):
+            return None
+        return features.save_gcode
+
+    async def async_babystep(self, delta: float | None = None, *, reset: bool = False, save: bool = False) -> None:
+        """Move the nozzle up / down while printing, reset the offset, or keep it (Z_OFFSET_APPLY_*)."""
+        if not self.babystep_enabled or self.klipper is None or not self.klipper.available:
+            raise HomeAssistantError(f"{self.printer_name}: baby steps are not available")
+        if save:
+            if not (command := self.babystep_save):
+                raise HomeAssistantError(f"{self.printer_name}: saving the Z offset is turned off in the options")
+            script = command
+        elif not self.is_printing:
+            raise HomeAssistantError(f"{self.printer_name}: baby steps only while printing")
+        elif reset:
+            script = BABYSTEP_RESET
+        else:
+            try:
+                script = babystep_gcode(float(delta or 0), self.z_offset)
+            except ValueError as err:
+                raise HomeAssistantError(f"{self.printer_name}: {err}") from err
+        try:
+            await self.klipper.client.gcode(script)
+        except MoonrakerError as err:
+            raise HomeAssistantError(f"{self.printer_name}: {err}") from err
+        if save:
+            persistent_notification.async_create(
+                self.hass,
+                f"{self.printer_name}: Z offset applied ({script}). Run SAVE_CONFIG when the printer is idle "
+                "to keep it (it restarts Klipper).",
+                title="FDM Printer Manager",
+                notification_id=f"{DOMAIN}_zsave_{self.config_entry.entry_id}",
+            )
+        await self.klipper.async_update()
+        self._process(dt_util.utcnow())
+
+    @property
+    def filament_slots(self) -> list[FilamentSlot]:
+        """Filaments of a multi-material unit (AFC, Happy Hare, AMS), or Spoolman's active spool."""
+        if self.klipper is not None and self.klipper.available:
+            return klipper_slots(self.klipper.reading.extras, self.klipper.spool)
+        if self.bambu_lan is not None:
+            return bambu_slots(self.bambu_lan.report)
+        return []
 
     # ------------------------------------------------------------------ #
     # Printer identity (used by the entities' device info)
