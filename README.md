@@ -28,7 +28,7 @@ that electricity **cost**. Filament is out of scope.
 > Based on [ha-3d-print-cost](https://github.com/ZoziLaMalice/ha-3d-print-cost)
 > by ZoziLaMalice (MIT). Thanks for the clean base.
 
-> **Status: alpha (0.3.0-alpha.4).** Expect breaking changes. Klipper, Bambu LAN and Bambu (via ha-bambulab) work;
+> **Status: 0.4.0 — early version.** Expect changes. Klipper, Bambu LAN and Bambu (via ha-bambulab) work;
 > print history, to-do list, safe power-off and the other items in the
 > [roadmap](#roadmap) are being added.
 

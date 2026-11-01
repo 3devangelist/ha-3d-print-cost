@@ -3,6 +3,22 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — first numbered release
+
+First release published on GitHub, so HACS shows a real version number.
+It contains everything from the 0.3.0 development versions below:
+
+- **FDM Printer Manager**: new name, English only, energy and electricity cost only (no filament).
+- **FDM Printers page** in the Home Assistant sidebar: printer cards, Add printer / Edit,
+  Printing now, Recent prints, Found on the network. The first "Add integration" creates it.
+- **Klipper direct** (Moonraker, just the IP address) with network discovery.
+- **Bambu Lab direct over LAN** (IP, serial, access code) with network discovery;
+  Bambu through the Bambu Lab integration is still available.
+- Per printer: **safe power** switch, **Pause / Resume / Cancel** buttons, energy and cost
+  counters (total and today), print history, typed price per kWh.
+
+From now on versions are numbered 0.x.y and published as GitHub releases.
+
 ## [0.3.0-alpha.4]
 
 - **Bambu Lab direct (LAN)**: a new printer type that talks to the printer itself
