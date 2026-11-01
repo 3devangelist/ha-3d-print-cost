@@ -381,7 +381,7 @@ class FdmPrinterPanel extends HTMLElement {
   _renderZoom() {
     if (!this._zoom || !this._avail(this._zoom)) return "";
     const printer = this._printers().find((p) => this._st(p.ents.printer_status)?.attributes?.camera_entity === this._zoom);
-    return `<div class="zoom" data-act="zoomclose"><div class="zhd"><span>${esc(printer?.name || "Camera")}</span><button class="btn sm" data-act="zoomclose">✕ Close</button></div><div class="zcam" data-cam="${esc(this._zoom)}" data-slot="zoom" data-live="1"></div></div>`;
+    return `<div class="zoom" data-act="zoomclose"><div class="zhd"><span>${esc(printer?.entry.title || "Camera")}</span><button class="btn sm" data-act="zoomclose">✕ Close</button></div><div class="zcam" data-cam="${esc(this._zoom)}" data-slot="zoom" data-live="1"></div></div>`;
   }
 
   // ------------------------------------------------------------------ data
@@ -485,18 +485,12 @@ class FdmPrinterPanel extends HTMLElement {
     const printers = [];
     for (const entry of this._entries) {
       const ents = {};
-      const devices = {};
       for (const e of this._registry || []) {
         if (e.config_entry_id !== entry.entry_id) continue;
-        const key = (e.unique_id || "").slice(entry.entry_id.length + 1);
-        ents[key] = e.entity_id;
-        if (e.device_id) devices[key] = e.device_id;
+        ents[(e.unique_id || "").slice(entry.entry_id.length + 1)] = e.entity_id;
       }
       if (!ents.printer_status && !ents.current_print_cost) continue; // panel-only entry
-      // Shown name: the device's name (as renamed by the user or by the integration), else the entry title.
-      const dev = this._hass?.devices?.[devices.printer_status || Object.values(devices)[0]];
-      const name = dev?.name_by_user || dev?.name || entry.title;
-      printers.push({ entry, ents, name });
+      printers.push({ entry, ents });
     }
     return printers;
   }
@@ -705,7 +699,7 @@ class FdmPrinterPanel extends HTMLElement {
       const note = attrs.printer_type === "klipper"
         ? `<p><b>It never cuts the power while the printer is still on.</b> If it does not turn off within ${waitMin ? `${waitMin} min` : "a few minutes"}, the plug stays on and you get a notification.</p>`
         : "";
-      ask = `<div class="ask"><b>Turn ${esc(p.name)} off?</b><ol>${steps.filter(Boolean).map((t) => `<li>${esc(t)}</li>`).join("")}</ol>${note}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entry="${esc(eid)}" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
+      ask = `<div class="ask"><b>Turn ${esc(p.entry.title)} off?</b><ol>${steps.filter(Boolean).map((t) => `<li>${esc(t)}</li>`).join("")}</ol>${note}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entry="${esc(eid)}" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
     }
     if (this._ask?.entry === eid && this._ask.kind === "cancel")
       ask = `<div class="ask">Cancel the print${fileShown ? ` of <b>${esc(fileShown)}</b>` : ""}? This cannot be undone.<div class="row"><button class="btn sm" data-act="askno">Keep printing</button><button class="btn sm danger" data-act="ctl" data-what="cancel" data-entity="${esc(p.ents.cancel_print)}">Cancel print</button></div></div>`;
@@ -713,7 +707,7 @@ class FdmPrinterPanel extends HTMLElement {
     return `
       <article class="pc ${cls}">
         <div class="stripe"></div>
-        <div class="hd"><div><div class="nm">${esc(p.name)}</div><div class="ty">${type}${where}</div></div><span class="state ${cls}">${esc(shown)}</span></div>
+        <div class="hd"><div><div class="nm">${esc(p.entry.title)}</div><div class="ty">${type}${where}</div></div><span class="state ${cls}">${esc(shown)}</span></div>
         ${attrs.alert === "down" ? `<div class="alert">⚠️ Not answering during the print</div>` : attrs.alert === "stalled" ? `<div class="alert">⏳ No progress for a long time</div>` : ""}
         ${camHtml}
         <div class="job">${esc(active ? fileShown || "—" : lastLine || "—")}</div>
@@ -742,7 +736,7 @@ class FdmPrinterPanel extends HTMLElement {
         const s = (k) => this._st(p.ents[k]);
         const unit = s("current_print_cost")?.attributes?.unit_of_measurement || "";
         const progress = num(s("print_progress"));
-        return `<tr><td>${esc(p.name)}</td><td class="m">${esc(s("print_file")?.state || "—")}</td>
+        return `<tr><td>${esc(p.entry.title)}</td><td class="m">${esc(s("print_file")?.state || "—")}</td>
           <td><span class="mini"><i style="width:${progress ?? 0}%"></i></span>${progress != null ? `${Math.round(progress)}%` : "—"}</td>
           <td class="n">${num(s("print_time_left")) != null ? fmtMin(num(s("print_time_left"))) : "—"}</td>
           <td class="n">${kwh(num(s("current_print_energy")))}</td><td class="n">${money(num(s("current_print_cost")), unit)}</td></tr>`;
@@ -758,7 +752,7 @@ class FdmPrinterPanel extends HTMLElement {
   _renderHistory(printers) {
     const h = this._history;
     const opts = [`<option value="">All printers</option>`]
-      .concat(printers.map((p) => `<option value="${esc(p.entry.entry_id)}" ${h.filter === p.entry.entry_id ? "selected" : ""}>${esc(p.name)}</option>`))
+      .concat(printers.map((p) => `<option value="${esc(p.entry.entry_id)}" ${h.filter === p.entry.entry_id ? "selected" : ""}>${esc(p.entry.title)}</option>`))
       .join("");
     const markBtn = (r, result, label, title) =>
       r.result !== result && r.job_id
@@ -802,9 +796,8 @@ class FdmPrinterPanel extends HTMLElement {
 
   async _startEdit(entryId) {
     const entry = this._entries.find((e) => e.entry_id === entryId);
-    const shown = this._printers().find((p) => p.entry.entry_id === entryId)?.name || entry?.title || "";
     this._view = "flow";
-    this._flow = { kind: "options", title: `Edit · ${shown}`, entryId };
+    this._flow = { kind: "options", title: `Edit · ${entry ? entry.title : ""}`, entryId };
     this._confirm = null;
     await this._openFlow("config/config_entries/options/flow", { handler: entryId });
   }

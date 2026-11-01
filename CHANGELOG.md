@@ -19,13 +19,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   The old text said "at most 3 minutes", which was wrong (the wait is 5 minutes) and read like a
   forced cut. The safe power switch has a new attribute `shutdown_wait_minutes`.
 
-### Fixed
-
-- **The card shows the printer's device name.** The card title, the "Turn … off?" box, the camera
-  view, the history and the edit page now use the device name (yours if you renamed the device,
-  otherwise the integration's, e.g. "Centauri Carbon") instead of the config entry title.
-  Nothing is renamed.
-
 ## [0.10.0]
 
 ### Added
