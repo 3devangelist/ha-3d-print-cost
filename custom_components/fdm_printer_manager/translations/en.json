@@ -73,7 +73,7 @@
       },
       "bambu_lan": {
         "title": "Bambu Lab printer (LAN)",
-        "description": "Everything is on the printer's screen: Settings → WLAN / Network (IP address and access code) and Settings → Device (serial number). If the printer refuses the connection, turn on LAN mode on the printer (on recent firmware also Developer mode).",
+        "description": "Everything is on the printer's screen: Settings → WLAN / Network (IP address and access code) and Settings → Device (serial number). If the printer refuses the connection, turn on LAN Only mode on the printer. Developer Mode is optional: only needed to send commands such as pause or the chamber light.",
         "data": {
           "printer_name": "Name",
           "host": "IP address",

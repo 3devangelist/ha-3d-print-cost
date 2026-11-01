@@ -49,6 +49,24 @@ class BambuAuthError(BambuError):
     """Access code refused."""
 
 
+class BambuCommandRefused(BambuError):
+    """The printer answered a command with ``result: fail`` (usually: Developer Mode is off)."""
+
+
+COMMAND_REPLY_TIMEOUT = 5  # seconds to wait for the printer's answer to a command
+
+
+def command_reply(data: Any) -> tuple[str, dict[str, Any]] | None:
+    """``(command, reply)`` when a report answers a command (it carries ``result``), else ``None``."""
+    if not isinstance(data, dict):
+        return None
+    for key in ("print", "system"):
+        part = data.get(key)
+        if isinstance(part, dict) and part.get("command") and "result" in part:
+            return str(part["command"]), part
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # MQTT packets (pure functions, unit-tested)
 # --------------------------------------------------------------------------- #
@@ -227,6 +245,7 @@ class BambuLanClient:
         self._port = port
         self._tls = use_tls
         self._merged: dict[str, Any] = {}
+        self._waiting: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._writer: asyncio.StreamWriter | None = None
         self._task: asyncio.Task | None = None
         self.available = False
@@ -352,6 +371,10 @@ class BambuLanClient:
             data = json.loads(payload)
         except ValueError:
             return False
+        if (reply := command_reply(data)) is not None:
+            waiter = self._waiting.pop(reply[0], None)
+            if waiter is not None and not waiter.done():
+                waiter.set_result(reply[1])
         part = data.get("print") if isinstance(data, dict) else None
         if not isinstance(part, dict):
             return False
@@ -364,18 +387,33 @@ class BambuLanClient:
         return self._merged if self.available else {}
 
     async def async_command(self, action: str) -> None:
-        """Pause / resume / stop."""
-        await self._async_publish(command(action))
+        """Pause / resume / stop. Needs Developer Mode on current firmware."""
+        await self._async_publish(command(action), action)
 
     async def async_light(self, on: bool, node: str = CHAMBER_LIGHT) -> None:
-        """Turn the chamber light on or off."""
-        await self._async_publish(light_command(on, node))
+        """Turn the chamber light on or off. Needs Developer Mode on current firmware."""
+        await self._async_publish(light_command(on, node), "ledctrl")
 
-    async def _async_publish(self, payload: bytes) -> None:
+    async def _async_publish(self, payload: bytes, name: str) -> None:
+        """Send a command and wait briefly for the answer.
+
+        ``result: fail`` → :class:`BambuCommandRefused`. No answer is not an error:
+        some firmwares don't echo every command.
+        """
         if not self._writer or not self.available:
             raise BambuConnectionError("printer not connected")
-        self._writer.write(packet_publish(f"device/{self.serial}/request", payload))
-        await self._writer.drain()
+        waiter: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._waiting[name] = waiter
+        try:
+            self._writer.write(packet_publish(f"device/{self.serial}/request", payload))
+            await self._writer.drain()
+            reply = await asyncio.wait_for(waiter, COMMAND_REPLY_TIMEOUT)
+        except TimeoutError:
+            return
+        finally:
+            self._waiting.pop(name, None)
+        if str(reply.get("result") or "").lower() == "fail":
+            raise BambuCommandRefused(str(reply.get("reason") or reply.get("err_code") or "refused"))
 
 
 # --------------------------------------------------------------------------- #

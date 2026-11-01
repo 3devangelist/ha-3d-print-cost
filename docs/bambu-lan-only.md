@@ -1,196 +1,221 @@
-# Connect a Bambu Lab printer over LAN (LAN Only + Developer Mode)
+# Connect a Bambu Lab printer over LAN (LAN Only)
+
+**English** | [Português](bambu-lan-only.pt.md)
 
 > Checked against the official Bambu Lab wiki on 1 November 2026.
 > Lines marked **(not confirmed)** come from community reports, not from Bambu Lab.
+
+## In short
+
+1. Turn on **LAN Only** on the printer screen.
+2. Take a photo of that page (no flash).
+3. In Home Assistant: **FDM Printers → Add printer → Bambu Lab (LAN) → 🖼️ Choose photo**.
+4. Check the three values and finish.
+
+**Developer Mode is optional.** You only need it to send commands (pause, chamber light). See [Step 2](#step-2--developer-mode-optional).
 
 ## Why you need this
 
 FDM Printer Manager talks to Bambu Lab printers **directly on your home network**.
 It does not use the Bambu cloud.
 
-For that, the printer must be in **LAN Only mode**, and on current firmware also in **Developer Mode**.
-Without Developer Mode, the printer only accepts commands that go through Bambu Connect,
-so Home Assistant can't read its status or control it.
+| Mode | What it does | Needed? |
+|---|---|---|
+| **LAN Only** | The printer stops using the cloud and talks only on your network | **Yes** |
+| **Developer Mode** | Lets other software **send commands** (G-code, pause, lights…) | **No — optional** |
 
-You need three things from the printer:
+What works with **LAN Only alone** (tested on an A1 mini):
+
+| Works | Needs Developer Mode |
+|---|---|
+| Status, progress, file name | Pause, resume, stop from Home Assistant |
+| Nozzle temperature | Chamber light button |
+| Safe power: wait below 80 °C, then cut the plug | Any other command sent to the printer |
+| Print history and cost in FDM | |
+
+Since the January 2025 firmware, commands from other software need **Developer Mode**.
+Without it, FDM shows a clear notice — "requires Developer Mode" — and nothing breaks.
+
+## What you need from the printer
 
 | What | Looks like | Where |
 |---|---|---|
 | **IP address** | `192.168.1.96` | LAN Only page on the printer screen |
 | **Access code** | 8 characters, for example `1a2b3c4d` | LAN Only page on the printer screen |
-| **Serial number** | 15 or 18 characters, for example `0309DA561105372` | Printer screen menus, Bambu Studio or Bambu Handy |
+| **Serial number** | 15 or 16 characters, for example `0309DA561105372` | Device info on the screen, Bambu Studio or Bambu Handy |
 
-> **Tip — "Read from photo".** Take a picture of the LAN Only page with your camera app (no flash,
-> lower the exposure if you can). Then, in **Add printer → Bambu Lab (LAN)**, tap **🖼️ Choose photo**
-> and pick it. The fields are filled in for you
-> and stay editable — check them before you continue: `0`/`O`, `1`/`l`/`I` and `5`/`S` look alike.
-> See [Read from photo](#read-from-photo) for where the photo goes.
+The serial number is **not** the printer name like `3DP-000-000`.
 
 ## Before you start
 
-- The printer and Home Assistant must be on the **same network**. If they are on different VLANs or subnets, see [Troubleshooting](#troubleshooting).
-- Give the printer a **fixed IP address** in your router (a DHCP reservation). Otherwise the IP can change after a restart. **(not confirmed — community advice)**
-- Update the firmware **before** you switch to LAN Only. See [What you lose](#what-you-lose-in-lan-only-mode).
+- Printer and Home Assistant on the **same network**. Different VLANs: see [Network and ports](#network-and-ports).
+- Give the printer a **fixed IP** in your router (DHCP reservation). Otherwise the IP can change. **(not confirmed — community advice)**
+- **Update the firmware first.** In LAN Only you lose over-the-air updates. See [What you lose](#what-you-lose-in-lan-only).
 
-## Step 1 — Turn on LAN Only mode
+## Step 1 — Turn on LAN Only
 
-The menu depends on the printer.
+| Printer | Menu |
+|---|---|
+| **A1, A1 mini** (touch screen) | **Settings** → page 3 → **LAN Only Mode** → switch on (green) |
+| **P1P, P1S** (buttons) | **Settings → WLAN → LAN Only Mode** → **Yes** → shows **ON** |
+| **X1C, X1E, H2D, H2S, P2S** (large touch screen) | Left side **Settings → Settings → LAN Only** → switch on |
 
-### A1 and A1 mini (touch screen)
+On the X1 and H2 series you can also turn on **LAN mode liveview** (the camera on your network).
 
-1. Tap **Settings**.
-2. Scroll down to **page 3** and tap **LAN Only Mode**.
-3. Turn **LAN Only Mode** on. The switch turns **green**.
-4. Write down the **IP address** and the **access code** shown on this page.
-
-<!-- screenshot: A1 mini, Settings page 3 with "LAN Only Mode" -->
 <!-- screenshot: A1 mini, LAN Only page with the switch on, IP and access code -->
 
-### P1P and P1S (screen with buttons)
+## Step 2 — Developer Mode (optional)
 
-1. Open **Settings → WLAN**.
-2. Select **LAN Only Mode**. It is **OFF** by default.
-3. Select **Yes** to confirm.
-4. When it shows **ON**, write down the **access code** shown on this page.
+**Skip this step** if you only want status, temperatures and safe power.
 
-<!-- screenshot: P1S, Settings → WLAN with "LAN Only Mode ON" and the access code -->
+Turn it on only if you want FDM to **send commands** (pause, resume, stop, chamber light).
+It gives other software full control of the printer.
 
-### X1 series, H2 series and P2S (large touch screen)
+Before you turn it on:
 
-1. On the left side of the screen, open **Settings**, then tap **Settings** again.
-2. Tap **LAN Only**.
-3. Turn **LAN Only mode** on.
-4. Choose whether to turn on **LAN mode liveview** (the camera on your local network).
-5. Write down the **IP address** and the **access code** shown on this page.
-
-<!-- screenshot: X1C, Settings → LAN Only page -->
-
-## Step 2 — Turn on Developer Mode
-
-Developer Mode keeps the local **MQTT** channel, the **live stream** and **FTP** open.
-This is what lets Home Assistant read the printer status and send commands.
+- The printer shows a **risk notice**.
+- Bambu Lab can **refuse support** for problems caused by third-party software.
+- It is **reversible**: turn it off on the same page.
 
 | Printer | How |
 |---|---|
-| **A1, A1 mini** | On the **LAN Only Mode** page, turn on **Developer Mode**. Read the notice, tick **"I confirm reading and understanding the Important Notice above"** and tap **Enable**. The button turns green. |
-| **P1P, P1S** | After LAN Only is **ON**, scroll down on the same page to **Developer Mode**. Read the notice, scroll to the end and select **Enable**. It shows **ON**. |
-| **X1, H2, P2S** | On the **LAN Only** page, turn on **Developer Mode**. Read the notice, tick the confirmation and select **Enable Developer Mode**. The button turns green. |
+| **A1, A1 mini** | On the **LAN Only Mode** page, turn on **Developer Mode**. Tick the confirmation and tap **Enable**. |
+| **P1P, P1S** | With LAN Only **ON**, scroll down to **Developer Mode**. Read to the end and select **Enable**. |
+| **X1, H2, P2S** | On the **LAN Only** page, turn on **Developer Mode**. Tick the confirmation and select **Enable Developer Mode**. |
 
-<!-- screenshot: Developer Mode notice with the confirmation box -->
+> ⚠️ **Read the notice on the printer.** In Developer Mode **you are responsible for the security of your network**,
+> and Bambu Lab gives **no support** for it. Keep the printer on a trusted network. Never expose it to the internet.
 
-> ⚠️ **Read the notice on the printer.** Bambu Lab says that with Developer Mode
-> **you are responsible for the security of your local network**, and that they
-> **can't give customer support** for this mode, because the local protocols are not officially supported.
-> Keep the printer on a trusted network. Don't expose it to the internet.
+## Step 3 — Take the photo
 
-## Step 3 — Find the serial number
+The LAN Only page shows the **IP address** and the **access code**. One photo is enough.
 
-Use any of these:
-
-- **Printer screen:** the device or firmware information menu. The exact menu differs by model. **(not confirmed — the wiki shows it only in pictures)**
-- **Bambu Studio:** **Device → Update**.
-- **Bambu Handy:** **Settings → Firmware Version** (only while the printer is still in cloud mode).
+| Do | Don't |
+|---|---|
+| Use the phone's normal **camera app** | Use the flash |
+| **Lower the exposure** (−3 EV worked well) | Leave the screen white and burnt out |
+| Fill the frame with the **whole screen**, straight on | Shoot at a steep angle |
+| Hold still, let it focus on the text | Catch lamp reflections on the glass |
 
 ## Step 4 — Add the printer in Home Assistant
 
 1. Open **FDM Printers** in the sidebar.
-2. Choose **Add printer → Bambu Lab (LAN)**.
-3. Enter the **IP address**, the **serial number** and the **access code** — or tap **🖼️ Choose photo** to fill them in from a photo of the printer screen.
-4. On the next page, choose the **smart plug** that powers the printer (optional).
-5. Finish. The printer card appears on the page.
+2. **Add printer → Bambu Lab (LAN)**.
+3. Tap **🖼️ Choose photo** and pick the photo. The fields fill in.
+   Or type the **IP address**, **serial number** and **access code** by hand.
+4. **Check the values.** `0`/`O`, `1`/`l`/`I` and `5`/`S` look alike.
+5. Choose the **smart plug** that powers the printer (optional).
+6. Finish. The printer card appears.
 
-> The printer must be **switched on** while you add it. The connection is tested before you continue.
+The printer must be **on** while you add it. The connection is tested before you continue.
 
-## Read from photo
-
-1. Take a picture of the printer's **LAN Only** page with your phone's camera app.
-   The screen is lit already: **no flash**, and lower the exposure if you can (about −3 EV read well),
-   so the text is not burnt out. Fill the frame and avoid reflections.
-2. On the Bambu Lab (LAN) form, tap **🖼️ Choose photo** and pick it from the gallery (or a file on a computer).
-
-How the photo is read:
+### How the photo is read
 
 | You have | What happens | Where the photo goes |
 |---|---|---|
-| An **AI Task** set up in Home Assistant (Settings → AI Task, for example OpenAI, Google Gemini or Anthropic) | Home Assistant asks it to read the IP, serial number and access code | To your AI provider. The form tells you which one before you take the photo. The temporary copy in Home Assistant is deleted right after. |
-| No AI Task | The text is read **on your phone or computer** (Tesseract.js) | Nowhere — only the text found is sent to Home Assistant. The first time downloads the reader (about 10 MB). |
+| An **AI Task** in Home Assistant (OpenAI, Gemini, Anthropic…) | It reads the three values | To that AI provider. The form tells you which one. The copy in Home Assistant is deleted right after. |
+| No AI Task | The text is read **on your phone or computer** (Tesseract.js) | Nowhere. Only the text is sent. The first time downloads about 10 MB. |
 
-The values are always editable. Check them before you tap **Next**.
+## When the access code changes
 
-## What you lose in LAN Only mode
+The code can change when you:
 
-According to Bambu Lab, in LAN mode:
+- turn LAN Only **off and on** again **(not confirmed — community reports)**;
+- reset the printer or the network settings;
+- tap **refresh** next to the code (A1 / A1 mini).
 
-- You **can't start prints from outside your home network**.
-- The **Bambu Handy app** doesn't work.
+What you see: the printer becomes **unavailable** and Home Assistant shows **"Access code rejected"**.
+
+What to do:
+
+1. Take a new photo of the LAN Only page.
+2. Home Assistant asks for the new code (a **Re-authenticate** notice). It also appears on the **FDM Printers** page.
+3. Tap **🖼️ Choose photo**, check the code, and save.
+
+You keep the printer, its history and its entity IDs.
+
+> If you also use the **Bambu Lab (ha-bambulab)** integration, it keeps its own copy of the code.
+> Update it there too: **Settings → Devices & services → Bambu Lab → Configure**.
+
+## What you lose in LAN Only
+
+According to Bambu Lab:
+
+- **No remote printing** from outside your home.
+- **Bambu Handy** doesn't work.
 - **Print History** is not available.
-- On the **X1 series**, starting a print from Bambu Studio over LAN needs a **micro SD card** in the printer.
+- **X1 series:** printing from Bambu Studio over LAN needs a **micro SD card**.
 
-Also reported by users:
+Also reported by users **(not confirmed)**:
 
-- You don't get firmware update notifications, and you can't update over the air.
-  To update, switch LAN Only off for a moment, update, and switch it back on. **(not confirmed)**
+- No firmware update notices and no over-the-air updates.
+  To update: LAN Only off → update → LAN Only on (the code may change).
 
-Bambu Studio and Orca Slicer still work on your local network. In Bambu Studio, the printer shows with a **lock icon**.
-Select it and enter the **access code** once.
+**Bambu Studio and Orca Slicer** still work on your network.
+The printer shows with a **lock icon**. Select it and enter the **access code** once.
 
-## How to go back
+## Network and ports
 
-1. Open the same **LAN Only** page on the printer.
-2. Turn **Developer Mode** off, then **LAN Only** off.
-3. The printer goes back to cloud mode, and Bambu Handy works again.
-
-Home Assistant then loses the direct connection until you turn both back on.
-
-## Troubleshooting
-
-### "Connection refused" or "wrong access code"
-
-- Check that **LAN Only** and **Developer Mode** are both **on**.
-- Check the **access code** on the printer screen. It is 8 characters. It is **not** the 6-digit PIN used to bind the printer to the cloud.
-- The access code can change when you turn LAN Only off and on again. **(not confirmed — community reports)**
-  If it changed, open the printer in **FDM Printers → Edit** and type the new code. You keep your print history.
-
-### The printer is not found automatically
-
-- Discovery uses **SSDP on UDP ports 1990 and 2021** (broadcast/multicast).
-  Some routers, mesh systems and **guest networks** block it. You can always type the IP address by hand.
-- If you also use the **Bambu Lab (ha-bambulab)** integration, both listen on the same discovery port.
-  If discovery fails, the direct connection still works. Only automatic discovery is affected.
-- Check that the printer is switched on and connected to Wi-Fi.
-
-### Printer and Home Assistant on different VLANs or subnets
-
-Discovery doesn't cross subnets. Type the **IP address** by hand, and allow these ports from Home Assistant to the printer:
+Automatic discovery doesn't cross VLANs or subnets. Type the **IP address** by hand,
+and allow these ports from Home Assistant to the printer:
 
 | Use | Port | Type |
 |---|---|---|
 | Status and control (MQTT over TLS) | **8883** | TCP |
 | Files (FTPS) | 990, 50000–50100 | TCP |
-| Camera | 322, 6000 | TCP |
-| Discovery | 1990, 2021 | UDP (SSDP) |
+| Camera — A1, A1 mini, P1 (JPEG stream) | 6000 | TCP |
+| Camera — X1, H2, P2S (RTSP, needs **LAN mode liveview**) | 322 | TCP |
+| Discovery (SSDP) | 1990, 2021 | UDP |
 
 These ports come from Bambu Lab's official port list.
 
+## Common problems
+
+| Problem | What to check |
+|---|---|
+| **"Access code rejected"** | Code changed? See [When the access code changes](#when-the-access-code-changes). It is 8 characters, **not** the 6-digit cloud binding PIN. |
+| **Printer not found automatically** | Discovery uses UDP 1990/2021. Mesh systems and guest networks often block it. Type the IP by hand. |
+| **Two integrations, discovery fails** | FDM and ha-bambulab listen on the same discovery port. Only discovery is affected; the direct connection works. |
+| **Bambu Handy shows the printer offline** | Normal in LAN Only. Handy needs the cloud. |
+| **Bambu Studio can't see the printer** | Same network? Select the printer with the lock icon and enter the access code. |
+| **Notice "requires Developer Mode"** | You pressed pause, stop or the light. Turn on Developer Mode ([Step 2](#step-2--developer-mode-optional)), or ignore it: the rest works. |
+| **Connected, but no status** | Check the **serial number** (the printer only answers its own). Turn LAN Only off and on, then update the code. |
+| **No camera on X1 / H2** | Turn on **LAN mode liveview** on the LAN Only page. |
+| **Cover image or print weight missing (newer H2 / P2S firmware)** | Turn on **Store sent files on external storage** in the printer's print options and insert a USB drive or SD card. **(not confirmed for FDM — reported by ha-bambulab)** |
+
+For a bug report, attach the **diagnostics** file (device page → **Download diagnostics**)
+and debug logs (`custom_components.fdm_printer_manager: debug`).
+
+## Security
+
+- The **access code is a password**. Anyone on your network with it can control the printer.
+- **Don't share photos** of the LAN Only page. Crop or blur the code first.
+- Original phone photos can also contain your **GPS location**.
+- Keep the printer off guest networks and never forward its ports to the internet.
+
+## How to go back to cloud mode
+
+1. Open the **LAN Only** page on the printer.
+2. Turn **Developer Mode** off (if you turned it on), then **LAN Only** off.
+3. Bambu Handy works again. Home Assistant loses the direct connection until you turn LAN Only back on.
+
 ## Technical notes
 
-- The local MQTT connection uses **TLS on port 8883**. The user name is `bblp` and the password is the **access code**. **(user name not confirmed by Bambu Lab — widely used by community tools)**
-- Since the January 2025 firmware with **Authorization Control**, local control by third-party software needs **Developer Mode**. The standard LAN mode goes through **Bambu Connect** instead.
+- MQTT uses **TLS on port 8883**. User name `bblp`, password = **access code**. **(user name not confirmed by Bambu Lab — used by community tools)**
 
 ## Sources
 
 Official (Bambu Lab):
 
-- [How to enable LAN Mode on Bambu Lab printers](https://wiki.bambulab.com/en/knowledge-sharing/enable-lan-mode)
-- [How to enable Developer Mode on Bambu Lab printers](https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode)
+- [How to enable LAN Mode](https://wiki.bambulab.com/en/knowledge-sharing/enable-lan-mode)
+- [How to enable Developer Mode](https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode)
 - [Printer network ports](https://wiki.bambulab.com/en/general/printer-network-ports)
-- [How to find and register the serial number](https://wiki.bambulab.com/en/general/find-sn)
-- [Updates and Third-Party Integration with Bambu Connect (blog, January 2025)](https://blog.bambulab.com/updates-and-third-party-integration-with-bambu-connect/)
-- [Firmware Update Introducing New Authorization Control System (blog)](https://blog.bambulab.com/firmware-update-introducing-new-authorization-control-system-2/)
+- [How to find the serial number](https://wiki.bambulab.com/en/general/find-sn)
+- [Updates and third-party integration with Bambu Connect (January 2025)](https://blog.bambulab.com/updates-and-third-party-integration-with-bambu-connect/)
 
-Community (used only for lines marked **not confirmed**):
+Community (only for lines marked **not confirmed**):
 
-- [A1 mini: Where do I find the access code?](https://forum.bambulab.com/t/a1-mini-where-do-i-find-the-access-code/56991)
-- [Access Code always needs to be re-entered](https://forum.bambulab.com/t/access-code-always-needs-to-be-re-entered/82201)
+- [ha-bambulab setup guide](https://github.com/greghesp/ha-bambulab/blob/main/docs/setup.mdx)
+- [A1 mini: where do I find the access code?](https://forum.bambulab.com/t/a1-mini-where-do-i-find-the-access-code/56991)
+- [Access code always needs to be re-entered](https://forum.bambulab.com/t/access-code-always-needs-to-be-re-entered/82201)
 - [How to get into LAN mode and use it](https://forum.bambulab.com/t/how-to-get-into-lan-mode-and-use-it/142072)
-- [FTP and MQTT password after update](https://forum.bambulab.com/t/ftp-and-mqtt-password-after-update/5200)

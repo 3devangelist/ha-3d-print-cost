@@ -39,7 +39,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .adapters import bambu
-from .adapters.bambu_lan import BambuLanClient, light_on
+from .adapters.bambu_lan import BambuCommandRefused, BambuError, BambuLanClient, light_on
 from .adapters.electricity import ElectricityReader, ElectricitySources
 from .adapters.klipper_extras import (
     BABYSTEP_RESET,
@@ -381,7 +381,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._process(dt_util.utcnow())
             return
         if self.bambu_lan is not None:
-            await self.bambu_lan.async_command({"pause": "pause", "resume": "resume", "cancel": "stop"}[action])
+            await self._async_bambu_lan_send(
+                action, self.bambu_lan.async_command({"pause": "pause", "resume": "resume", "cancel": "stop"}[action])
+            )
             return
         button = self._bambu_button(_BAMBU_BUTTONS[action])
         await self.hass.services.async_call("button", "press", {"entity_id": button}, blocking=True)
@@ -817,9 +819,29 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._process(dt_util.utcnow())
             return
         if self.bambu_lan is not None and key == BAMBU_LAN_LIGHT:
-            await self.bambu_lan.async_light(on)
+            await self._async_bambu_lan_send("light", self.bambu_lan.async_light(on))
             return
         raise HomeAssistantError(f"{self.printer_name} has no light {key}")
+
+    async def _async_bambu_lan_send(self, what: str, sending: Any) -> None:
+        """Run a Bambu LAN command. Refused → a clear notice (Developer Mode), not an error."""
+        try:
+            await sending
+        except BambuCommandRefused as err:
+            message = (
+                f"{self.printer_name}: the printer refused the {what} command ({err}). "
+                "Sending commands requires Developer Mode on the printer's LAN Only page. "
+                "Status, temperatures and safe power work without it."
+            )
+            _LOGGER.warning(message)
+            persistent_notification.async_create(
+                self.hass,
+                message,
+                title="FDM Printer Manager",
+                notification_id=f"{DOMAIN}_developer_mode_{self.config_entry.entry_id}",
+            )
+        except BambuError as err:
+            raise HomeAssistantError(f"{self.printer_name}: {err}") from err
 
     def light_entities(self) -> list[dict[str, Any]]:
         """Lights for the card: ours, or ha-bambulab's chamber light."""

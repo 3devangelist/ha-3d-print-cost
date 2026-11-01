@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ DEFAULT_SSH_COMMAND = "poweroff"
 # Moonraker's answer when its shutdown runs a command the firmware does not allow
 SHELL_COMMAND_ERROR = "Error running shell command"
 COSMOS_HOSTNAME = "cosmos"
+# COSMOS 26.10 and later: "centauri-carbon-1", "centauri-carbon-2"...
+COSMOS_HOSTNAME_PATTERN = re.compile(r"centauri-carbon-\d+")
 
 
 class SshError(Exception):
@@ -57,7 +60,8 @@ COSMOS_LOGIN = SshLogin(username=DEFAULT_SSH_USERNAME)
 
 def needs_cosmos_login(hostname: str | None, moonraker_error: str | None) -> bool:
     """Whether this looks like the Elegoo "cosmos" firmware (host name, or its shutdown error)."""
-    if (hostname or "").strip().lower() == COSMOS_HOSTNAME:
+    key = (hostname or "").strip().lower().removesuffix(".local")
+    if key == COSMOS_HOSTNAME or COSMOS_HOSTNAME_PATTERN.fullmatch(key):
         return True
     return moonraker_error is not None and SHELL_COMMAND_ERROR in moonraker_error
 

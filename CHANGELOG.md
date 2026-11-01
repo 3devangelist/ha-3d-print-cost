@@ -36,6 +36,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Photo reading simplified**: one **🖼️ Choose photo** button; the in-page camera was removed
   because it only worked over https. Take the picture with your camera app (no flash, lower the
   exposure if you can), then choose it. The reading (AI Task or on-device OCR) is unchanged.
+- **Bambu LAN guide rewritten** ([English](docs/bambu-lan-only.md), new
+  [Português](docs/bambu-lan-only.pt.md)): short steps per model, how to take the photo, what to do
+  when the access code changes, camera ports per model, common problems and security.
+- **Developer Mode is optional for Bambu Lab LAN.** LAN Only is enough for status, temperatures and
+  safe power (tested on an A1 mini). Only commands (pause, resume, stop, chamber light) need it: when
+  the printer refuses one, a notice says "requires Developer Mode" instead of an error. The form and
+  the guide say so.
+- **Elegoo Centauri Carbon on COSMOS 26.10+**: the host is now called `centauri-carbon-1`
+  (`centauri-carbon-N`) instead of `cosmos`. Both are recognised for the printer name and for the SSH
+  shutdown. Moonraker's own shutdown is still tried first (it should work on 26.10.1).
 
 ## [0.9.0]
 

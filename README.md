@@ -58,11 +58,13 @@ Everything happens in that one window:
      automatically. An API key is asked only if your Moonraker refuses the
      connection without one.
    - *Bambu Lab (LAN)*: IP address, serial number and access code (printer screen →
-     Settings → LAN only mode; recent firmware also needs **Developer mode**). A printer
+     Settings → LAN only mode; **Developer mode** is optional, only needed to send commands
+     such as pause or the chamber light). A printer
      found on the network already has IP and serial filled in. **🖼️ Choose photo** fills
      the three fields from a photo of the printer's LAN Only page, taken with your camera
      app without flash (read with your AI Task, or
-     read on your device). Step by step: [Connect a Bambu Lab printer over LAN](docs/bambu-lan-only.md).
+     read on your device). Step by step: [Connect a Bambu Lab printer over LAN](docs/bambu-lan-only.md)
+     ([em português](docs/bambu-lan-only.pt.md)).
    - *Bambu Lab (via the Bambu Lab integration)*: pick the printer from ha-bambulab;
      its entities are found automatically.
 3. **Smart plug** — the switch the printer is plugged into. Its power sensor
@@ -277,7 +279,7 @@ actions:
 | Symptom                    | Check                                                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------------------------------ |
 | No print detected (Klipper) | open `http://<IP>:7125/server/info` in a browser: it must answer. If Moonraker asks for an API key, set it in **Configure**. |
-| Bambu LAN "access code refused" / cannot connect | LAN only mode (and Developer mode on recent firmware) must be on; the code changes when LAN mode is toggled. Port 8883 must be reachable. See [the Bambu LAN guide](docs/bambu-lan-only.md). |
+| Bambu LAN "access code refused" / cannot connect | LAN only mode must be on; the code changes when LAN mode is toggled. Developer mode is not needed to connect (only to send commands). Port 8883 must be reachable. See [the Bambu LAN guide](docs/bambu-lan-only.md). |
 | Choose photo reads wrong values | Retake the picture without flash and with lower exposure, filling the frame with the LAN Only page; the fields stay editable. |
 | No print detected (Bambu)  | the _print status_ entity must report `prepare` / `running` / `pause` (ha-bambulab `print_status`).    |
 | Two prints merged / split  | configure the _job name_ entity.                                                                       |
