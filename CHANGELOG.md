@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.1]
+
+### Fixed
+
+- **Printer cards: no more orange square behind "✓ OK" / "✗ Failed".** The row of these buttons
+  used the CSS class `mark`, already taken by the "FDM" logo in the title bar, so it got the
+  logo's 30 px orange square and the buttons spilled out of it. The row is now `markrow`. Two
+  more classes were shared the same way: a filament chip "in use" took the card footer's
+  padding and top border (`act`), and an empty spool chip took 24 px of padding (`empty`); they
+  are now `inuse` and `spent`.
+- **"✓ OK" / "✗ Failed" only when there is a print to mark.** They showed on every printer that
+  had never finished a print (the result sensor is then `unknown`). They now need a finished
+  print: the "Last print cost" sensor carries its `finished_at`. They stay while the printer is
+  off, because marking only changes the stored history.
+- **Title bar on narrow screens and phones.** "Google Sheets" and "Add printer" wrap onto their
+  own line instead of running past the right edge, the printer grid never asks for more than
+  the width, and the page has smaller margins on phones.
+
 ## [0.12.0]
 
 ### Added

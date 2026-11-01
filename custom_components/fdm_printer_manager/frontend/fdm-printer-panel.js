@@ -17,23 +17,25 @@ const STYLE = `
   --bg:#12161b; --surface:#1a2027; --surface-2:#222a33; --line:#2d3743; --fg:#e7ecf1; --muted:#8c99a8;
   --accent:#f0a33a; --accent-ink:#1b1206; --heat:#ff7a45; --ok:#57c27a; --bad:#ef6a5a; --idle:#7d8a99; --run:#f0a33a;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  display:block; min-height:100vh; background:var(--bg); color:var(--fg);
+  display:block; min-height:100vh; max-width:100%; overflow-x:clip; background:var(--bg); color:var(--fg);
   font-family:"Barlow","Segoe UI",Roboto,ui-sans-serif,system-ui,sans-serif; font-size:15px; line-height:1.45;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
-.top{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}
+.top{display:flex;align-items:center;gap:12px;padding:12px 20px;min-width:0;background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}
 .menu{all:unset;cursor:pointer;color:var(--muted);font-size:1.4rem;padding:2px 6px;display:none}
 .menu.show{display:block}
-.mark{width:30px;height:30px;border-radius:7px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font:700 .72rem var(--mono)}
+.mark{flex:none;width:30px;height:30px;border-radius:7px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font:700 .72rem var(--mono)}
 .title{font-weight:700;font-size:1.15rem;letter-spacing:.01em}
 .ver{font:500 .68rem var(--mono);color:var(--muted)}
 .spacer{flex:1}
-main{padding:20px;max-width:1300px}
+main{padding:20px;max-width:1300px;min-width:0}
 h1{font-size:1.7rem;margin:0;font-weight:700}
 h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .sub{color:var(--muted);font-size:.9rem}
 .bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.bar>*{min-width:0}
+.bar .links{flex-wrap:wrap;justify-content:flex-end;gap:8px}
 .btn{all:unset;box-sizing:border-box;cursor:pointer;font-weight:600;padding:9px 14px;border-radius:7px;border:1px solid var(--line);background:var(--surface-2);color:var(--fg);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .btn:hover{border-color:var(--muted)}
 .btn:focus-visible{outline:2px solid var(--accent)}
@@ -42,7 +44,7 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .btn.danger{color:var(--bad)}
 .btn.sm{padding:5px 10px;font-size:.82rem}
 .btn[disabled]{opacity:.45;pointer-events:none}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),1fr));gap:14px}
 .pc{background:var(--surface);border:1px solid var(--line);border-radius:11px;overflow:hidden;display:flex;flex-direction:column}
 .stripe{height:3px;background:var(--idle)}
 .pc.run .stripe{background:var(--run)} .pc.ok .stripe{background:var(--ok)} .pc.off .stripe{background:var(--bad)}
@@ -52,7 +54,7 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .state{font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:5px;background:var(--surface-2);color:var(--idle);white-space:nowrap}
 .state.run{color:var(--run);background:rgba(240,163,58,.15)} .state.ok{color:var(--ok);background:rgba(87,194,122,.15)} .state.off{color:var(--bad);background:rgba(239,106,90,.15)}
 .job{padding:0 14px;font-family:var(--mono);font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mark{display:flex;gap:6px;padding:6px 14px 0}
+.markrow{display:flex;gap:6px;padding:6px 14px 0;flex-wrap:wrap}
 .rmark{display:inline-flex;gap:6px;margin-left:6px}
 .stats{margin:-4px 0 8px}
 .alert{margin:0 14px 8px;padding:6px 10px;border-radius:8px;background:rgba(219,68,55,.12);color:var(--error-color,#db4437);font-size:.85rem;font-weight:600}
@@ -65,8 +67,8 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .fil{display:flex;gap:6px;padding:8px 14px 0;flex-wrap:wrap}
 .chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);font:500 .74rem var(--mono)}
 .chip i{width:11px;height:11px;border-radius:50%;border:1px solid var(--muted);flex:none}
-.chip.act{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.chip.empty{opacity:.5}
+.chip.inuse{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.chip.spent{opacity:.5}
 .chip small{color:var(--muted)}
 .z{display:flex;gap:6px;align-items:center;padding:8px 14px 0;flex-wrap:wrap}
 .z b{font-family:var(--mono);font-size:.85rem;min-width:7.5em}
@@ -107,7 +109,9 @@ td.n{font-family:var(--mono);text-align:right}
 .steps span.on{border-color:var(--accent);color:var(--accent)}
 .steps span.done{background:var(--surface-2);color:var(--fg)}
 .types{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px}
-@media (max-width:600px){.types{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:600px){.types{grid-template-columns:minmax(0,1fr)}
+  .top{padding:10px 12px} main{padding:14px 12px}
+  .bar .links{width:100%;justify-content:stretch} .bar .links .btn{flex:1 1 auto;justify-content:center}}
 .type{all:unset;box-sizing:border-box;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:4px}
 .type:hover{border-color:var(--muted)} .type:focus-visible{outline:2px solid var(--accent)}
 .type[disabled]{opacity:.45;cursor:not-allowed}
@@ -659,7 +663,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.12.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.12.1</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -720,10 +724,14 @@ class FdmPrinterPanel extends HTMLElement {
         : "";
     const eid = p.entry.entry_id;
     // The printer's verdict can be wrong (a "finished" print that came off the plate): mark the last print by hand.
-    const hasLast = s("last_print_result") && !["unavailable"].includes(lastResult);
+    // Only when there is a finished print to mark: "last print cost" carries its finished_at, and has no such
+    // attribute before the first print ends (the result alone cannot tell: "unknown" is also a real verdict).
+    // Kept while the printer is off: marking only changes the stored history, and a failed print is often
+    // followed by the printer being turned off.
+    const hasLast = !!s("last_print_cost")?.attributes?.finished_at && !!lastResult && lastResult !== "unavailable";
     const markHtml =
       !active && hasLast
-        ? `<div class="mark">${lastResult !== "success" ? `<button class="btn sm" data-act="mark" data-entry="${esc(eid)}" data-result="success" title="Mark the last print as a success">✓ OK</button>` : ""}${
+        ? `<div class="markrow">${lastResult !== "success" ? `<button class="btn sm" data-act="mark" data-entry="${esc(eid)}" data-result="success" title="Mark the last print as a success">✓ OK</button>` : ""}${
             lastResult !== "failed" ? `<button class="btn sm danger" data-act="mark" data-entry="${esc(eid)}" data-result="failed" title="Mark the last print as failed">✗ Failed</button>` : ""
           }</div>`
         : "";
@@ -806,7 +814,7 @@ class FdmPrinterPanel extends HTMLElement {
       ? `<div class="fil">${slots
           .map(
             (f) =>
-              `<span class="chip ${f.active ? "act" : ""} ${f.empty ? "empty" : ""}" title="${esc(f.name)}${f.tool ? ` · ${esc(f.tool)}` : ""}${f.active ? " · in use" : ""}"><i style="background:${esc(f.color || "transparent")}"></i>${esc(f.material || (f.empty ? "empty" : "?"))}${f.remaining != null ? ` <small>${Math.round(f.remaining)}%</small>` : ""}</span>`,
+              `<span class="chip ${f.active ? "inuse" : ""} ${f.empty ? "spent" : ""}" title="${esc(f.name)}${f.tool ? ` · ${esc(f.tool)}` : ""}${f.active ? " · in use" : ""}"><i style="background:${esc(f.color || "transparent")}"></i>${esc(f.material || (f.empty ? "empty" : "?"))}${f.remaining != null ? ` <small>${Math.round(f.remaining)}%</small>` : ""}</span>`,
           )
           .join("")}</div>`
       : "";
