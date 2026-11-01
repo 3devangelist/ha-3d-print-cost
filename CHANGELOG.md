@@ -3,6 +3,26 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.0]
+
+### Added
+
+- **Read from photo (Bambu Lab LAN)**: on the Bambu Lab (LAN) form, **📷 Take photo** opens the
+  camera on a phone or tablet (Home Assistant app or browser; a file picker on a computer) and
+  **Choose image** picks a photo already taken. The IP address, serial number and access code
+  are filled in from a photo of the printer's LAN Only page and stay editable; the filled fields
+  are highlighted (the access code is shown), with a warning when a value doesn't look right.
+  The photo is made smaller first (at most 1600 px).
+  - With an **AI Task** set up in Home Assistant, it reads the photo (`ai_task.generate_data`
+    with the photo attached, structured answer). The form says which provider gets the photo;
+    the temporary copy in the media folder is deleted right after, also on errors.
+  - Without one, the text is read **in the browser** with Tesseract.js (downloaded on first use,
+    about 10 MB); the photo never leaves the device, only the text is sent to Home Assistant.
+  - In the Android app, a clear message explains how to allow the camera when no photo comes back.
+- **Guide**: [Connect a Bambu Lab printer over LAN](docs/bambu-lan-only.md) (LAN Only and
+  Developer Mode per model, what you lose, troubleshooting), linked from the form and the README.
+- New websocket commands `fdm_printer_manager/photo_ai`, `read_photo` and `parse_photo_text`.
+
 ## [0.6.0]
 
 ### Added

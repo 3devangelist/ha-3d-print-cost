@@ -14,9 +14,10 @@ from homeassistant.components import frontend, websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEntryState
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
+from . import photo
 from .adapters.bambu_lan import BambuAnnouncement, async_listen_ssdp
 from .const import (
     CONF_HOST,
@@ -99,6 +100,9 @@ async def _async_ensure_panel(hass: HomeAssistant) -> None:
     if not data.get("ws"):
         websocket_api.async_register_command(hass, ws_history)
         websocket_api.async_register_command(hass, ws_scan)
+        websocket_api.async_register_command(hass, ws_photo_ai)
+        websocket_api.async_register_command(hass, ws_read_photo)
+        websocket_api.async_register_command(hass, ws_parse_photo_text)
         data["ws"] = True
     if "ssdp" not in data:
         data["ssdp"] = []  # set before awaiting so two entries never start two listeners
@@ -210,3 +214,53 @@ async def ws_scan(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
     """Look for Klipper printers now ("Search again" / "Add printer"); they show up in "Found on the network"."""
     found = await async_scan_network(hass)
     connection.send_result(msg["id"], {"found": [{"host": f.host, "port": f.port} for f in found]})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/photo_ai"})
+@websocket_api.require_admin
+@callback
+def ws_photo_ai(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """The AI Task that "Read from photo" would use, so the panel can say where the photo goes."""
+    found = photo.find_ai_entity(hass)
+    connection.send_result(msg["id"], {"entity_id": found[0], "name": found[1]} if found else None)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/read_photo",
+        vol.Required("image"): str,
+        vol.Optional("mime", default="image/jpeg"): vol.In(["image/jpeg", "image/png"]),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_read_photo(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Read the printer's IP, serial and access code from a photo with the user's AI Task."""
+    found = photo.find_ai_entity(hass)
+    if not found:
+        connection.send_result(msg["id"], {"status": "no_ai"})
+        return
+    try:
+        image = photo.decode_photo(msg["image"])
+    except ValueError as err:
+        connection.send_result(msg["id"], {"status": "error", "message": str(err)})
+        return
+    try:
+        raw = await photo.async_read_with_ai(hass, found[0], image, msg["mime"])
+    except Exception as err:  # noqa: BLE001 - any AI provider error: the panel falls back to reading on the device
+        _LOGGER.warning("Reading the photo with %s failed: %s", found[0], err)
+        connection.send_result(msg["id"], {"status": "error", "message": str(err)})
+        return
+    result = photo.normalise_fields(raw)
+    connection.send_result(msg["id"], {"status": "ok", "source": "ai", "entity": found[1], **result})
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/parse_photo_text", vol.Required("text"): vol.All(str, vol.Length(max=20000))}
+)
+@websocket_api.require_admin
+@callback
+def ws_parse_photo_text(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Find the values in the text the browser read from the photo (the photo itself never leaves the browser)."""
+    result = photo.normalise_fields(photo.parse_screen_text(msg["text"]))
+    connection.send_result(msg["id"], {"status": "ok" if result["fields"] else "empty", "source": "ocr", **result})

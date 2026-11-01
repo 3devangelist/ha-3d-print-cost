@@ -133,7 +133,24 @@ details summary{cursor:pointer;margin-bottom:10px}
 .zoom .zcam{width:min(100%,1200px);max-height:calc(100vh - 90px);display:flex;justify-content:center}
 .zoom img{max-width:100%;max-height:calc(100vh - 90px);object-fit:contain;border-radius:8px;background:#000}
 .zoom .zhd{width:min(100%,1200px);display:flex;justify-content:space-between;align-items:center;color:var(--fg);font-weight:700}
+.photo{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:12px;margin-bottom:14px;display:flex;flex-direction:column;gap:8px}
+.photo .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.photo .h{font-size:.8rem;color:var(--muted)}
+.photo .st{font-size:.88rem}
+.photo .st.err{color:var(--bad)} .photo .st.ok{color:var(--ok)}
+.f.filled input{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.f .w{font-size:.8rem;color:var(--run)}
 `;
+
+// "Read from photo" (Bambu LAN): the photo is made smaller first; without an AI Task it is read in the browser.
+const PHOTO_MAX_PX = 1600;
+const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+const LAN_GUIDE_URL = "https://github.com/3devangelist/ha-3d-print-cost/blob/main/docs/bambu-lan-only.md";
+const PHOTO_FIELD_HINT = {
+  host: "an IPv4 address like 192.168.1.96",
+  printer_serial: "15 or 18 letters and digits",
+  access_code: "8 characters",
+};
 
 // A printer's camera on its card: live while printing, a still image refreshed every minute otherwise.
 const SNAPSHOT_EVERY_MS = 60000;
@@ -240,6 +257,7 @@ class FdmPrinterPanel extends HTMLElement {
     this._scanning = false;
     this._cams = new Map(); // key -> {img, mode, at}; kept across renders so a live stream is not restarted
     this._zoom = null; // camera entity shown full size
+    this._photo = { ai: undefined, status: "", kind: "", filled: {}, warnings: [], reading: false };
     this._onVisibility = () => (document.hidden ? this._stopCams() : this._attachCams());
   }
 
@@ -659,6 +677,8 @@ class FdmPrinterPanel extends HTMLElement {
   }
 
   _setResult(result) {
+    if (result.step_id !== this._flow.result?.step_id) Object.assign(this._photo, { status: "", kind: "", filled: {}, warnings: [] });
+    if (result.step_id === "bambu_lan" && this._photo.ai === undefined) this._loadPhotoAi();
     this._flow.id = result.flow_id || this._flow.id;
     this._flow.result = result;
     this._data = {};
@@ -772,7 +792,7 @@ class FdmPrinterPanel extends HTMLElement {
       {
         klipper: `<div class="banner info">Type the printer's IP address. Name, port and web interface are filled in automatically.</div>`,
         zeroconf_confirm: `<div class="banner info">Klipper printer <b>${esc(r.description_placeholders?.name || "")}</b> found at ${esc(r.description_placeholders?.host || "")}. Add it?</div>`,
-        bambu_lan: `<div class="banner info">On the printer: Settings → LAN only mode on (and Developer mode on recent firmware). The access code is shown there too.</div>`,
+        bambu_lan: `<div class="banner info">On the printer, turn on <b>LAN Only mode</b> and then <b>Developer Mode</b> (A1: Settings → page 3 → LAN Only Mode; P1: Settings → WLAN; X1/H2: Settings → LAN Only). The IP address and the 8-character access code are shown on that same page. The printer must be switched on. <a class="link" href="${LAN_GUIDE_URL}" target="_blank" rel="noreferrer">Step-by-step guide</a></div>${this._renderPhoto()}`,
         klipper_auth: `<div class="banner info">This printer only accepts connections with a Moonraker API key.</div>`,
         electricity: `<div class="banner info">Pick the plug the printer is connected to. Its power and energy sensors are found automatically.</div>`,
       }[r.step_id] || "";
@@ -833,10 +853,17 @@ class FdmPrinterPanel extends HTMLElement {
     if (sel.number) {
       return `<div class="f"><label for="f-${esc(name)}">${esc(label)}${req}</label><input id="f-${esc(name)}" data-name="${esc(name)}" data-num="1" type="number" step="any" value="${esc(value ?? "")}">${err}</div>`;
     }
-    const type = sel.text?.type === "password" ? "password" : "text";
+    // A value read from a photo is shown (also the access code) and highlighted, so it gets checked.
+    const filled = !!this._photo.filled[name];
+    const type = sel.text?.type === "password" && !filled ? "password" : "text";
     const ph = name === "host" ? "192.168.1.89" : name === "access_code" ? "8 characters" : "";
-    const big = name === "host" ? " big" : "";
-    return `<div class="f${big}"><label for="f-${esc(name)}">${esc(label)}${req}</label><input id="f-${esc(name)}" data-name="${esc(name)}" type="${type}" value="${esc(value ?? "")}" placeholder="${ph}" spellcheck="false">${err}</div>`;
+    const cls = `${name === "host" ? " big" : ""}${filled ? " filled" : ""}`;
+    const check = !filled
+      ? ""
+      : this._photo.warnings.includes(name)
+        ? `<span class="w">Read from the photo, but it doesn't look right (expected ${esc(PHOTO_FIELD_HINT[name] || "")}). Check it.</span>`
+        : `<span class="h">Read from the photo — check it.</span>`;
+    return `<div class="f${cls}"><label for="f-${esc(name)}">${esc(label)}${req}</label><input id="f-${esc(name)}" data-name="${esc(name)}" type="${type}" value="${esc(value ?? "")}" placeholder="${ph}" spellcheck="false" autocapitalize="off">${check}${err}</div>`;
   }
 
   // ------------------------------------------------------------------ options for the searchable lists
@@ -1043,6 +1070,163 @@ class FdmPrinterPanel extends HTMLElement {
     });
   }
 
+  // ------------------------------------------------------------------ read from photo (Bambu LAN)
+  _renderPhoto() {
+    const p = this._photo;
+    const where = p.ai
+      ? `The photo is sent to your AI provider (<b>${esc(p.ai.name)}</b>) to read it.`
+      : p.ai === null
+        ? "Read on this device: the photo never leaves it (the first time downloads the reader, about 10 MB)."
+        : "";
+    const status = p.status ? `<div class="st ${esc(p.kind)}">${esc(p.status)}</div>` : "";
+    return `<div class="photo ${p.reading ? "busy" : ""}">
+      <div class="row">
+        <button type="button" class="btn pri" data-act="phototake">📷 Take photo</button>
+        <button type="button" class="btn sm" data-act="photochoose">Choose image</button>
+        <input type="file" id="ph-cam" class="photo-in" accept="image/*" capture="environment" hidden>
+        <input type="file" id="ph-file" class="photo-in" accept="image/*" hidden>
+      </div>
+      <span class="h">Photograph the printer's LAN Only page: IP address, serial number and access code are filled in for you. ${where}</span>
+      ${status}</div>`;
+  }
+
+  async _loadPhotoAi() {
+    this._photo.ai = null;
+    try {
+      this._photo.ai = await this._hass.callWS({ type: `${DOMAIN}/photo_ai` });
+    } catch (_err) {
+      this._photo.ai = null;
+    }
+    if (this._view === "flow" && this._flow?.result?.step_id === "bambu_lan" && !this._busy) {
+      Object.assign(this._data, this._collect());
+      this._render();
+    }
+  }
+
+  _setPhotoStatus(status, kind = "") {
+    Object.assign(this._data, this._collect());
+    Object.assign(this._photo, { status, kind });
+    this._render();
+  }
+
+  /** Open the camera (phones, the Home Assistant app) or the file picker. */
+  _pickPhoto(id) {
+    const input = this.shadowRoot.getElementById(id);
+    if (!input) return;
+    input.value = "";
+    this._photo.waiting = id;
+    // The Android app gives no "cancel" when the camera is not allowed: notice the page coming back empty-handed.
+    const back = () => {
+      window.removeEventListener("focus", back);
+      setTimeout(() => this._photo.waiting === id && this._photoCancelled(), 1500);
+    };
+    window.addEventListener("focus", back);
+    input.click();
+  }
+
+  _photoCancelled() {
+    const id = this._photo.waiting;
+    this._photo.waiting = null;
+    if (!id || this._photo.reading) return;
+    if (id === "ph-cam" && /android/i.test(navigator.userAgent)) {
+      this._setPhotoStatus(
+        "No photo received. If the camera did not open, allow camera access for the Home Assistant app in Android settings (Apps → Home Assistant → Permissions → Camera), or use Choose image.",
+        "err",
+      );
+    }
+  }
+
+  async _readPhoto(file) {
+    this._photo.waiting = null;
+    if (!file) return;
+    this._photo.reading = true;
+    this._setPhotoStatus("Reading…");
+    let res = null;
+    try {
+      const img = await this._shrinkPhoto(file);
+      if (this._photo.ai) {
+        this._setPhotoStatus(`Reading… (asking ${this._photo.ai.name})`);
+        const ai = await this._hass.callWS({ type: `${DOMAIN}/read_photo`, image: img.b64, mime: "image/jpeg" }).catch(() => null);
+        if (ai?.status === "ok" && Object.keys(ai.fields || {}).length) res = ai;
+      }
+      if (!res) {
+        this._setPhotoStatus("Reading on this device… (the first time downloads the reader, about 10 MB)");
+        const text = await this._ocr(img.blob);
+        const ocr = await this._hass.callWS({ type: `${DOMAIN}/parse_photo_text`, text: text.slice(0, 20000) });
+        if (ocr?.status === "ok") res = ocr;
+      }
+    } catch (err) {
+      console.warn("FDM Printer Manager: reading the photo failed", err);
+    }
+    this._photo.reading = false;
+    if (!res) return this._setPhotoStatus("Could not read the photo — type the values.", "err");
+    this._applyPhoto(res);
+  }
+
+  /** Fill the fields of this form with what was read; they stay editable. */
+  _applyPhoto(res) {
+    Object.assign(this._data, this._collect());
+    const names = (this._flow?.result?.data_schema || []).map((f) => f.name);
+    const filled = {};
+    for (const [name, value] of Object.entries(res.fields || {})) {
+      if (!names.includes(name)) continue;
+      this._data[name] = value;
+      filled[name] = true;
+    }
+    const how = res.source === "ai" ? `read by ${res.entity || "your AI provider"}` : "read on this device";
+    Object.assign(this._photo, {
+      filled,
+      warnings: (res.warnings || []).filter((n) => filled[n]),
+      status: Object.keys(filled).length
+        ? `Filled from the photo (${how}). Check the highlighted values: 0/O, 1/l/I and 5/S look alike.`
+        : "Could not read the photo — type the values.",
+      kind: Object.keys(filled).length ? "ok" : "err",
+    });
+    this._render();
+  }
+
+  /** At most PHOTO_MAX_PX wide or high, as JPEG: quick to send and to read. */
+  async _shrinkPhoto(file) {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, PHOTO_MAX_PX / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
+    const b64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",", 2)[1]);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    return { blob, b64 };
+  }
+
+  _loadTesseract() {
+    if (window.Tesseract) return Promise.resolve(window.Tesseract);
+    if (!this._tesseract) {
+      this._tesseract = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = TESSERACT_URL;
+        script.onload = () => resolve(window.Tesseract);
+        script.onerror = () => {
+          this._tesseract = null;
+          reject(new Error("The text reader could not be downloaded"));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return this._tesseract;
+  }
+
+  async _ocr(blob) {
+    const Tesseract = await this._loadTesseract();
+    const { data } = await Tesseract.recognize(blob, "eng");
+    return data?.text || "";
+  }
+
   // ------------------------------------------------------------------ events
   _bind() {
     const root = this.shadowRoot;
@@ -1063,6 +1247,10 @@ class FdmPrinterPanel extends HTMLElement {
     // A wheel over a number field must scroll the page, not change the value.
     root.querySelectorAll('input[type="number"]').forEach((el) => el.addEventListener("wheel", () => el.blur(), { passive: true }));
     root.querySelectorAll("input.cb").forEach((el) => this._setupCombo(el));
+    root.querySelectorAll("input.photo-in").forEach((el) => {
+      el.addEventListener("change", () => this._readPhoto(el.files?.[0]));
+      el.addEventListener("cancel", () => this._photoCancelled());
+    });
     const form = root.getElementById("form");
     if (form) {
       form.addEventListener("submit", (ev) => {
@@ -1076,6 +1264,7 @@ class FdmPrinterPanel extends HTMLElement {
 
   async _action(el) {
     const act = el.dataset.act;
+    if (act === "phototake" || act === "photochoose") return this._pickPhoto(act === "phototake" ? "ph-cam" : "ph-file");
     if (act === "add") return this._startAdd();
     if (act === "scan") return this._scan();
     if (act === "found") {
