@@ -8,10 +8,10 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
-from .const import CONF_ACCESS_CODE, CONF_API_KEY, DOMAIN
+from .const import CONF_ACCESS_CODE, CONF_API_KEY, CONF_SSH_KEY, CONF_SSH_PASSWORD, DOMAIN
 from .coordinator import PrintCostConfigEntry
 
-TO_REDACT = {CONF_API_KEY, CONF_ACCESS_CODE}
+TO_REDACT = {CONF_API_KEY, CONF_ACCESS_CODE, CONF_SSH_PASSWORD, CONF_SSH_KEY}
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: PrintCostConfigEntry) -> dict[str, Any]:

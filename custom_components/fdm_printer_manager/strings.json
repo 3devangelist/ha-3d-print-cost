@@ -85,6 +85,18 @@
           "host": "e.g. 192.168.1.90",
           "access_code": "8 characters, shown on the printer's screen."
         }
+      },
+      "reauth_confirm": {
+        "title": "New access code",
+        "description": "{name} refused its access code. It changes when LAN Only mode is turned off and on again. Type the new one, shown on the printer's LAN Only page.",
+        "data": {
+          "host": "IP address",
+          "access_code": "Access code"
+        },
+        "data_description": {
+          "host": "Shown on the same page. Change it only if it changed too.",
+          "access_code": "8 characters."
+        }
       }
     },
     "error": {
@@ -97,7 +109,8 @@
     },
     "abort": {
       "already_configured": "This printer is already configured.",
-      "already_in_progress": "This printer is already being added."
+      "already_in_progress": "This printer is already being added.",
+      "reauth_successful": "Access code updated. The printer is connected again."
     },
     "flow_title": "{name}",
     "create_entry": {
@@ -142,7 +155,19 @@
         "title": "Advanced",
         "data": {
           "update_interval": "Sampling interval while printing",
-          "currency": "Currency"
+          "currency": "Currency",
+          "auto_off_minutes": "Turn the printer off after a print (minutes)",
+          "ssh_username": "SSH user name",
+          "ssh_password": "SSH password",
+          "ssh_private_key": "SSH private key",
+          "ssh_command": "SSH shutdown command"
+        },
+        "data_description": {
+          "auto_off_minutes": "After a print ends (finished, cancelled or failed) and this long without a new one, the printer is turned off safely: nozzle below 80 °C, its computer shut down, the plug cut once it stops answering. 0 = never. Needs a smart plug.",
+          "ssh_username": "Advanced: only for a printer whose Moonraker cannot shut its computer down. The Elegoo Centauri Carbon needs nothing here: it is recognised and shut down over SSH as root by itself. Leave empty to not use SSH.",
+          "ssh_password": "Optional. Leave empty to keep the stored one (or for a login without a password).",
+          "ssh_private_key": "Optional, instead of the password (OpenSSH format). Leave empty to keep the stored one.",
+          "ssh_command": "Run on the printer to shut it down, for example poweroff or sudo poweroff."
         }
       },
       "klipper": {
@@ -176,6 +201,36 @@
           "host": "e.g. 192.168.1.90",
           "access_code": "8 characters, shown on the printer's screen."
         }
+      },
+      "alerts": {
+        "title": "Watch prints",
+        "description": "Warnings while a print is running. You get a notification in Home Assistant and the event `fdm_printer_manager_alert` (for your own automations). Nothing is ever resumed automatically.",
+        "data": {
+          "alerts": "Watch prints",
+          "down_minutes": "Printer not answering",
+          "close_minutes": "Interrupted print",
+          "stall_minutes": "No progress",
+          "notify_services": "Also send to"
+        },
+        "data_description": {
+          "alerts": "Printer down in the middle of a print, interrupted or stuck print, no progress.",
+          "down_minutes": "Warn when the printer stops answering during a print for this long.",
+          "close_minutes": "A print still open while the printer answers but does not print (it came back without resuming, or the state got stuck) is closed as failed after this long.",
+          "stall_minutes": "Warn when the progress has not moved for this long while printing. 0: never.",
+          "notify_services": "Optional. Notify actions, separated by commas, e.g. notify.mobile_app_phone, notify.mobile_app_tablet."
+        }
+      },
+      "finish": {
+        "title": "When a print ends",
+        "description": "Optional. Besides the event `fdm_printer_manager_print_finished`.",
+        "data": {
+          "todo_entity": "To-do list",
+          "end_script": "Script"
+        },
+        "data_description": {
+          "todo_entity": "Adds \"Remove the print from [printer name]\" with the file name and the result, so a part is not forgotten on the plate.",
+          "end_script": "Started with the print summary as variables: printer, name, result, duration_s, energy_kwh, electricity_cost, currency."
+        }
       }
     },
     "error": {
@@ -192,6 +247,12 @@
       "options": {
         "left": "Left (step sensors)",
         "trapezoidal": "Trapezoidal"
+      }
+    },
+    "mark_result": {
+      "options": {
+        "success": "Success",
+        "failed": "Failed"
       }
     }
   },
@@ -305,6 +366,26 @@
       },
       "cancel_print": {
         "name": "Cancel print"
+      }
+    }
+  },
+  "services": {
+    "mark_print": {
+      "name": "Mark a print",
+      "description": "Mark a finished print as a success or a failure. Use it when the printer got it wrong, e.g. a \"finished\" print that came off the plate.",
+      "fields": {
+        "entry_id": {
+          "name": "Printer",
+          "description": "The printer the print was made on."
+        },
+        "result": {
+          "name": "Result",
+          "description": "Success or failed."
+        },
+        "job_id": {
+          "name": "Print ID",
+          "description": "Optional. The print to mark (the `job_id` of the print history). Empty: the last print."
+        }
       }
     }
   }

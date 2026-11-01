@@ -47,6 +47,9 @@ class PrintJob:
     phase: JobPhase = JobPhase.ACTIVE
     result: PrintResult | None = None
     printer_state: str | None = None  # raw last state reported by the printer
+    # Who decided the result: None = the printer, "user" = marked by hand, "watchdog" = closed by the integration
+    result_by: str | None = None
+    remarks: list[str] = field(default_factory=list)  # e.g. "interrupted: the printer lost power"
 
     progress: float | None = None
     remaining_min: float | None = None
@@ -109,6 +112,7 @@ class PrintJob:
             "job_id": self.job_id,
             "name": self.name,
             "result": str(self.result) if self.result else None,
+            "result_by": self.result_by,
             "started_at": self.started_at.isoformat(),
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "duration_s": round(self.duration_s(now)),
@@ -127,6 +131,7 @@ class PrintJob:
             )
         if self.electricity.gap_seconds:
             notes.append(f"{round(self.electricity.gap_seconds)} s of the print had no fresh sample")
+        notes.extend(self.remarks)
         return notes
 
     # ------------------------------------------------------------------ #
@@ -143,6 +148,8 @@ class PrintJob:
             "phase": str(self.phase),
             "result": str(self.result) if self.result else None,
             "printer_state": self.printer_state,
+            "result_by": self.result_by,
+            "remarks": list(self.remarks),
             "progress": self.progress,
             "remaining_min": self.remaining_min,
             "electricity": self.electricity.as_dict(),
@@ -162,6 +169,8 @@ class PrintJob:
             phase=JobPhase(data.get("phase", JobPhase.ACTIVE)),
             result=PrintResult(result) if result else None,
             printer_state=data.get("printer_state"),
+            result_by=data.get("result_by"),
+            remarks=[str(r) for r in data.get("remarks") or []],
             progress=data.get("progress"),
             remaining_min=data.get("remaining_min"),
             electricity=ElectricityAccumulator.from_dict(data.get("electricity") or {}),

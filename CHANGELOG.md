@@ -3,6 +3,78 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.0]
+
+### Added
+
+- **Mark a print as a success or a failure** by hand: **✓ OK** / **✗ Failed** on the printer
+  card (last print) and on every row of "Recent prints". The printer's own verdict is not always
+  right (a "finished" print may have come off the plate). New action
+  `fdm_printer_manager.mark_print` (`entry_id`, `result`, optional `job_id`; empty = the last
+  print) and event `fdm_printer_manager_print_marked`. A marked print shows ✎ in the history and
+  `result_by: user` in the last print attributes.
+- **History numbers** above "Recent prints": number of prints, success rate (successes against
+  failures; cancelled prints don't count) and what the failed and cancelled prints cost.
+  The `fdm_printer_manager/history` websocket command returns them as `stats`.
+- **Watch prints** (on by default; *Edit → Watch prints* to change or turn off):
+  - **Printer not answering** in the middle of a print for 2 min → a warning (and the card says
+    so); when it answers again: "resumed" or "back, not printing".
+  - **Interrupted print**: a print still open while the printer answers but does not print
+    (Klipper comes back in *standby* after a power cut, or a state got stuck) is **closed as
+    failed** after 10 min, with a note. A Bambu Lab printer that comes back *idle* after being
+    down ends the print as failed right away. Nothing is ever resumed automatically.
+  - **No progress** for 60 min while printing → a warning (0 = never).
+  - Each alert is a Home Assistant notification, the event `fdm_printer_manager_alert`
+    (`kind`: `down`, `back`, `resumed`, `interrupted`, `stalled`) and, optionally, your notify
+    actions (e.g. `notify.mobile_app_phone`).
+  - The printer status sensor has an `alert` attribute (`down` / `stalled`).
+- **New access code (Bambu Lab LAN)**: when the printer refuses its access code (it changes
+  when LAN Only mode is turned off and on), Home Assistant asks for the new one (re-authentication,
+  also shown at the top of the FDM Printers page, with **📷 Take photo**). The history is kept.
+- **When a print ends** (*Edit → When a print ends*, optional): add **"Remove the print from
+  &lt;printer&gt;"** to a to-do list (with the file name and the result), and / or start a
+  **script** with the print summary as variables.
+- **Better printer names**: a new Klipper printer is no longer named after a hostname shared by
+  every machine of a kind: `cosmos` becomes **Elegoo Centauri Carbon**, `mainsailos`,
+  `fluiddpi`, `raspberrypi`… become **Klipper &lt;IP&gt;** (a typed name always wins).
+  The device now follows the entry name you see (and can rename) in Home Assistant. Entity IDs
+  of printers already added are **not** changed; Home Assistant offers to rename them when you
+  rename the device.
+- Last print attributes and the history: `result_by` (`user`, `watchdog`, or empty for the
+  printer's own verdict).
+
+## [0.8.0]
+
+### Added
+
+- **Auto-off after a print**: when a print ends (finished, cancelled or failed), the printer is
+  turned off safely after **15 minutes** without a new print (Configure → Advanced, 0 = never).
+  It waits for the nozzle to drop below 80 °C, shuts the printer's computer down and cuts the
+  plug only once that computer stops answering. A new print, the plug turned off by hand, or
+  tapping the power button on the card cancels it. The card shows "Auto off at HH:MM".
+- **SSH shutdown fallback** for Klipper printers whose Moonraker cannot shut down. The
+  **Elegoo Centauri Carbon** ("cosmos" firmware) answers `POST /machine/shutdown` with HTTP 500
+  "Error running shell command: 'sudo systemctl poweroff'" and stays on; it is recognised by its
+  host name or that error and shut down with one `poweroff` over SSH as `root` (no password, as
+  the printer ships), with nothing to set up. Other printers can be given an SSH login in the
+  options (user, optional password or key, command). Only that one command is ever run.
+- **Take photo opens the camera inside the page** (getUserMedia), because the Home Assistant
+  Android app ignores `capture="environment"`. Set up for photographing a lit screen: flash off,
+  exposure towards −3 EV, focus and metering on the centre, high resolution (each only when the
+  camera supports it). Without a camera API (Home Assistant over plain `http://`) or when access
+  is refused, it falls back to the file picker with a clear message.
+
+### Changed
+
+- **Safe power** cuts the plug only once the printer's computer stops answering a ping (or a
+  TCP check): 3 checks in a row 5 s apart, then 10 s more. Moonraker going quiet is not enough
+  any more. Still answering after 5 minutes, or no way to shut it down, the plug is **left on**
+  and a notification says why (before: cut after 3 minutes regardless).
+- New `safe_power` attributes: `auto_off_at`, `auto_off_minutes`, `last_result`
+  (`power_off`, `aborted`, `hot`, `still_on`, `no_shutdown`) and `ssh`; new phase `waiting`.
+- The SSH password and key are redacted from diagnostics.
+- `asyncssh` is now a requirement (only imported when an SSH shutdown is needed).
+
 ## [0.7.0]
 
 ### Added

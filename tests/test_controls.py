@@ -47,15 +47,23 @@ class FakePrinter:
 @pytest.fixture
 def printer():
     fake = FakePrinter()
-    with patch.multiple(
-        CLIENT,
-        status=AsyncMock(side_effect=fake.status),
-        metadata=AsyncMock(side_effect=MoonrakerConnectionError("none")),
-        pause=AsyncMock(side_effect=fake.recorder("pause")),
-        resume=AsyncMock(side_effect=fake.recorder("resume")),
-        cancel=AsyncMock(side_effect=fake.recorder("cancel")),
-        shutdown_host=AsyncMock(side_effect=fake.recorder("shutdown")),
-        webcams=AsyncMock(return_value=[]),
+
+    async def host_is_up(host: str, port: int) -> bool:  # the computer answers while Moonraker does
+        return not isinstance(fake.reading, Exception)
+
+    with (
+        patch.multiple(
+            CLIENT,
+            status=AsyncMock(side_effect=fake.status),
+            metadata=AsyncMock(side_effect=MoonrakerConnectionError("none")),
+            pause=AsyncMock(side_effect=fake.recorder("pause")),
+            resume=AsyncMock(side_effect=fake.recorder("resume")),
+            cancel=AsyncMock(side_effect=fake.recorder("cancel")),
+            shutdown_host=AsyncMock(side_effect=fake.recorder("shutdown")),
+            webcams=AsyncMock(return_value=[]),
+            hostname=AsyncMock(return_value="Ender6"),
+        ),
+        patch("custom_components.fdm_printer_manager.coordinator.host_is_up", AsyncMock(side_effect=host_is_up)),
     ):
         yield fake
 

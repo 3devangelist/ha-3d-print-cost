@@ -7,6 +7,7 @@ Add printer: printer type → connection (or Bambu device + entities) → smart 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -27,15 +28,22 @@ from .adapters.moonraker import (
     default_web_url,
 )
 from .adapters.netscan import SCAN_PORTS, async_probe
+from .adapters.ssh import DEFAULT_SSH_COMMAND
 from .const import (
     BAMBU_DOMAIN,
     CONF_ACCESS_CODE,
+    CONF_ALERTS,
     CONF_API_KEY,
+    CONF_AUTO_OFF,
+    CONF_CLOSE_MINUTES,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
+    CONF_DOWN_MINUTES,
+    CONF_END_SCRIPT,
     CONF_ENERGY_ENTITY,
     CONF_HOST,
     CONF_JOB_NAME_ENTITY,
+    CONF_NOTIFY,
     CONF_PANEL,
     CONF_PORT,
     CONF_POWER_ENTITY,
@@ -48,17 +56,29 @@ from .const import (
     CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
+    CONF_SSH_COMMAND,
+    CONF_SSH_KEY,
+    CONF_SSH_PASSWORD,
+    CONF_SSH_USERNAME,
+    CONF_STALL_MINUTES,
     CONF_SWITCH_ENTITY,
+    CONF_TODO_ENTITY,
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
+    DEFAULT_AUTO_OFF,
+    DEFAULT_CLOSE_MINUTES,
+    DEFAULT_DOWN_MINUTES,
+    DEFAULT_STALL_MINUTES,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     HTTP_TIMEOUT,
+    MAX_AUTO_OFF,
     MAX_UPDATE_INTERVAL,
     MIN_UPDATE_INTERVAL,
     PROBE_TIMEOUT,
     PrinterType,
 )
+from .naming import friendly_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -162,7 +182,10 @@ def normalise_klipper(data: dict[str, Any], hostname: str | None) -> dict[str, A
     result = dict(data)
     result[CONF_HOST] = str(data[CONF_HOST]).strip()
     result[CONF_PORT] = int(data.get(CONF_PORT) or DEFAULT_PORT)
-    result[CONF_PRINTER_NAME] = (data.get(CONF_PRINTER_NAME) or "").strip() or hostname or result[CONF_HOST]
+    # A shared hostname ("cosmos", "mainsailos"...) is not a good name: see naming.py.
+    result[CONF_PRINTER_NAME] = friendly_name(
+        (data.get(CONF_PRINTER_NAME) or "").strip() or hostname, result[CONF_HOST]
+    )
     result[CONF_WEB_URL] = (data.get(CONF_WEB_URL) or "").strip() or default_web_url(result[CONF_HOST])
     return result
 
@@ -211,22 +234,77 @@ def electricity_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def behaviour_schema(defaults: dict[str, Any], hass_currency: str) -> vol.Schema:
-    """Advanced options."""
+def behaviour_schema(defaults: dict[str, Any], hass_currency: str, *, with_ssh: bool = False) -> vol.Schema:
+    """Advanced options. Klipper printers also get the SSH login used to shut them down.
+
+    The password and the key are never sent back to the form: left empty, the
+    stored ones are kept.
+    """
+    fields: dict[Any, Any] = {
+        vol.Required(
+            CONF_UPDATE_INTERVAL, default=defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=MIN_UPDATE_INTERVAL,
+                max=MAX_UPDATE_INTERVAL,
+                step=5,
+                unit_of_measurement="s",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or hass_currency): selector.TextSelector(),
+        vol.Required(CONF_AUTO_OFF, default=defaults.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF)): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=MAX_AUTO_OFF, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX
+            )
+        ),
+    }
+    if with_ssh:
+        fields[_opt(CONF_SSH_USERNAME, defaults)] = selector.TextSelector()
+        fields[vol.Optional(CONF_SSH_PASSWORD)] = selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        )
+        fields[vol.Optional(CONF_SSH_KEY)] = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+        fields[vol.Optional(CONF_SSH_COMMAND, default=defaults.get(CONF_SSH_COMMAND) or DEFAULT_SSH_COMMAND)] = (
+            selector.TextSelector()
+        )
+    return vol.Schema(fields)
+
+
+def _minutes(minimum: int, maximum: int) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=minimum, max=maximum, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX
+        )
+    )
+
+
+def alerts_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Watching prints."""
+    stall = defaults.get(CONF_STALL_MINUTES)
     return vol.Schema(
         {
+            vol.Required(CONF_ALERTS, default=bool(defaults.get(CONF_ALERTS, True))): selector.BooleanSelector(),
             vol.Required(
-                CONF_UPDATE_INTERVAL, default=defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_UPDATE_INTERVAL,
-                    max=MAX_UPDATE_INTERVAL,
-                    step=5,
-                    unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
+                CONF_DOWN_MINUTES, default=int(defaults.get(CONF_DOWN_MINUTES) or DEFAULT_DOWN_MINUTES)
+            ): _minutes(1, 60),
+            vol.Required(
+                CONF_CLOSE_MINUTES, default=int(defaults.get(CONF_CLOSE_MINUTES) or DEFAULT_CLOSE_MINUTES)
+            ): _minutes(2, 240),
+            vol.Required(CONF_STALL_MINUTES, default=int(DEFAULT_STALL_MINUTES if stall is None else stall)): _minutes(
+                0, 1440
             ),
-            vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or hass_currency): selector.TextSelector(),
+            _opt(CONF_NOTIFY, defaults): selector.TextSelector(),
+        }
+    )
+
+
+def finish_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """When a print ends."""
+    return vol.Schema(
+        {
+            _opt(CONF_TODO_ENTITY, defaults): _entity("todo"),
+            _opt(CONF_END_SCRIPT, defaults): _entity("script"),
         }
     )
 
@@ -299,7 +377,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         port = int(discovery_info.port or DEFAULT_PORT)
         await self.async_set_unique_id(f"klipper_{host.lower()}_{port}")
         self._abort_if_unique_id_configured()
-        name = (discovery_info.hostname or "").rstrip(".").removesuffix(".local") or host
+        name = friendly_name((discovery_info.hostname or "").rstrip(".").removesuffix(".local"), host)
         self._klipper = {CONF_HOST: host, CONF_PORT: port, CONF_PRINTER_NAME: name}
         self.context["title_placeholders"] = {"name": name}
         return await self.async_step_zeroconf_confirm()
@@ -339,7 +417,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         port = int(discovery_info.get(CONF_PORT) or DEFAULT_PORT)
         await self.async_set_unique_id(f"klipper_{host.lower()}_{port}")
         self._abort_if_unique_id_configured()
-        name = discovery_info.get(CONF_PRINTER_NAME) or host
+        name = friendly_name(discovery_info.get(CONF_PRINTER_NAME), host)
         self._klipper = {CONF_HOST: host, CONF_PORT: port, CONF_PRINTER_NAME: name}
         self.context["title_placeholders"] = {"name": name}
         return await self.async_step_zeroconf_confirm()
@@ -486,6 +564,47 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
     def _create(self) -> ConfigFlowResult:
         return self.async_create_entry(title=self._data[CONF_PRINTER_NAME], data=self._data)
 
+    # ------------------------------------------------------------------ #
+    # Re-authentication (Bambu Lab LAN: the access code changed)
+    # ------------------------------------------------------------------ #
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        """The printer refused the access code."""
+        entry = self._get_reauth_entry()
+        self.context["title_placeholders"] = {"name": entry.title}
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Type the new access code (and the IP address, if it changed too)."""
+        entry = self._get_reauth_entry()
+        current = {**entry.data, **entry.options}
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            host = str(user_input[CONF_HOST]).strip()
+            code = str(user_input[CONF_ACCESS_CODE]).strip()
+            errors = await validate_bambu_lan(host, current[CONF_PRINTER_SERIAL], code)
+            if not errors:
+                changes = {CONF_HOST: host, CONF_ACCESS_CODE: code}
+                # Options override the data: an older code kept there must go too.
+                if any(k in entry.options for k in changes):
+                    self.hass.config_entries.async_update_entry(entry, options={**entry.options, **changes})
+                return self.async_update_reload_and_abort(entry, data={**entry.data, **changes})
+        defaults = {CONF_HOST: current.get(CONF_HOST), **(user_input or {})}
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, description={"suggested_value": defaults.get(CONF_HOST)}): (
+                        selector.TextSelector()
+                    ),
+                    vol.Required(CONF_ACCESS_CODE): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                }
+            ),
+            description_placeholders={"name": entry.title},
+            errors=errors,
+        )
+
 
 # --------------------------------------------------------------------------- #
 # Options flow
@@ -568,18 +687,57 @@ class PrintCostOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="electricity", data_schema=electricity_schema(self._current), errors=errors)
 
     async def async_step_behaviour(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Interval, currency."""
+        """Interval, currency, auto-off; SSH login for Klipper."""
         if user_input is not None:
             self._options.update(
                 {
                     CONF_UPDATE_INTERVAL: int(user_input[CONF_UPDATE_INTERVAL]),
                     CONF_CURRENCY: str(user_input[CONF_CURRENCY]).strip().upper(),
+                    CONF_AUTO_OFF: int(user_input[CONF_AUTO_OFF]),
                 }
             )
-            return self.async_create_entry(data=self._options)
+            if self._is_klipper:
+                self._options.update(self._ssh_options(user_input))
+            return await self.async_step_alerts()
         return self.async_show_form(
-            step_id="behaviour", data_schema=behaviour_schema(self._current, self.hass.config.currency)
+            step_id="behaviour",
+            data_schema=behaviour_schema(self._current, self.hass.config.currency, with_ssh=self._is_klipper),
         )
+
+    async def async_step_alerts(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Watching prints: printer down, interrupted or stuck print, no progress."""
+        if user_input is not None:
+            self._options.update(
+                {
+                    CONF_ALERTS: bool(user_input.get(CONF_ALERTS, True)),
+                    CONF_DOWN_MINUTES: int(user_input[CONF_DOWN_MINUTES]),
+                    CONF_CLOSE_MINUTES: int(user_input[CONF_CLOSE_MINUTES]),
+                    CONF_STALL_MINUTES: int(user_input[CONF_STALL_MINUTES]),
+                    CONF_NOTIFY: str(user_input.get(CONF_NOTIFY) or "").strip() or None,
+                }
+            )
+            return await self.async_step_finish()
+        return self.async_show_form(step_id="alerts", data_schema=alerts_schema(self._current))
+
+    async def async_step_finish(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """When a print ends: a to-do item and / or a script."""
+        if user_input is not None:
+            self._options.update(_with_cleared(user_input, finish_schema({})))
+            return self.async_create_entry(data=self._options)
+        return self.async_show_form(step_id="finish", data_schema=finish_schema(self._current))
+
+    def _ssh_options(self, user_input: dict[str, Any]) -> dict[str, Any]:
+        """SSH login: an empty password or key keeps the stored one; no user name forgets them all."""
+        username = str(user_input.get(CONF_SSH_USERNAME) or "").strip()
+        if not username:
+            return {CONF_SSH_USERNAME: None, CONF_SSH_PASSWORD: None, CONF_SSH_KEY: None, CONF_SSH_COMMAND: None}
+        current = self._current
+        return {
+            CONF_SSH_USERNAME: username,
+            CONF_SSH_PASSWORD: user_input.get(CONF_SSH_PASSWORD) or current.get(CONF_SSH_PASSWORD),
+            CONF_SSH_KEY: (user_input.get(CONF_SSH_KEY) or "").strip() or current.get(CONF_SSH_KEY),
+            CONF_SSH_COMMAND: str(user_input.get(CONF_SSH_COMMAND) or "").strip() or DEFAULT_SSH_COMMAND,
+        }
 
 
 def _with_cleared(user_input: dict[str, Any], schema: vol.Schema) -> dict[str, Any]:

@@ -92,6 +92,63 @@ survives the reload.
 | Sampling interval        | 30 s                                 | Klipper is also polled every 5 s; Bambu updates on every change      |
 | Currency                 | HA currency                          | used for units only, no conversion                                   |
 | Power integration method | left                                 | `left` suits step-like plug sensors, `trapezoidal` smooth ones       |
+| Turn off after a print   | 15 min                               | needs a smart plug; 0 = never (see below)                            |
+| SSH login (Klipper)      | empty                                | advanced: only for printers whose Moonraker cannot shut down         |
+
+## Turning a printer off safely
+
+The **Power** button on the card (`switch.<printer>_safe_power`) and the
+**auto-off** after a print do the same thing:
+
+1. never while printing or paused;
+2. wait for the nozzle to drop below **80 °C** (at most 30 min, else the plug stays on);
+3. Klipper: shut the printer's computer down — Moonraker's `machine.shutdown`
+   first, then SSH if that fails;
+4. cut the plug only once the computer **stops answering** (ping, or a TCP
+   check): 3 checks in a row 5 s apart, then 10 s more. Still answering after
+   5 minutes, the plug is left on and a notification says so.
+
+Auto-off starts when a print ends (finished, cancelled or failed) and waits
+15 minutes (Configure → Advanced). A new print, turning the plug off by hand,
+or tapping Power on the card while it shows "Auto off at …" cancels it.
+
+**Elegoo Centauri Carbon**: its Moonraker cannot shut down (HTTP 500 "Error
+running shell command"). It is recognised (host name `cosmos`, or that error)
+and shut down with a single `poweroff` over SSH as `root`, without a password,
+as the printer ships — nothing to set up. For any other printer that needs
+SSH, give a login under Configure → Advanced (user, optional password or
+private key, command such as `sudo poweroff`). Only that one command is run;
+host keys are not checked (local network, the key changes on every firmware
+reinstall). The password and key are never logged and are redacted from
+diagnostics.
+
+## Watching prints
+
+On by default (**Edit → Watch prints**). Nothing is ever resumed automatically.
+
+| What happens | What you get |
+| ------------ | ------------ |
+| The printer stops answering in the middle of a print (2 min) | ⚠️ warning; the card says "Not answering" |
+| It answers again and prints | 🔌 "resumed" |
+| It answers again but does not print (Klipper comes back in *standby* after a power cut, or a state got stuck) | after 10 min the print is **closed as failed**, with a note |
+| A Bambu Lab printer comes back *idle* after being down | the print ends as **failed** at once |
+| The progress does not move for 60 min (0 = never) | ⏳ warning |
+
+Each alert is a Home Assistant notification, the event `fdm_printer_manager_alert`
+(`kind`: `down`, `back`, `resumed`, `interrupted`, `stalled`) and, optionally, your
+notify actions (e.g. `notify.mobile_app_phone, notify.mobile_app_tablet`).
+
+**Mark a print**: the printer's verdict is not always right. **✓ OK** / **✗ Failed** on the
+card (last print) and on every row of "Recent prints", or the action
+`fdm_printer_manager.mark_print`. "Recent prints" shows the success rate and what failed and
+cancelled prints cost.
+
+**When a print ends** (**Edit → When a print ends**): add "Remove the print from
+&lt;printer&gt;" to a to-do list, and / or start a script with the print summary as variables.
+
+**New access code (Bambu Lab LAN)**: it changes when LAN Only mode is turned off and on. When
+the printer refuses it, Home Assistant asks for the new one (also at the top of the FDM
+Printers page, with **📷 Take photo**).
 
 ## How a print is detected
 
@@ -247,11 +304,11 @@ restart recovery, last print, `print_finished` event.
   one-click panel on the first Add integration
 - ✅ **0.5.0** — Klipper printers found by searching the network (no zeroconf needed),
   Moonraker on port 7125 or 80, "Search again" in the FDM Printers page
-- 🚧 to-do list entry per print (⏳ while printing, ✅ / ❌ at the end)
-- 🚧 run a script / notify when a print ends
-- 🚧 printer down while printing: notify, wait, close as failed if it comes back idle
-- 🚧 auto power-off after a successful print, once the nozzle is cold
-- 🚧 "Mark success" / "Mark failed" buttons
+- ✅ **0.8.0** — auto power-off after a print, once the nozzle is cold and the printer's
+  computer is down (SSH fallback for the Elegoo Centauri Carbon); camera inside the page
+- ✅ **0.9.0** — "Mark success" / "Mark failed"; watch prints (printer down, interrupted or
+  stuck print closed as failed, no progress); new access code (Bambu LAN); to-do item and
+  script when a print ends; better default names
 - 🚧 OctoPrint
 - 🚧 LLM assistant to import an existing setup (to think about)
 - 🚧 guide: sending each print to Google Sheets

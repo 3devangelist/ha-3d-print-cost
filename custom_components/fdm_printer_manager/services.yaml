@@ -1,0 +1,19 @@
+mark_print:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: fdm_printer_manager
+    result:
+      required: true
+      selector:
+        select:
+          options:
+            - "success"
+            - "failed"
+          translation_key: mark_result
+    job_id:
+      required: false
+      selector:
+        text:

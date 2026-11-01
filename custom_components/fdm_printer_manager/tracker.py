@@ -155,6 +155,12 @@ class PrintTracker:
         # UNKNOWN (offline / unavailable): keep the job open.
         return [Transition(TransitionKind.UPDATED, job)]
 
+    def close(self, snap: PrinterSnapshot, result: PrintResult) -> Transition | None:
+        """End the open print without a terminal state from the printer (the watchdog decided)."""
+        if self.active_job is None:
+            return None
+        return Transition(TransitionKind.ENDED, self._end(self.active_job, snap, result))
+
     # ------------------------------------------------------------------ #
     def _start(self, snap: PrinterSnapshot) -> PrintJob:
         acc = ElectricityAccumulator(method=self.method, max_gap_s=self.max_gap_s)

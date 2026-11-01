@@ -50,6 +50,10 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .state{font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:5px;background:var(--surface-2);color:var(--idle);white-space:nowrap}
 .state.run{color:var(--run);background:rgba(240,163,58,.15)} .state.ok{color:var(--ok);background:rgba(87,194,122,.15)} .state.off{color:var(--bad);background:rgba(239,106,90,.15)}
 .job{padding:0 14px;font-family:var(--mono);font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mark{display:flex;gap:6px;padding:6px 14px 0}
+.rmark{display:inline-flex;gap:6px;margin-left:6px}
+.stats{margin:-4px 0 8px}
+.alert{margin:0 14px 8px;padding:6px 10px;border-radius:8px;background:rgba(219,68,55,.12);color:var(--error-color,#db4437);font-size:.85rem;font-weight:600}
 .prog{margin:8px 14px 0;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
 .prog i{display:block;height:100%;background:var(--run)}
 .meta{display:flex;justify-content:space-between;gap:8px;padding:4px 14px 0;font:500 .74rem var(--mono);color:var(--muted);min-height:1.5em}
@@ -101,6 +105,8 @@ td.n{font-family:var(--mono);text-align:right}
 .f label b{color:var(--fg);font-weight:600}
 .f input{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:10px 11px;font:400 .95rem var(--mono);min-width:0;width:100%}
 .f input:focus,.f select:focus{outline:2px solid var(--accent);border-color:transparent}
+.f label.chk{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:.9rem}
+.f label.chk input{width:auto}
 .f select{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:10px 11px;font:400 .95rem var(--mono);width:100%}
 .f .h{font-size:.76rem;color:var(--muted)}
 .f .e{font-size:.8rem;color:var(--bad)}
@@ -120,6 +126,7 @@ td.n{font-family:var(--mono);text-align:right}
 .banner.err{background:rgba(239,106,90,.14);color:var(--bad)}
 .banner.ok{background:rgba(87,194,122,.14);color:var(--ok)}
 .banner.info{background:var(--surface-2);color:var(--fg)}
+.banner.warn{background:rgba(255,152,0,.15);color:var(--fg)}
 .wbtns{display:flex;justify-content:space-between;gap:8px;margin-top:8px;flex-wrap:wrap}
 details{margin:4px 0 12px;color:var(--muted);font-size:.88rem}
 details summary{cursor:pointer;margin-bottom:10px}
@@ -138,6 +145,8 @@ details summary{cursor:pointer;margin-bottom:10px}
 .photo .h{font-size:.8rem;color:var(--muted)}
 .photo .st{font-size:.88rem}
 .photo .st.err{color:var(--bad)} .photo .st.ok{color:var(--ok)}
+.photo .cam{display:flex;flex-direction:column;gap:8px}
+.photo .cam video{width:100%;max-height:60vh;background:#000;border-radius:8px;object-fit:contain}
 .f.filled input{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .f .w{font-size:.8rem;color:var(--run)}
 `;
@@ -161,6 +170,9 @@ const TYPE_INFO = {
   bambu_device: { label: "Bambu Lab (via Bambu Lab integration)", hint: "Uses a printer already set up in ha-bambulab" },
 };
 
+// Forms with "Take photo" (the printer's LAN Only page fills them in).
+const PHOTO_STEPS = ["bambu_lan", "reauth_confirm"];
+
 const FIELD_LABELS = {
   host: "IP address",
   api_key: "API key",
@@ -182,6 +194,13 @@ const FIELD_LABELS = {
   price_entity: "Price entity (tariffs that change)",
   update_interval: "Sampling interval (s)",
   currency: "Currency",
+  alerts: "Watch prints (printer down, interrupted or stuck print)",
+  down_minutes: "Warn when the printer stops answering for (min)",
+  close_minutes: "Close an interrupted print as failed after (min)",
+  stall_minutes: "Warn when the progress does not move for (min, 0 = never)",
+  notify_services: "Also send to (e.g. notify.mobile_app_phone)",
+  todo_entity: "To-do list: add “Remove the print” when a print ends",
+  end_script: "Script to run when a print ends",
 };
 
 const ERRORS = {
@@ -376,8 +395,10 @@ class FdmPrinterPanel extends HTMLElement {
     try {
       const flows = await this._hass.callWS({ type: "config_entries/flow/progress" });
       this._discovered = flows.filter((f) => f.handler === DOMAIN && ["zeroconf", "integration_discovery"].includes(f.context?.source));
+      this._reauth = flows.filter((f) => f.handler === DOMAIN && f.context?.source === "reauth");
     } catch (err) {
       this._discovered = [];
+      this._reauth = [];
     }
   }
 
@@ -441,6 +462,7 @@ class FdmPrinterPanel extends HTMLElement {
       const res = await this._hass.callWS(msg);
       this._history.rows = res.rows || [];
       this._history.total = res.total || 0;
+      this._history.stats = res.stats || null;
     } catch (err) {
       console.error("FDM Printers: cannot load history", err);
     }
@@ -483,7 +505,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.6.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.8.0</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -507,6 +529,12 @@ class FdmPrinterPanel extends HTMLElement {
           <div><h1>Printers</h1><div class="sub">${printers.length} printer${printers.length === 1 ? "" : "s"} · ${active.length} printing</div></div>
           <button class="btn pri" data-act="add">＋ Add printer</button>
         </div>
+        ${(this._reauth || [])
+          .map(
+            (f) =>
+              `<div class="banner warn">🔑 <b>${esc(f.context?.title_placeholders?.name || "A Bambu Lab printer")}</b> refused its access code. <button class="btn sm" data-act="found" data-flow="${esc(f.flow_id)}">Type the new code</button></div>`,
+          )
+          .join("")}
         ${printers.length ? `<div class="grid">${printers.map((p) => this._card(p)).join("")}</div>` : `<p class="empty">No printers yet. Use “＋ Add printer” to add the first one.</p>`}
         ${this._renderDiscovered(true)}
         ${printers.length ? this._renderNow(active) + this._renderHistory(printers) : ""}
@@ -536,6 +564,14 @@ class FdmPrinterPanel extends HTMLElement {
         ? `Last: ${RESULT_ICON[lastResult] || ""} ${lastResult} · ${money(num(s("last_print_cost")), unit)}`
         : "";
     const eid = p.entry.entry_id;
+    // The printer's verdict can be wrong (a "finished" print that came off the plate): mark the last print by hand.
+    const hasLast = s("last_print_result") && !["unavailable"].includes(lastResult);
+    const markHtml =
+      !active && hasLast
+        ? `<div class="mark">${lastResult !== "success" ? `<button class="btn sm" data-act="mark" data-entry="${esc(eid)}" data-result="success" title="Mark the last print as a success">✓ OK</button>` : ""}${
+            lastResult !== "failed" ? `<button class="btn sm danger" data-act="mark" data-entry="${esc(eid)}" data-result="failed" title="Mark the last print as failed">✗ Failed</button>` : ""
+          }</div>`
+        : "";
 
     const foot = active
       ? `<div><div class="k">Energy</div><div class="v">${kwh(num(s("current_print_energy")))}</div></div>
@@ -555,17 +591,31 @@ class FdmPrinterPanel extends HTMLElement {
     if (power) {
       const phase = power.attributes?.phase;
       const on = power.state === "on";
+      const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+      // Shutting down: the computer is going off; the plug is cut once it stops answering.
       const waiting = phase === "shutting_down";
       // Cooling: the nozzle has to drop below cool_to before the plug is cut; a tap keeps the printer on.
       const cooling = phase === "cooling";
+      // Auto-off: the print ended, the printer turns itself off at auto_off_at; a tap keeps it on.
+      const autoOff = phase === "waiting";
+      const keepable = cooling || autoOff;
       const coolTo = power.attributes?.cool_to ?? 80;
-      const cutAt = power.attributes?.cut_at ? new Date(power.attributes.cut_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
       const label = cooling
         ? `Cooling nozzle — ${nozzle != null ? `${Math.round(nozzle)}°` : "…"} → ${coolTo}°`
-        : waiting ? `Shutting down… cut by ${cutAt}` : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
-      const disabled = waiting || power.state === "unavailable" || (on && active && !cooling);
-      const title = cooling ? "Waiting for the nozzle to cool. Tap to keep the printer on" : on && active ? "Not while printing" : "";
-      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !cooling ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || cooling ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>`;
+        : autoOff ? `Auto off at ${hhmm(power.attributes?.auto_off_at)}`
+        : waiting ? `Shutting down… waiting for it to go off (until ${hhmm(power.attributes?.cut_at)})`
+        : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
+      const disabled = waiting || power.state === "unavailable" || (on && active && !keepable);
+      const title = cooling ? "Waiting for the nozzle to cool. Tap to keep the printer on"
+        : autoOff ? "Turns off by itself after the print. Tap to keep the printer on"
+        : on && active ? "Not while printing" : "";
+      // Why the last power off left the plug on (also sent as a notification).
+      const problem = on && !phase ? {
+        hot: "Not turned off: the nozzle stayed hot",
+        still_on: "Not turned off: the computer kept running",
+        no_shutdown: "Not turned off: could not shut the computer down (set the SSH login)",
+      }[power.attributes?.last_result] : null;
+      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !keepable ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || keepable ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>${problem ? `<span class="sub warn">${esc(problem)}</span>` : ""}`;
     }
 
     // Camera: only when the printer has one (Klipper webcam found by the integration, or ha-bambulab's own).
@@ -586,8 +636,10 @@ class FdmPrinterPanel extends HTMLElement {
       <article class="pc ${cls}">
         <div class="stripe"></div>
         <div class="hd"><div><div class="nm">${esc(p.entry.title)}</div><div class="ty">${type}${where}</div></div><span class="state ${cls}">${esc(shown)}</span></div>
+        ${attrs.alert === "down" ? `<div class="alert">⚠️ Not answering during the print</div>` : attrs.alert === "stalled" ? `<div class="alert">⏳ No progress for a long time</div>` : ""}
         ${camHtml}
         <div class="job">${esc(active ? fileShown || "—" : lastLine || "—")}</div>
+        ${markHtml}
         <div class="prog"><i style="width:${active && progress != null ? Math.min(100, progress) : 0}%"></i></div>
         <div class="meta"><span>${active && progress != null ? `${Math.round(progress)}%${paused ? " · paused" : ""}` : ""}</span><span>${active && left != null ? `${fmtMin(left)} left` : ""}</span></div>
         <div class="temps">${nozzle != null ? `▲ ${nozzle.toFixed(1)}°` : ""}</div>
@@ -628,15 +680,28 @@ class FdmPrinterPanel extends HTMLElement {
     const opts = [`<option value="">All printers</option>`]
       .concat(printers.map((p) => `<option value="${esc(p.entry.entry_id)}" ${h.filter === p.entry.entry_id ? "selected" : ""}>${esc(p.entry.title)}</option>`))
       .join("");
+    const markBtn = (r, result, label, title) =>
+      r.result !== result && r.job_id
+        ? `<button class="linkbtn" data-act="mark" data-entry="${esc(r.entry_id)}" data-job="${esc(r.job_id)}" data-result="${result}" title="${title}">${label}</button>`
+        : "";
     const rows = h.rows
       .map(
-        (r) => `<tr><td>${RESULT_ICON[r.result] || "❔"} ${esc(r.result || "")}</td><td>${esc(r.printer)}</td><td class="m">${esc(r.name || "—")}</td>
+        (r) => `<tr><td>${RESULT_ICON[r.result] || "❔"} ${esc(r.result || "")}${r.result_by === "user" ? ` <span class="sub" title="Marked by hand">✎</span>` : ""}
+          <span class="rmark">${markBtn(r, "success", "✓", "Mark as a success")}${markBtn(r, "failed", "✗", "Mark as failed")}</span></td><td>${esc(r.printer)}</td><td class="m">${esc(r.name || "—")}</td>
           <td>${fmtWhen(r.finished_at)}</td><td class="n">${fmtMin((r.duration_s || 0) / 60)}</td>
           <td class="n">${kwh(r.energy_kwh)}</td><td class="n">${money(r.electricity_cost, r.currency)}</td></tr>`,
       )
       .join("");
+    const st = h.stats;
+    const cur = h.rows[0]?.currency || "";
+    const statsHtml =
+      st && st.prints
+        ? `<div class="stats sub">${st.prints} prints · ${st.success_rate != null ? `${st.success_rate}% successful` : "no verdicts yet"} · ${st.counts.failed} failed${
+            st.counts.cancelled ? ` · ${st.counts.cancelled} cancelled` : ""
+          } · failed and cancelled prints cost ${money(st.wasted_cost, cur)}</div>`
+        : "";
     const more = h.total > h.rows.length ? `<div class="more"><button class="btn sm" data-act="more">Show more (${h.total - h.rows.length})</button></div>` : "";
-    return `<h2>Recent prints <span class="filters"><select id="hfilter" aria-label="Filter by printer">${opts}</select></span></h2>${
+    return `<h2>Recent prints <span class="filters"><select id="hfilter" aria-label="Filter by printer">${opts}</select></span></h2>${statsHtml}${
       h.rows.length
         ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
         : `<p class="empty" style="padding:4px 0">No finished prints yet. They appear here as soon as a print ends.</p>`
@@ -678,7 +743,7 @@ class FdmPrinterPanel extends HTMLElement {
 
   _setResult(result) {
     if (result.step_id !== this._flow.result?.step_id) Object.assign(this._photo, { status: "", kind: "", filled: {}, warnings: [] });
-    if (result.step_id === "bambu_lan" && this._photo.ai === undefined) this._loadPhotoAi();
+    if (PHOTO_STEPS.includes(result.step_id) && this._photo.ai === undefined) this._loadPhotoAi();
     this._flow.id = result.flow_id || this._flow.id;
     this._flow.result = result;
     this._data = {};
@@ -792,6 +857,7 @@ class FdmPrinterPanel extends HTMLElement {
       {
         klipper: `<div class="banner info">Type the printer's IP address. Name, port and web interface are filled in automatically.</div>`,
         zeroconf_confirm: `<div class="banner info">Klipper printer <b>${esc(r.description_placeholders?.name || "")}</b> found at ${esc(r.description_placeholders?.host || "")}. Add it?</div>`,
+        reauth_confirm: `<div class="banner warn">The printer refused its access code: it changes when LAN Only mode is turned off and on again. Type the new one, shown on the printer's LAN Only page (or take a photo of it).</div>${this._renderPhoto()}`,
         bambu_lan: `<div class="banner info">On the printer, turn on <b>LAN Only mode</b> and then <b>Developer Mode</b> (A1: Settings → page 3 → LAN Only Mode; P1: Settings → WLAN; X1/H2: Settings → LAN Only). The IP address and the 8-character access code are shown on that same page. The printer must be switched on. <a class="link" href="${LAN_GUIDE_URL}" target="_blank" rel="noreferrer">Step-by-step guide</a></div>${this._renderPhoto()}`,
         klipper_auth: `<div class="banner info">This printer only accepts connections with a Moonraker API key.</div>`,
         electricity: `<div class="banner info">Pick the plug the printer is connected to. Its power and energy sensors are found automatically.</div>`,
@@ -852,6 +918,9 @@ class FdmPrinterPanel extends HTMLElement {
     }
     if (sel.number) {
       return `<div class="f"><label for="f-${esc(name)}">${esc(label)}${req}</label><input id="f-${esc(name)}" data-name="${esc(name)}" data-num="1" type="number" step="any" value="${esc(value ?? "")}">${err}</div>`;
+    }
+    if (sel.boolean !== undefined) {
+      return `<div class="f"><label class="chk"><input id="f-${esc(name)}" data-name="${esc(name)}" data-bool="1" type="checkbox" ${value ? "checked" : ""}> ${esc(label)}</label>${err}</div>`;
     }
     // A value read from a photo is shown (also the access code) and highlighted, so it gets checked.
     const filled = !!this._photo.filled[name];
@@ -959,6 +1028,10 @@ class FdmPrinterPanel extends HTMLElement {
     for (const field of this._flow?.result?.data_schema || []) {
       const el = this.shadowRoot.querySelector(`[data-name="${CSS.escape(field.name)}"]`);
       if (!el) continue;
+      if (el.dataset.bool) {
+        out[field.name] = el.checked;
+        continue;
+      }
       let v = el.value;
       if (el.dataset.num) v = v === "" ? undefined : Number(String(v).replace(",", "."));
       else v = typeof v === "string" ? v.trim() : v;
@@ -1079,7 +1152,19 @@ class FdmPrinterPanel extends HTMLElement {
         ? "Read on this device: the photo never leaves it (the first time downloads the reader, about 10 MB)."
         : "";
     const status = p.status ? `<div class="st ${esc(p.kind)}">${esc(p.status)}</div>` : "";
+    // Camera inside the page: the Home Assistant Android app ignores capture="environment" on a file input.
+    const camera = this._camStream
+      ? `<div class="cam">
+        <video id="ph-video" autoplay playsinline muted></video>
+        <div class="row">
+          <button type="button" class="btn pri" data-act="photosnap">● Capture</button>
+          <button type="button" class="btn sm" data-act="photocamclose">Cancel</button>
+        </div>
+        <span class="h">No flash: the screen is lit already. Fill the frame with the LAN Only page and avoid reflections.</span>
+      </div>`
+      : "";
     return `<div class="photo ${p.reading ? "busy" : ""}">
+      ${camera}
       <div class="row">
         <button type="button" class="btn pri" data-act="phototake">📷 Take photo</button>
         <button type="button" class="btn sm" data-act="photochoose">Choose image</button>
@@ -1097,7 +1182,7 @@ class FdmPrinterPanel extends HTMLElement {
     } catch (_err) {
       this._photo.ai = null;
     }
-    if (this._view === "flow" && this._flow?.result?.step_id === "bambu_lan" && !this._busy) {
+    if (this._view === "flow" && PHOTO_STEPS.includes(this._flow?.result?.step_id) && !this._busy) {
       Object.assign(this._data, this._collect());
       this._render();
     }
@@ -1107,6 +1192,81 @@ class FdmPrinterPanel extends HTMLElement {
     Object.assign(this._data, this._collect());
     Object.assign(this._photo, { status, kind });
     this._render();
+  }
+
+  /**
+   * "Take photo": the camera inside the page (getUserMedia), set up for photographing a lit screen
+   * (like the reference photo that read well: no flash, exposure about -3 EV, metering on the centre).
+   * Every camera setting is optional. Without getUserMedia (plain http:// is not a secure context,
+   * or the camera is refused) it falls back to the file input with capture="environment".
+   */
+  async _openCamera() {
+    if (this._camStream) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      // Status first: drawing it replaces the file inputs, so the picker is opened afterwards.
+      if (!window.isSecureContext) {
+        this._setPhotoStatus(
+          "The camera can only open inside Home Assistant over https:// (this page is http://). If the camera does not open, take the photo with the camera app and use Choose image.",
+          "err",
+        );
+      }
+      this._pickPhoto("ph-cam");
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 4080 }, height: { ideal: 3072 } },
+      });
+    } catch (err) {
+      console.warn("FDM Printer Manager: camera refused or missing", err);
+      this._setPhotoStatus(
+        "The camera could not be opened (allow camera access for Home Assistant). Opening the picker instead — or use Choose image.",
+        "err",
+      );
+      this._pickPhoto("ph-cam");
+      return;
+    }
+    this._camStream = stream;
+    await this._tuneCamera(stream.getVideoTracks()[0]);
+    this._setPhotoStatus("");
+  }
+
+  /** Flash off, exposure towards -3 EV, focus and metering on the centre: each only if the camera has it. */
+  async _tuneCamera(track) {
+    if (!track) return;
+    const caps = track.getCapabilities?.() || {};
+    const tries = [];
+    if ("torch" in caps) tries.push({ torch: false });
+    const ev = caps.exposureCompensation;
+    if (ev && typeof ev.min === "number") tries.push({ exposureCompensation: Math.min(ev.max ?? 0, Math.max(ev.min, -3)) });
+    if ("pointsOfInterest" in caps) tries.push({ pointsOfInterest: [{ x: 0.5, y: 0.5 }] });
+    for (const c of tries) {
+      try {
+        await track.applyConstraints({ advanced: [c] });
+      } catch (_err) {
+        // not supported on this camera: carry on
+      }
+    }
+  }
+
+  _closeCamera() {
+    this._camStream?.getTracks().forEach((t) => t.stop());
+    this._camStream = null;
+  }
+
+  /** Grab the full-size frame, close the camera, then read it like any other photo. */
+  async _snapCamera() {
+    const video = this.shadowRoot.getElementById("ph-video");
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    this._closeCamera();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
+    this._readPhoto(blob);
   }
 
   /** Open the camera (phones, the Home Assistant app) or the file picker. */
@@ -1251,6 +1411,9 @@ class FdmPrinterPanel extends HTMLElement {
       el.addEventListener("change", () => this._readPhoto(el.files?.[0]));
       el.addEventListener("cancel", () => this._photoCancelled());
     });
+    const video = root.getElementById("ph-video");
+    if (video && this._camStream) video.srcObject = this._camStream; // the page is redrawn: reattach the camera
+    else if (this._camStream && !video) this._closeCamera(); // left the Bambu LAN form
     const form = root.getElementById("form");
     if (form) {
       form.addEventListener("submit", (ev) => {
@@ -1264,7 +1427,13 @@ class FdmPrinterPanel extends HTMLElement {
 
   async _action(el) {
     const act = el.dataset.act;
-    if (act === "phototake" || act === "photochoose") return this._pickPhoto(act === "phototake" ? "ph-cam" : "ph-file");
+    if (act === "phototake") return this._openCamera();
+    if (act === "photochoose") return this._pickPhoto("ph-file");
+    if (act === "photosnap") return this._snapCamera();
+    if (act === "photocamclose") {
+      this._closeCamera();
+      return this._setPhotoStatus("");
+    }
     if (act === "add") return this._startAdd();
     if (act === "scan") return this._scan();
     if (act === "found") {
@@ -1316,6 +1485,19 @@ class FdmPrinterPanel extends HTMLElement {
       this._ask = null;
       const what = el.dataset.what;
       return this._call("button", "press", el.dataset.entity, what === "cancel" ? "Cancelling the print…" : what === "pause" ? "Pausing…" : "Resuming…");
+    }
+    if (act === "mark") return this._mark(el.dataset.entry, el.dataset.result, el.dataset.job);
+  }
+
+  async _mark(entryId, result, jobId) {
+    const data = { entry_id: entryId, result };
+    if (jobId) data.job_id = jobId;
+    this._flash(result === "success" ? "Marked as a success" : "Marked as failed");
+    try {
+      await this._hass.callService(DOMAIN, "mark_print", data);
+      await this._loadHistory();
+    } catch (err) {
+      this._flash(String(err?.message || err));
     }
   }
 
