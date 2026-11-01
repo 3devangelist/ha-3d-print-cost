@@ -228,7 +228,7 @@
           "end_script": "Script"
         },
         "data_description": {
-          "todo_entity": "Adds \"Remove the print from <printer>\" with the file name and the result, so a part is not forgotten on the plate.",
+          "todo_entity": "Adds \"Remove the print from [printer name]\" with the file name and the result, so a part is not forgotten on the plate.",
           "end_script": "Started with the print summary as variables: printer, name, result, duration_s, energy_kwh, electricity_cost, currency."
         }
       }
