@@ -3,6 +3,29 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.10.1]
+
+### Changed
+
+- **The power toggle shows the turn-off is coming.** Tapping it still opens the "Turn … off?" box,
+  and the toggle now goes orange (the same colour as "Shutting down…" / "Cooling nozzle…") with
+  "Turning off? Confirm below"; "Keep on" (or a second tap) puts it back to green. After "Turn off"
+  it stays orange ("Turning off…") until the switch reports cooling / shutting down or the plug is off.
+
+- **Clearer "Turn … off?" box.** Short numbered steps (cool the nozzle if hot, shut the computer
+  down, cut the plug only after the computer is off) and, for Klipper printers, in bold: it never cuts
+  the power while the printer is still on; if it does not go off within the wait (5 min), the plug
+  stays on and you get a notification. Bambu Lab printers: "cuts the plug (no computer to shut down)".
+  The old text said "at most 3 minutes", which was wrong (the wait is 5 minutes) and read like a
+  forced cut. The safe power switch has a new attribute `shutdown_wait_minutes`.
+
+### Fixed
+
+- **The card shows the printer's device name.** The card title, the "Turn … off?" box, the camera
+  view, the history and the edit page now use the device name (yours if you renamed the device,
+  otherwise the integration's, e.g. "Centauri Carbon") instead of the config entry title.
+  Nothing is renamed.
+
 ## [0.10.0]
 
 ### Added

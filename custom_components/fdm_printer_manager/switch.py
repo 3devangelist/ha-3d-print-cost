@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import SAFE_POWER_COOL_TEMP
+from .const import SAFE_POWER_COOL_TEMP, SAFE_POWER_WAIT
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
 from .entity import PrintCostEntity
 
@@ -134,6 +134,7 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
             "last_result": coordinator.power_result,
             "ssh": coordinator.ssh_login is not None,
             "cool_to": SAFE_POWER_COOL_TEMP,
+            "shutdown_wait_minutes": SAFE_POWER_WAIT // 60,
             "printing": coordinator.is_printing,
             "plug": coordinator.switch_entity,
         }
