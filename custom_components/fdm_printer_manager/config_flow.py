@@ -30,12 +30,16 @@ from .adapters.netscan import SCAN_PORTS, async_probe
 from .const import (
     BAMBU_DOMAIN,
     CONF_ACCESS_CODE,
+    CONF_ALERTS,
     CONF_API_KEY,
+    CONF_CLOSE_MINUTES,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
+    CONF_DOWN_MINUTES,
     CONF_ENERGY_ENTITY,
     CONF_HOST,
     CONF_JOB_NAME_ENTITY,
+    CONF_NOTIFY,
     CONF_PANEL,
     CONF_PORT,
     CONF_POWER_ENTITY,
@@ -48,9 +52,13 @@ from .const import (
     CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
+    CONF_STALL_MINUTES,
     CONF_SWITCH_ENTITY,
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
+    DEFAULT_CLOSE_MINUTES,
+    DEFAULT_DOWN_MINUTES,
+    DEFAULT_STALL_MINUTES,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     HTTP_TIMEOUT,
@@ -227,6 +235,34 @@ def behaviour_schema(defaults: dict[str, Any], hass_currency: str) -> vol.Schema
                 )
             ),
             vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or hass_currency): selector.TextSelector(),
+        }
+    )
+
+
+def _minutes(minimum: int, maximum: int) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=minimum, max=maximum, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX
+        )
+    )
+
+
+def alerts_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Watching prints."""
+    stall = defaults.get(CONF_STALL_MINUTES)
+    return vol.Schema(
+        {
+            vol.Required(CONF_ALERTS, default=bool(defaults.get(CONF_ALERTS, True))): selector.BooleanSelector(),
+            vol.Required(
+                CONF_DOWN_MINUTES, default=int(defaults.get(CONF_DOWN_MINUTES) or DEFAULT_DOWN_MINUTES)
+            ): _minutes(1, 60),
+            vol.Required(
+                CONF_CLOSE_MINUTES, default=int(defaults.get(CONF_CLOSE_MINUTES) or DEFAULT_CLOSE_MINUTES)
+            ): _minutes(2, 240),
+            vol.Required(CONF_STALL_MINUTES, default=int(DEFAULT_STALL_MINUTES if stall is None else stall)): _minutes(
+                0, 1440
+            ),
+            _opt(CONF_NOTIFY, defaults): selector.TextSelector(),
         }
     )
 
@@ -576,10 +612,25 @@ class PrintCostOptionsFlow(OptionsFlow):
                     CONF_CURRENCY: str(user_input[CONF_CURRENCY]).strip().upper(),
                 }
             )
-            return self.async_create_entry(data=self._options)
+            return await self.async_step_alerts()
         return self.async_show_form(
             step_id="behaviour", data_schema=behaviour_schema(self._current, self.hass.config.currency)
         )
+
+    async def async_step_alerts(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Watching prints: printer down, interrupted or stuck print, no progress."""
+        if user_input is not None:
+            self._options.update(
+                {
+                    CONF_ALERTS: bool(user_input.get(CONF_ALERTS, True)),
+                    CONF_DOWN_MINUTES: int(user_input[CONF_DOWN_MINUTES]),
+                    CONF_CLOSE_MINUTES: int(user_input[CONF_CLOSE_MINUTES]),
+                    CONF_STALL_MINUTES: int(user_input[CONF_STALL_MINUTES]),
+                    CONF_NOTIFY: str(user_input.get(CONF_NOTIFY) or "").strip() or None,
+                }
+            )
+            return self.async_create_entry(data=self._options)
+        return self.async_show_form(step_id="alerts", data_schema=alerts_schema(self._current))
 
 
 def _with_cleared(user_input: dict[str, Any], schema: vol.Schema) -> dict[str, Any]:

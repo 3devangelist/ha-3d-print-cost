@@ -16,6 +16,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **History numbers** above "Recent prints": number of prints, success rate (successes against
   failures; cancelled prints don't count) and what the failed and cancelled prints cost.
   The `fdm_printer_manager/history` websocket command returns them as `stats`.
+- **Watch prints** (on by default; *Edit → Watch prints* to change or turn off):
+  - **Printer not answering** in the middle of a print for 2 min → a warning (and the card says
+    so); when it answers again: "resumed" or "back, not printing".
+  - **Interrupted print**: a print still open while the printer answers but does not print
+    (Klipper comes back in *standby* after a power cut, or a state got stuck) is **closed as
+    failed** after 10 min, with a note. A Bambu Lab printer that comes back *idle* after being
+    down ends the print as failed right away. Nothing is ever resumed automatically.
+  - **No progress** for 60 min while printing → a warning (0 = never).
+  - Each alert is a Home Assistant notification, the event `fdm_printer_manager_alert`
+    (`kind`: `down`, `back`, `resumed`, `interrupted`, `stalled`) and, optionally, your notify
+    actions (e.g. `notify.mobile_app_phone`).
+  - The printer status sensor has an `alert` attribute (`down` / `stalled`).
+- Last print attributes and the history: `result_by` (`user`, `watchdog`, or empty for the
+  printer's own verdict).
 
 ## [0.7.0]
 

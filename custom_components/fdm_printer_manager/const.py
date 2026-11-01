@@ -111,6 +111,17 @@ EVENT_PRINT_MARKED: Final = f"{DOMAIN}_print_marked"  # a finished print was mar
 
 SERVICE_MARK_PRINT: Final = "mark_print"
 
+# Watching a running print (printer down, stuck or interrupted print, no progress)
+EVENT_ALERT: Final = f"{DOMAIN}_alert"
+CONF_ALERTS: Final = "alerts"  # on / off
+CONF_DOWN_MINUTES: Final = "down_minutes"
+CONF_CLOSE_MINUTES: Final = "close_minutes"
+CONF_STALL_MINUTES: Final = "stall_minutes"  # 0: no "no progress" warning
+CONF_NOTIFY: Final = "notify_services"  # "notify.mobile_app_x, notify.mobile_app_y"
+DEFAULT_DOWN_MINUTES: Final = 2
+DEFAULT_CLOSE_MINUTES: Final = 10
+DEFAULT_STALL_MINUTES: Final = 60
+
 
 class IntegrationMethod(StrEnum):
     """How power samples are integrated into energy."""

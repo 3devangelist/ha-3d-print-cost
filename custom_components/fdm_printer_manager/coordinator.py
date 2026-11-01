@@ -44,17 +44,22 @@ from .adapters.moonraker import (
     Webcam,
     default_web_url,
 )
+from .alerts import AlertSender
 from .const import (
     ACTIVE_STATES,
     BAMBU_ENTITY_KEYS,
     CONF_ACCESS_CODE,
+    CONF_ALERTS,
     CONF_API_KEY,
+    CONF_CLOSE_MINUTES,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
+    CONF_DOWN_MINUTES,
     CONF_ENERGY_ENTITY,
     CONF_HOST,
     CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
+    CONF_NOTIFY,
     CONF_PORT,
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
@@ -66,10 +71,14 @@ from .const import (
     CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
+    CONF_STALL_MINUTES,
     CONF_SWITCH_ENTITY,
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
+    DEFAULT_CLOSE_MINUTES,
+    DEFAULT_DOWN_MINUTES,
     DEFAULT_INTEGRATION_METHOD,
+    DEFAULT_STALL_MINUTES,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     EVENT_PRINT_FINISHED,
@@ -90,7 +99,15 @@ from .const import (
 from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
 from .outcome import MARKABLE, mark_history
 from .storage import JobStore, StoredState
-from .tracker import PrinterSnapshot, PrintTracker, TransitionKind
+from .tracker import (
+    PrinterActivity,
+    PrinterSnapshot,
+    PrintTracker,
+    Transition,
+    TransitionKind,
+    classify_status,
+)
+from .watchdog import AlertKind, WatchAction, Watchdog, WatchInput
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -200,6 +217,18 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._webcam_checked = False
 
         self.last_image: bytes | None = None
+
+        # Watching a running print (printer down, stuck or interrupted print, no progress).
+        self.alerts_on: bool = bool(self.conf.get(CONF_ALERTS, True))
+        self.close_minutes = int(self.conf.get(CONF_CLOSE_MINUTES) or DEFAULT_CLOSE_MINUTES)
+        stall = self.conf.get(CONF_STALL_MINUTES)
+        self.watchdog = Watchdog(
+            down_after_s=60 * int(self.conf.get(CONF_DOWN_MINUTES) or DEFAULT_DOWN_MINUTES),
+            close_after_s=60 * self.close_minutes,
+            # 0 turns the "no progress" warning off
+            stall_after_s=60 * int(DEFAULT_STALL_MINUTES if stall is None else stall) or float("inf"),
+        )
+        self.alerts = AlertSender(hass, entry.entry_id, self.printer_name, self.conf.get(CONF_NOTIFY))
 
         self.errors: deque[str] = deque(maxlen=20)
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -607,6 +636,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._last_snapshot = snap
         self._count(now, snap)
         transitions = self.tracker.process(snap)
+        if self.alerts_on:
+            transitions.extend(self._watch(snap, transitions))
         save_now = False
         for transition in transitions:
             job = transition.job
@@ -623,6 +654,58 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         elif self.state.active_job is not None or self.state.total is not None:
             self.store.async_delay_save(self.state)
         self._publish(now, snap.electricity.price_per_kwh)
+
+    @property
+    def reachable(self) -> bool:
+        """The printer answers (Klipper / Bambu LAN connection, or the ha-bambulab status is not offline)."""
+        source = self.klipper or self.bambu_lan
+        if source is not None:
+            return source.available
+        status = (self.printer_status or "").strip().lower()
+        return status not in ("", "unavailable", "unknown", "offline")
+
+    def _watch(self, snap: PrinterSnapshot, transitions: list[Transition]) -> list[Transition]:
+        """Run the watchdog after the tracker; returns the print it closes, if any."""
+        for transition in transitions:
+            # A Bambu printer comes back "idle" (or "failed") after a power cut: the tracker has just ended
+            # the print, without a verdict. It was interrupted.
+            ended = transition.job
+            if (
+                transition.kind is TransitionKind.ENDED
+                and self.watchdog.ended_after_power_loss()
+                and ended.result in (PrintResult.UNKNOWN, PrintResult.FAILED)
+            ):
+                ended.result = PrintResult.FAILED
+                ended.result_by = "watchdog"
+                ended.remarks.append("Interrupted: the printer lost power or the connection and did not resume")
+                self.alerts.send(
+                    WatchAction(AlertKind.INTERRUPTED, close_job=True, after_power_loss=True, status=snap.status),
+                    ended.name,
+                    ended.progress,
+                    self.close_minutes,
+                )
+        closed: list[Transition] = []
+        job = self.tracker.active_job
+        for action in self.watchdog.check(
+            WatchInput(
+                now=snap.timestamp,
+                job_open=job is not None,
+                reachable=self.reachable,
+                printing=classify_status(snap.status) is PrinterActivity.ACTIVE,
+                progress=snap.progress,
+                status=snap.status,
+            )
+        ):
+            if action.close_job and job is not None and (transition := self.tracker.close(snap, PrintResult.FAILED)):
+                job.result_by = "watchdog"
+                job.remarks.append(
+                    "Interrupted: the printer lost power or the connection and did not resume"
+                    if action.after_power_loss
+                    else f"Closed by the integration: the printer was not printing for {action.minutes} min"
+                )
+                closed.append(transition)
+            self.alerts.send(action, job.name if job else None, snap.progress, self.close_minutes)
+        return closed
 
     def _new_counter(self) -> ElectricityAccumulator:
         return ElectricityAccumulator(

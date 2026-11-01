@@ -176,6 +176,24 @@
           "host": "e.g. 192.168.1.90",
           "access_code": "8 characters, shown on the printer's screen."
         }
+      },
+      "alerts": {
+        "title": "Watch prints",
+        "description": "Warnings while a print is running. You get a notification in Home Assistant and the event `fdm_printer_manager_alert` (for your own automations). Nothing is ever resumed automatically.",
+        "data": {
+          "alerts": "Watch prints",
+          "down_minutes": "Printer not answering",
+          "close_minutes": "Interrupted print",
+          "stall_minutes": "No progress",
+          "notify_services": "Also send to"
+        },
+        "data_description": {
+          "alerts": "Printer down in the middle of a print, interrupted or stuck print, no progress.",
+          "down_minutes": "Warn when the printer stops answering during a print for this long.",
+          "close_minutes": "A print still open while the printer answers but does not print (it came back without resuming, or the state got stuck) is closed as failed after this long.",
+          "stall_minutes": "Warn when the progress has not moved for this long while printing. 0: never.",
+          "notify_services": "Optional. Notify actions, separated by commas, e.g. notify.mobile_app_phone, notify.mobile_app_tablet."
+        }
       }
     },
     "error": {

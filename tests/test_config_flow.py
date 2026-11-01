@@ -154,7 +154,15 @@ async def test_options_flow_changes_price_and_clears_energy(hass: HomeAssistant,
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"update_interval": 20, "currency": "eur"}
     )
+    assert result["step_id"] == "alerts"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"alerts": True, "stall_minutes": 0, "notify_services": "notify.mobile_app_phone"}
+    )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options["down_minutes"] == 2
+    assert entry.options["close_minutes"] == 10
+    assert entry.options["stall_minutes"] == 0
+    assert entry.options["notify_services"] == "notify.mobile_app_phone"
     merged = {**entry.data, **entry.options}
     assert merged[CONF_PRICE_ENTITY] == "sensor.tempo_price"
     assert merged[CONF_ENERGY_ENTITY] is None  # cleared field really cleared

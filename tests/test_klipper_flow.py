@@ -137,6 +137,8 @@ async def test_edit_klipper_ip_keeps_the_entry(hass: HomeAssistant, bypass_setup
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"update_interval": 30, "currency": "EUR"}
     )
+    assert result["step_id"] == "alerts"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     merged = {**entry.data, **entry.options}
     assert merged["host"] == "192.168.1.91"

@@ -53,6 +53,7 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .mark{display:flex;gap:6px;padding:6px 14px 0}
 .rmark{display:inline-flex;gap:6px;margin-left:6px}
 .stats{margin:-4px 0 8px}
+.alert{margin:0 14px 8px;padding:6px 10px;border-radius:8px;background:rgba(219,68,55,.12);color:var(--error-color,#db4437);font-size:.85rem;font-weight:600}
 .prog{margin:8px 14px 0;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
 .prog i{display:block;height:100%;background:var(--run)}
 .meta{display:flex;justify-content:space-between;gap:8px;padding:4px 14px 0;font:500 .74rem var(--mono);color:var(--muted);min-height:1.5em}
@@ -104,6 +105,8 @@ td.n{font-family:var(--mono);text-align:right}
 .f label b{color:var(--fg);font-weight:600}
 .f input{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:10px 11px;font:400 .95rem var(--mono);min-width:0;width:100%}
 .f input:focus,.f select:focus{outline:2px solid var(--accent);border-color:transparent}
+.f label.chk{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:.9rem}
+.f label.chk input{width:auto}
 .f select{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:10px 11px;font:400 .95rem var(--mono);width:100%}
 .f .h{font-size:.76rem;color:var(--muted)}
 .f .e{font-size:.8rem;color:var(--bad)}
@@ -185,6 +188,11 @@ const FIELD_LABELS = {
   price_entity: "Price entity (tariffs that change)",
   update_interval: "Sampling interval (s)",
   currency: "Currency",
+  alerts: "Watch prints (printer down, interrupted or stuck print)",
+  down_minutes: "Warn when the printer stops answering for (min)",
+  close_minutes: "Close an interrupted print as failed after (min)",
+  stall_minutes: "Warn when the progress does not move for (min, 0 = never)",
+  notify_services: "Also send to (e.g. notify.mobile_app_phone)",
 };
 
 const ERRORS = {
@@ -598,6 +606,7 @@ class FdmPrinterPanel extends HTMLElement {
       <article class="pc ${cls}">
         <div class="stripe"></div>
         <div class="hd"><div><div class="nm">${esc(p.entry.title)}</div><div class="ty">${type}${where}</div></div><span class="state ${cls}">${esc(shown)}</span></div>
+        ${attrs.alert === "down" ? `<div class="alert">⚠️ Not answering during the print</div>` : attrs.alert === "stalled" ? `<div class="alert">⏳ No progress for a long time</div>` : ""}
         ${camHtml}
         <div class="job">${esc(active ? fileShown || "—" : lastLine || "—")}</div>
         ${markHtml}
@@ -879,6 +888,9 @@ class FdmPrinterPanel extends HTMLElement {
     if (sel.number) {
       return `<div class="f"><label for="f-${esc(name)}">${esc(label)}${req}</label><input id="f-${esc(name)}" data-name="${esc(name)}" data-num="1" type="number" step="any" value="${esc(value ?? "")}">${err}</div>`;
     }
+    if (sel.boolean !== undefined) {
+      return `<div class="f"><label class="chk"><input id="f-${esc(name)}" data-name="${esc(name)}" data-bool="1" type="checkbox" ${value ? "checked" : ""}> ${esc(label)}</label>${err}</div>`;
+    }
     // A value read from a photo is shown (also the access code) and highlighted, so it gets checked.
     const filled = !!this._photo.filled[name];
     const type = sel.text?.type === "password" && !filled ? "password" : "text";
@@ -985,6 +997,10 @@ class FdmPrinterPanel extends HTMLElement {
     for (const field of this._flow?.result?.data_schema || []) {
       const el = this.shadowRoot.querySelector(`[data-name="${CSS.escape(field.name)}"]`);
       if (!el) continue;
+      if (el.dataset.bool) {
+        out[field.name] = el.checked;
+        continue;
+      }
       let v = el.value;
       if (el.dataset.num) v = v === "" ? undefined : Number(String(v).replace(",", "."));
       else v = typeof v === "string" ? v.trim() : v;
