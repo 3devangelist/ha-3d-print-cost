@@ -41,6 +41,7 @@ def printer():
         CLIENT,
         status=AsyncMock(side_effect=fake.status),
         metadata=AsyncMock(return_value=FileMetadata(estimated_time_s=4320)),
+        webcams=AsyncMock(return_value=[]),
     ):
         yield fake
 

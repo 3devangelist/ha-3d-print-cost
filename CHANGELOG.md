@@ -3,6 +3,48 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.0]
+
+### Added
+
+- **Printer camera on the card**, found by itself, nothing to configure. While the printer
+  prints the card shows the live picture (● LIVE); otherwise a still image refreshed every
+  minute. Click it to open it full size. Printers without a camera look as before.
+- **Klipper**: the first enabled webcam Moonraker lists (crowsnest, mjpg-streamer…) becomes
+  `camera.<printer>_camera`, usable on any dashboard. Relative webcam URLs are resolved
+  against the printer's web interface and redirects are followed. It is looked for when the
+  integration starts, when the printer comes back online and every 30 minutes: a camera
+  installed later shows up by itself, a removed one goes unavailable. MJPEG streams are
+  relayed as they are; other stream types (WebRTC, HLS) show refreshed snapshots.
+- **Bambu Lab through the Bambu Lab integration**: its own camera (a camera entity on X1 / H2,
+  the camera image entity on A1 / P1) is shown on the card. No second entity is created.
+- The live stream stops while the page or the browser tab is hidden.
+
+### Not yet
+
+- **Bambu Lab (LAN) direct**: no camera yet. The video protocols over LAN (RTSPS on port 322
+  for X1 / H2, a JPEG stream on port 6000 for A1 / P1) are not documented officially enough
+  to be supported safely; planned for a later version.
+
+### Development
+
+- Test dependencies: `PyTurboJPEG` (imported by Home Assistant's camera component).
+
+## [0.5.1]
+
+### Safety
+
+- **Safe power waits for the nozzle to cool**: turning a printer off with the nozzle at 80 °C
+  or more no longer cuts the plug right away. The hotend fan keeps running until the nozzle
+  is below 80 °C (phase `cooling`, shown on the card as "Cooling nozzle — 142° → 80°"),
+  then Klipper shuts its computer down and the plug is cut as before. A hot hotend without
+  its fan can soften the filament in the heat break and clog the nozzle.
+- If the nozzle is still hot after 30 minutes (a heater may be on), the plug is left on
+  and a notification says so.
+- No temperature reading (printer off or unreachable): the plug is cut right away, as before.
+- Turning the plug back on, or a new print, cancels the wait.
+- Bambu Lab printers through the Bambu Lab integration now also report the nozzle temperature.
+
 ## [0.5.0]
 
 - **Klipper printers found without zeroconf**: the integration searches Home Assistant's

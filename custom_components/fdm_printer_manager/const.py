@@ -36,6 +36,7 @@ CONF_WEB_URL: Final = "web_url"
 CONF_ACCESS_CODE: Final = "access_code"  # Bambu LAN
 
 KLIPPER_POLL_INTERVAL: Final = 5  # seconds
+WEBCAM_CHECK_INTERVAL: Final = 1800  # seconds: look for a newly installed (or removed) camera
 
 # The "FDM Printers" sidebar panel. A special entry (``panel: True``) makes it
 # available before any printer is added; every printer entry also shows it.
@@ -49,6 +50,10 @@ STATIC_URL: Final = "/fdm_printer_manager_static"
 # Safe power: how long to wait for the printer's computer to shut down before cutting the plug.
 SAFE_POWER_WAIT: Final = 180  # seconds
 SAFE_POWER_POLL: Final = 5  # seconds between "is it down yet?" checks
+# Safe power never cuts a hot nozzle: the hotend fan has to cool the heat break
+# first, or the filament softens inside it and can clog the nozzle.
+SAFE_POWER_COOL_TEMP: Final = 80  # °C: the plug is cut only below this
+SAFE_POWER_COOL_TIMEOUT: Final = 1800  # seconds: still hot after this means a heater is on
 
 # Print history kept per printer (newest first).
 HISTORY_LIMIT: Final = 500

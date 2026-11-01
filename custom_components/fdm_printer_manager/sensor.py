@@ -299,6 +299,7 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
             "energy_entity": conf.get(CONF_ENERGY_ENTITY),
             "price_entity": conf.get(CONF_PRICE_ENTITY),
             "price_per_kwh": conf.get(CONF_PRICE_FIXED),
+            "camera_entity": self.coordinator.camera_entity,
             "reachable": source.available
             if (source := self.coordinator.klipper or self.coordinator.bambu_lan)
             else None,

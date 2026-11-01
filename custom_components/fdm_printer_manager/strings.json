@@ -283,6 +283,11 @@
         "name": "Last print image"
       }
     },
+    "camera": {
+      "camera": {
+        "name": "Camera"
+      }
+    },
     "switch": {
       "show_last_print": {
         "name": "Show last print"
