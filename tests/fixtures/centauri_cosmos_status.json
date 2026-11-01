@@ -1,0 +1,235 @@
+{
+ "AFC": {
+  "version": "1.2.1",
+  "current_load": null,
+  "current_lane": null,
+  "next_lane": null,
+  "current_state": "Idle",
+  "current_toolchange": 0,
+  "number_of_toolchanges": 0,
+  "spoolman": null,
+  "td1_present": false,
+  "lane_data_enabled": false,
+  "error_state": false,
+  "bypass_state": false,
+  "quiet_mode": false,
+  "position_saved": false,
+  "units": [
+   "canvas CANVAS_1"
+  ],
+  "lanes": [
+   "CANVAS_1",
+   "CANVAS_2",
+   "CANVAS_3",
+   "CANVAS_4"
+  ],
+  "maps": [
+   "T0",
+   "T2",
+   "T1",
+   "T3"
+  ],
+  "extruders": [
+   "extruder"
+  ],
+  "hubs": [
+   "toolhead_4way_hub"
+  ],
+  "buffers": [],
+  "message": {
+   "message": "",
+   "type": ""
+  },
+  "led_state": true
+ },
+ "AFC_lane CANVAS_1": {
+  "name": "CANVAS_1",
+  "unit": "CANVAS_1",
+  "hub": "toolhead_4way_hub",
+  "extruder": "extruder",
+  "buffer": null,
+  "buffer_status": null,
+  "lane": 1,
+  "map": "T0",
+  "load": false,
+  "prep": false,
+  "tool_loaded": false,
+  "loaded_to_hub": false,
+  "material": "PETG",
+  "remember_spool": false,
+  "spool_id": null,
+  "color": "#FFFFFF",
+  "filament_name": "",
+  "multi_color_hexes": [],
+  "initial_weight": 1000,
+  "weight": 792.3856291138328,
+  "extruder_temp": 0,
+  "bed_temp": 0,
+  "runout_lane": "CANVAS_2",
+  "filament_status": "Not Ready",
+  "filament_status_led": "#ff0000",
+  "status": "None",
+  "dist_hub": 1200.0,
+  "td1_td": "",
+  "td1_color": "",
+  "td1_scan_time": "",
+  "canvas_motor": "canvas_lane0",
+  "odometer_count": 1,
+  "odometer_distance": 3.15786
+ },
+ "AFC_lane CANVAS_2": {
+  "name": "CANVAS_2",
+  "unit": "CANVAS_1",
+  "hub": "toolhead_4way_hub",
+  "extruder": "extruder",
+  "buffer": null,
+  "buffer_status": null,
+  "lane": 2,
+  "map": "T2",
+  "load": false,
+  "prep": false,
+  "tool_loaded": false,
+  "loaded_to_hub": false,
+  "material": "",
+  "remember_spool": false,
+  "spool_id": null,
+  "color": "",
+  "filament_name": "",
+  "multi_color_hexes": [],
+  "initial_weight": 1000,
+  "weight": 0,
+  "extruder_temp": 0,
+  "bed_temp": 0,
+  "runout_lane": null,
+  "filament_status": "Not Ready",
+  "filament_status_led": "#ff0000",
+  "status": "None",
+  "dist_hub": 1200.0,
+  "td1_td": "",
+  "td1_color": "",
+  "td1_scan_time": "",
+  "canvas_motor": "canvas_lane1",
+  "odometer_count": 0,
+  "odometer_distance": 0.0
+ },
+ "AFC_lane CANVAS_3": {
+  "name": "CANVAS_3",
+  "unit": "CANVAS_1",
+  "hub": "toolhead_4way_hub",
+  "extruder": "extruder",
+  "buffer": null,
+  "buffer_status": null,
+  "lane": 3,
+  "map": "T1",
+  "load": false,
+  "prep": false,
+  "tool_loaded": false,
+  "loaded_to_hub": false,
+  "material": "",
+  "remember_spool": false,
+  "spool_id": null,
+  "color": "",
+  "filament_name": "",
+  "multi_color_hexes": [],
+  "initial_weight": 1000,
+  "weight": 0,
+  "extruder_temp": 0,
+  "bed_temp": 0,
+  "runout_lane": "CANVAS_4",
+  "filament_status": "Not Ready",
+  "filament_status_led": "#ff0000",
+  "status": "None",
+  "dist_hub": 1200.0,
+  "td1_td": "",
+  "td1_color": "",
+  "td1_scan_time": "",
+  "canvas_motor": "canvas_lane2",
+  "odometer_count": 1,
+  "odometer_distance": 3.15786
+ },
+ "AFC_lane CANVAS_4": {
+  "name": "CANVAS_4",
+  "unit": "CANVAS_1",
+  "hub": "toolhead_4way_hub",
+  "extruder": "extruder",
+  "buffer": null,
+  "buffer_status": null,
+  "lane": 4,
+  "map": "T3",
+  "load": false,
+  "prep": false,
+  "tool_loaded": false,
+  "loaded_to_hub": false,
+  "material": "",
+  "remember_spool": false,
+  "spool_id": null,
+  "color": "",
+  "filament_name": "",
+  "multi_color_hexes": [],
+  "initial_weight": 1000,
+  "weight": 0,
+  "extruder_temp": 0,
+  "bed_temp": 0,
+  "runout_lane": null,
+  "filament_status": "Not Ready",
+  "filament_status_led": "#ff0000",
+  "status": "None",
+  "dist_hub": 1200.0,
+  "td1_td": "",
+  "td1_color": "",
+  "td1_scan_time": "",
+  "canvas_motor": "canvas_lane3",
+  "odometer_count": 1,
+  "odometer_distance": 3.15786
+ },
+ "led case": {
+  "color_data": [
+   [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  ]
+ },
+ "led hotend": {
+  "color_data": [
+   [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  ]
+ },
+ "gcode_move": {
+  "speed_factor": 1.0,
+  "speed": 1500.0,
+  "extrude_factor": 1.0,
+  "absolute_coordinates": true,
+  "absolute_extrude": true,
+  "homing_origin": [
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "position": [
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "gcode_position": [
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ]
+ },
+ "probe": {
+  "name": "load_cell_probe",
+  "last_query": false,
+  "last_z_result": 0.0
+ }
+}

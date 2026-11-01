@@ -17,3 +17,38 @@ mark_print:
       required: false
       selector:
         text:
+babystep:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: fdm_printer_manager
+    direction:
+      required: false
+      selector:
+        select:
+          options:
+            - "up"
+            - "down"
+          translation_key: babystep_direction
+    step:
+      required: false
+      default: 0.01
+      selector:
+        select:
+          options:
+            - "0.005"
+            - "0.01"
+            - "0.025"
+            - "0.05"
+    reset:
+      required: false
+      default: false
+      selector:
+        boolean:
+    save:
+      required: false
+      default: false
+      selector:
+        boolean:

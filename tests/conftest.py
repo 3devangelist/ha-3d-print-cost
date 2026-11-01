@@ -35,6 +35,20 @@ def no_real_power_off():
         yield
 
 
+@pytest.fixture(autouse=True)
+def no_klipper_extras():
+    """Klipper printers in tests have no lights, baby steps or filament unit unless a test says so."""
+    from unittest.mock import AsyncMock  # noqa: PLC0415
+
+    from custom_components.fdm_printer_manager.adapters.klipper_extras import KlipperFeatures  # noqa: PLC0415
+
+    with patch(
+        "custom_components.fdm_printer_manager.adapters.moonraker.MoonrakerClient.features",
+        AsyncMock(return_value=KlipperFeatures()),
+    ):
+        yield
+
+
 @pytest.fixture
 def panel_entry(hass):
     """The sidebar page entry already exists, so "Add integration" shows the printer types."""

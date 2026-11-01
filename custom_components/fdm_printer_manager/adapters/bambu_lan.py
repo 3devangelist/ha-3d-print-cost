@@ -155,6 +155,43 @@ def command(action: str) -> bytes:
     return json.dumps({"print": {"sequence_id": "0", "command": action, "param": ""}}).encode()
 
 
+CHAMBER_LIGHT = "chamber_light"
+
+
+def light_on(merged: dict[str, Any], node: str = CHAMBER_LIGHT) -> bool | None:
+    """State of a light from ``lights_report`` (``None`` when the printer has not reported it)."""
+    for light in merged.get("lights_report") or []:
+        if isinstance(light, dict) and light.get("node") == node:
+            return str(light.get("mode") or "").lower() == "on"
+    return None
+
+
+def light_command(on: bool, node: str = CHAMBER_LIGHT) -> bytes:
+    """``ledctrl`` request that turns a light on or off."""
+    return json.dumps(
+        {
+            "system": {
+                "sequence_id": "0",
+                "command": "ledctrl",
+                "led_node": node,
+                "led_mode": "on" if on else "off",
+                "led_on_time": 500,
+                "led_off_time": 500,
+                "loop_times": 0,
+                "interval_time": 0,
+            }
+        }
+    ).encode()
+
+
+def merge_report(merged: dict[str, Any], part: dict[str, Any]) -> None:
+    """Merge a (possibly partial) ``print`` report. The AMS block is merged one level deeper."""
+    ams = part.get("ams")
+    if isinstance(ams, dict) and isinstance(merged.get("ams"), dict):
+        part = {**part, "ams": {**merged["ams"], **ams}}
+    merged.update(part)
+
+
 PUSHALL = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}}).encode()
 
 
@@ -318,14 +355,26 @@ class BambuLanClient:
         part = data.get("print") if isinstance(data, dict) else None
         if not isinstance(part, dict):
             return False
-        self._merged.update(part)
+        merge_report(self._merged, part)
         return True
+
+    @property
+    def report(self) -> dict[str, Any]:
+        """The merged report (AMS, lights), empty while disconnected."""
+        return self._merged if self.available else {}
 
     async def async_command(self, action: str) -> None:
         """Pause / resume / stop."""
+        await self._async_publish(command(action))
+
+    async def async_light(self, on: bool, node: str = CHAMBER_LIGHT) -> None:
+        """Turn the chamber light on or off."""
+        await self._async_publish(light_command(on, node))
+
+    async def _async_publish(self, payload: bytes) -> None:
         if not self._writer or not self.available:
             raise BambuConnectionError("printer not connected")
-        self._writer.write(packet_publish(f"device/{self.serial}/request", command(action)))
+        self._writer.write(packet_publish(f"device/{self.serial}/request", payload))
         await self._writer.drain()
 
 

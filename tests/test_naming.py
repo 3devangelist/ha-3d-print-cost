@@ -28,8 +28,8 @@ def test_new_centauri_is_not_called_cosmos() -> None:
     assert typed["printer_name"] == "Centauri"
 
 
-async def test_renamed_entry_names_the_device_but_keeps_entity_ids(hass: HomeAssistant, printer) -> None:  # noqa: F811
-    """Added as "cosmos", renamed in Home Assistant: the device follows, the entity ids stay."""
+async def test_cosmos_printer_renames_itself_but_keeps_entity_ids(hass: HomeAssistant, printer) -> None:  # noqa: F811
+    """Added as "cosmos" by an older version: renamed by itself at start, the entity ids stay."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="cosmos",
@@ -37,14 +37,17 @@ async def test_renamed_entry_names_the_device_but_keeps_entity_ids(hass: HomeAss
         data={"printer_type": "klipper", "printer_name": "cosmos", "host": "192.168.1.95", "port": 80},
     )
     entry.add_to_hass(hass)
+    er.async_get(hass).async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{entry.entry_id}_printer_status",
+        config_entry=entry,
+        suggested_object_id="cosmos_printer_status",
+    )
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.cosmos_printer_status") is not None
 
-    hass.config_entries.async_update_entry(entry, title="Elegoo Centauri Carbon")
-    assert await hass.config_entries.async_reload(entry.entry_id)
-    await hass.async_block_till_done()
-
+    assert entry.title == "Elegoo Centauri Carbon"
     device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
     assert device.name == "Elegoo Centauri Carbon"
     assert er.async_get(hass).async_get("sensor.cosmos_printer_status") is not None  # entity id kept

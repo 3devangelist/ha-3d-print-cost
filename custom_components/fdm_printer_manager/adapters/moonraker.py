@@ -10,13 +10,18 @@ The parsing helpers are pure functions and unit-tested without a printer.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote, urljoin
 
 import aiohttp
 
+from .klipper_extras import KlipperFeatures, discover
+
 _LOGGER = logging.getLogger(__name__)
+
+SPOOLMAN_EVERY = 60  # seconds between reads of Spoolman's active spool
 
 DEFAULT_PORT = 7125
 QUERY_OBJECTS = ("print_stats", "virtual_sdcard", "display_status", "extruder")
@@ -48,6 +53,8 @@ class KlipperStatus:
     print_duration_s: float | None = None
     nozzle_temp: float | None = None
     klippy_state: str | None = None
+    # Raw status of the extra objects (lights, gcode_move, AFC, mmu), read by klipper_extras / filament.
+    extras: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -198,10 +205,10 @@ class MoonrakerClient:
             raise MoonrakerConnectionError(f"{url}: not a Moonraker response")
         return data["result"]
 
-    async def _post(self, path: str) -> dict[str, Any]:
+    async def _post(self, path: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
         try:
-            async with self._session.post(url, headers=self._headers, timeout=self._timeout) as resp:
+            async with self._session.post(url, headers=self._headers, json=json, timeout=self._timeout) as resp:
                 if resp.status in (401, 403):
                     raise MoonrakerAuthError(f"HTTP {resp.status} from {url}")
                 if resp.status >= 400:
@@ -238,14 +245,40 @@ class MoonrakerClient:
         """Hostname and Klipper state (fails while Klipper is down)."""
         return await self._get("/printer/info")
 
-    async def status(self) -> KlipperStatus:
-        """Current print state, file, progress and nozzle temperature."""
+    async def status(self, extra_objects: tuple[str, ...] = ()) -> KlipperStatus:
+        """Current print state, file, progress and nozzle temperature (plus the raw extra objects)."""
         server = await self.server_info()
         klippy_state = server.get("klippy_state")
         if klippy_state != "ready":
             return parse_status({}, klippy_state)
-        result = await self._get("/printer/objects/query?" + "&".join(QUERY_OBJECTS))
-        return parse_status(result.get("status") or {}, klippy_state)
+        objects = (*QUERY_OBJECTS, *extra_objects)
+        result = await self._get("/printer/objects/query?" + "&".join(quote(o) for o in objects))
+        status = result.get("status") or {}
+        reading = parse_status(status, klippy_state)
+        reading.extras = {k: v for k, v in status.items() if k in extra_objects}
+        return reading
+
+    async def features(self) -> KlipperFeatures:
+        """Lights, baby steps and filament units this printer offers (read-only requests)."""
+        objects = (await self._get("/printer/objects/list")).get("objects") or []
+        commands = list(await self._get("/printer/gcode/help"))
+        components = (await self.server_info()).get("components") or []
+        return discover(objects, commands, components)
+
+    async def gcode(self, script: str) -> None:
+        """Run one G-code command (lights, baby steps)."""
+        await self._post(f"/printer/gcode/script?script={quote(script)}")
+
+    async def active_spool(self) -> dict[str, Any] | None:
+        """Spoolman's active spool, through Moonraker's proxy. ``None`` when none is set."""
+        spool_id = (await self._get("/server/spoolman/spool_id")).get("spool_id")
+        if spool_id is None:
+            return None
+        data = await self._post(
+            "/server/spoolman/proxy", {"request_method": "GET", "path": f"/v1/spool/{int(spool_id)}"}
+        )
+        result = data.get("result", data)
+        return result if isinstance(result, dict) else None
 
     async def metadata(self, filename: str) -> FileMetadata:
         """Slicer metadata of a G-code file."""
@@ -280,21 +313,33 @@ class KlipperSource:
         self.meta: FileMetadata | None = None
         self._meta_for: str | None = None
         self.available = False
+        # Lights, baby steps, filament unit: read when the printer is first reached (and again after an outage).
+        self.features: KlipperFeatures | None = None
+        self._features_due = True
+        self._features_retry = 0.0
+        self.spool: dict[str, Any] | None = None
+        self._spool_read = 0.0
 
     async def async_update(self) -> None:
         """Poll the printer. Never raises: an unreachable printer reads as unavailable."""
         try:
-            reading = await self.client.status()
+            if self._features_due or (self.features is None and time.monotonic() >= self._features_retry):
+                await self._async_read_features()
+            extra = self.features.extra_objects if self.features else ()
+            reading = await (self.client.status(extra) if extra else self.client.status())
         except MoonrakerError as err:
             if self.available:
                 _LOGGER.info("Klipper printer unreachable: %s", err)
             self.available = False
+            self._features_due = True
             self.reading = KlipperStatus(state=STATUS_UNAVAILABLE)
             return
         if not self.available:
             _LOGGER.info("Klipper printer reachable (state: %s)", reading.state)
         self.available = True
         self.reading = reading
+        if self.features is not None and self.features.spoolman and not self.features.has_filament_system:
+            await self._async_read_spool()
         if reading.filename and reading.filename != self._meta_for:
             self._meta_for = reading.filename
             try:
@@ -302,6 +347,27 @@ class KlipperSource:
             except MoonrakerError as err:
                 _LOGGER.debug("No metadata for %s: %s", reading.filename, err)
                 self.meta = None
+
+    async def _async_read_features(self) -> None:
+        """What the printer offers. Klipper still starting (or an old Moonraker) is retried a minute later."""
+        self._features_due = False
+        try:
+            self.features = await self.client.features()
+        except Exception as err:  # noqa: BLE001 - the extras must never stop the printer being read
+            _LOGGER.debug("Klipper extras not readable yet: %s", err)
+            self.features = None
+            self._features_retry = time.monotonic() + 60
+
+    async def _async_read_spool(self) -> None:
+        now = time.monotonic()
+        if now - self._spool_read < SPOOLMAN_EVERY:
+            return
+        self._spool_read = now
+        try:
+            self.spool = await self.client.active_spool()
+        except MoonrakerError as err:
+            _LOGGER.debug("No active spool: %s", err)
+            self.spool = None
 
     @property
     def remaining_min(self) -> float | None:

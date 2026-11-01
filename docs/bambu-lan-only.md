@@ -20,8 +20,9 @@ You need three things from the printer:
 | **Access code** | 8 characters, for example `1a2b3c4d` | LAN Only page on the printer screen |
 | **Serial number** | 15 or 18 characters, for example `0309DA561105372` | Printer screen menus, Bambu Studio or Bambu Handy |
 
-> **Tip — "Read from photo".** In **Add printer → Bambu Lab (LAN)**, tap **📷 Take photo** and photograph
-> the LAN Only page (or **Choose image** for a photo you already have). The fields are filled in for you
+> **Tip — "Read from photo".** Take a picture of the LAN Only page with your camera app (no flash,
+> lower the exposure if you can). Then, in **Add printer → Bambu Lab (LAN)**, tap **🖼️ Choose photo**
+> and pick it. The fields are filled in for you
 > and stay editable — check them before you continue: `0`/`O`, `1`/`l`/`I` and `5`/`S` look alike.
 > See [Read from photo](#read-from-photo) for where the photo goes.
 
@@ -94,7 +95,7 @@ Use any of these:
 
 1. Open **FDM Printers** in the sidebar.
 2. Choose **Add printer → Bambu Lab (LAN)**.
-3. Enter the **IP address**, the **serial number** and the **access code** — or tap **📷 Take photo** to fill them in from a photo of the printer screen.
+3. Enter the **IP address**, the **serial number** and the **access code** — or tap **🖼️ Choose photo** to fill them in from a photo of the printer screen.
 4. On the next page, choose the **smart plug** that powers the printer (optional).
 5. Finish. The printer card appears on the page.
 
@@ -102,8 +103,10 @@ Use any of these:
 
 ## Read from photo
 
-The **📷 Take photo** button on the Bambu Lab (LAN) form opens the camera on a phone or tablet
-(Home Assistant app or browser). On a computer it opens a file picker. **Choose image** picks a photo you already have.
+1. Take a picture of the printer's **LAN Only** page with your phone's camera app.
+   The screen is lit already: **no flash**, and lower the exposure if you can (about −3 EV read well),
+   so the text is not burnt out. Fill the frame and avoid reflections.
+2. On the Bambu Lab (LAN) form, tap **🖼️ Choose photo** and pick it from the gallery (or a file on a computer).
 
 How the photo is read:
 
@@ -113,9 +116,6 @@ How the photo is read:
 | No AI Task | The text is read **on your phone or computer** (Tesseract.js) | Nowhere — only the text found is sent to Home Assistant. The first time downloads the reader (about 10 MB). |
 
 The values are always editable. Check them before you tap **Next**.
-
-If the camera doesn't open in the **Home Assistant app on Android**, allow camera access:
-Android **Settings → Apps → Home Assistant → Permissions → Camera → Allow**.
 
 ## What you lose in LAN Only mode
 

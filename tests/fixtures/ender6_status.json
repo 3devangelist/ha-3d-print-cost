@@ -1,0 +1,47 @@
+{
+ "output_pin Luz_interior": {
+  "value": 0.5
+ },
+ "gcode_move": {
+  "speed_factor": 1.0,
+  "speed": 1500.0,
+  "extrude_factor": 1.0,
+  "absolute_coordinates": true,
+  "absolute_extrude": true,
+  "homing_origin": [
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "position": [
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "gcode_position": [
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "axis_map": {
+   "X": 0,
+   "Y": 1,
+   "Z": 2,
+   "E": 3
+  }
+ },
+ "probe": {
+  "name": "probe",
+  "last_query": false,
+  "last_probe_position": [
+   0.0,
+   0.0,
+   0.0,
+   0
+  ],
+  "last_z_result": 0.0
+ }
+}

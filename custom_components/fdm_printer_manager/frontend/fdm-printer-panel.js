@@ -59,6 +59,17 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .meta{display:flex;justify-content:space-between;gap:8px;padding:4px 14px 0;font:500 .74rem var(--mono);color:var(--muted);min-height:1.5em}
 .temps{padding:6px 14px 0;font-family:var(--mono);font-size:.85rem;color:var(--heat);min-height:1.5em}
 .ctrl{display:flex;gap:6px;padding:8px 14px 0;flex-wrap:wrap}
+.btn.light.on{border-color:var(--accent);color:var(--accent)}
+.fil{display:flex;gap:6px;padding:8px 14px 0;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);font:500 .74rem var(--mono)}
+.chip i{width:11px;height:11px;border-radius:50%;border:1px solid var(--muted);flex:none}
+.chip.act{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.chip.empty{opacity:.5}
+.chip small{color:var(--muted)}
+.z{display:flex;gap:6px;align-items:center;padding:8px 14px 0;flex-wrap:wrap}
+.z b{font-family:var(--mono);font-size:.85rem;min-width:7.5em}
+.stp{all:unset;cursor:pointer;font:500 .7rem var(--mono);padding:2px 5px;border-radius:4px;color:var(--muted)}
+.stp.on{color:var(--accent-ink);background:var(--accent)}
 .ft{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin-top:12px;background:var(--line);border-top:1px solid var(--line)}
 .ft div{background:var(--surface);padding:8px 8px;min-width:0}
 .k{font:500 .62rem var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
@@ -145,8 +156,6 @@ details summary{cursor:pointer;margin-bottom:10px}
 .photo .h{font-size:.8rem;color:var(--muted)}
 .photo .st{font-size:.88rem}
 .photo .st.err{color:var(--bad)} .photo .st.ok{color:var(--ok)}
-.photo .cam{display:flex;flex-direction:column;gap:8px}
-.photo .cam video{width:100%;max-height:60vh;background:#000;border-radius:8px;object-fit:contain}
 .f.filled input{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .f .w{font-size:.8rem;color:var(--run)}
 `;
@@ -170,7 +179,7 @@ const TYPE_INFO = {
   bambu_device: { label: "Bambu Lab (via Bambu Lab integration)", hint: "Uses a printer already set up in ha-bambulab" },
 };
 
-// Forms with "Take photo" (the printer's LAN Only page fills them in).
+// Forms with "Choose photo" (a photo of the printer's LAN Only page fills them in).
 const PHOTO_STEPS = ["bambu_lan", "reauth_confirm"];
 
 const FIELD_LABELS = {
@@ -505,7 +514,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.8.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.10.0</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -626,7 +635,46 @@ class FdmPrinterPanel extends HTMLElement {
         ? `<div class="cam" data-act="camzoom" data-entity="${esc(camEntity)}" data-cam="${esc(camEntity)}" data-live="${camLive ? 1 : 0}" title="Open full size">${camLive ? `<span class="live">● LIVE</span>` : ""}</div>`
         : "";
 
+    // Lights the printer has (Klipper LEDs / light pins, the Bambu chamber light): one toggle each.
+    const lightHtml = (attrs.lights || [])
+      .filter((l) => this._st(l.entity))
+      .map((l) => {
+        const st = this._st(l.entity).state;
+        return `<button class="btn sm light ${st === "on" ? "on" : ""}" data-act="light" data-entity="${esc(l.entity)}" ${st === "unavailable" ? "disabled" : ""} title="${st === "on" ? "Turn off" : "Turn on"}">💡 ${esc(l.name)}</button>`;
+      })
+      .join("");
+
+    // Filaments of a multi-material unit (AFC / CANVAS, Happy Hare, AMS): real colour, type, % left; the active one outlined.
+    const slots = attrs.filaments || [];
+    const filHtml = slots.length
+      ? `<div class="fil">${slots
+          .map(
+            (f) =>
+              `<span class="chip ${f.active ? "act" : ""} ${f.empty ? "empty" : ""}" title="${esc(f.name)}${f.tool ? ` · ${esc(f.tool)}` : ""}${f.active ? " · in use" : ""}"><i style="background:${esc(f.color || "transparent")}"></i>${esc(f.material || (f.empty ? "empty" : "?"))}${f.remaining != null ? ` <small>${Math.round(f.remaining)}%</small>` : ""}</span>`,
+          )
+          .join("")}</div>`
+      : "";
+
+    // Baby steps (Klipper): move the nozzle while printing; "Save" only when turned on in the options.
+    const bs = attrs.babystep;
+    let zHtml = "";
+    if (bs && (active || (bs.save && bs.z_offset))) {
+      const step = this._zstep?.[eid] ?? 0.01;
+      const z = bs.z_offset;
+      const zText = z != null ? `${z > 0 ? "+" : ""}${z.toFixed(3)} mm` : "—";
+      const moves = active
+        ? `<button class="btn sm" data-act="zstep" data-entry="${esc(eid)}" data-dir="down" title="Nozzle closer to the bed">▼ ${step}</button>
+           <button class="btn sm" data-act="zstep" data-entry="${esc(eid)}" data-dir="up" title="Nozzle further from the bed">▲ ${step}</button>
+           <span>${(bs.steps || []).map((v) => `<button class="stp ${v === step ? "on" : ""}" data-act="zsize" data-entry="${esc(eid)}" data-step="${v}">${v}</button>`).join("")}</span>
+           ${z ? `<button class="btn sm" data-act="zreset" data-entry="${esc(eid)}" title="Back to 0">Reset</button>` : ""}`
+        : "";
+      const save = bs.save && z ? `<button class="btn sm" data-act="zasksave" data-entry="${esc(eid)}" title="Keep this offset">Save</button>` : "";
+      zHtml = `<div class="z"><span class="k">Z offset</span><b>${zText}</b>${moves}${save}</div>`;
+    }
+
     let ask = "";
+    if (this._ask?.entry === eid && this._ask.kind === "zsave")
+      ask = `<div class="ask">Keep the Z offset ${bs?.z_offset != null ? `(${bs.z_offset.toFixed(3)} mm)` : ""}? It is applied now; run SAVE_CONFIG when the printer is idle to keep it after a restart (Klipper restarts).<div class="row"><button class="btn sm" data-act="askno">Not now</button><button class="btn sm" data-act="zsave" data-entry="${esc(eid)}">Save</button></div></div>`;
     if (this._ask?.entry === eid && this._ask.kind === "power")
       ask = `<div class="ask">Turn ${esc(p.entry.title)} off? ${nozzle != null && nozzle >= (power?.attributes?.cool_to ?? 80) ? `The nozzle is at ${Math.round(nozzle)}°: it waits for it to cool below ${power?.attributes?.cool_to ?? 80}° first. ` : ""}${attrs.printer_type === "klipper" ? "Its computer shuts down first; the plug is cut once it is down (at most 3 minutes)." : "The plug is cut now."}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
     if (this._ask?.entry === eid && this._ask.kind === "cancel")
@@ -643,7 +691,9 @@ class FdmPrinterPanel extends HTMLElement {
         <div class="prog"><i style="width:${active && progress != null ? Math.min(100, progress) : 0}%"></i></div>
         <div class="meta"><span>${active && progress != null ? `${Math.round(progress)}%${paused ? " · paused" : ""}` : ""}</span><span>${active && left != null ? `${fmtMin(left)} left` : ""}</span></div>
         <div class="temps">${nozzle != null ? `▲ ${nozzle.toFixed(1)}°` : ""}</div>
-        ${ctl.length ? `<div class="ctrl">${ctl.join("")}</div>` : ""}
+        ${filHtml}
+        ${ctl.length || lightHtml ? `<div class="ctrl">${ctl.join("")}${lightHtml}</div>` : ""}
+        ${zHtml}
         <div class="ft">${foot}</div>
         ${ask}
         <div class="act">
@@ -1152,26 +1202,13 @@ class FdmPrinterPanel extends HTMLElement {
         ? "Read on this device: the photo never leaves it (the first time downloads the reader, about 10 MB)."
         : "";
     const status = p.status ? `<div class="st ${esc(p.kind)}">${esc(p.status)}</div>` : "";
-    // Camera inside the page: the Home Assistant Android app ignores capture="environment" on a file input.
-    const camera = this._camStream
-      ? `<div class="cam">
-        <video id="ph-video" autoplay playsinline muted></video>
-        <div class="row">
-          <button type="button" class="btn pri" data-act="photosnap">● Capture</button>
-          <button type="button" class="btn sm" data-act="photocamclose">Cancel</button>
-        </div>
-        <span class="h">No flash: the screen is lit already. Fill the frame with the LAN Only page and avoid reflections.</span>
-      </div>`
-      : "";
+    // A gallery photo only: the in-page camera needed https and the Android app ignores capture=.
     return `<div class="photo ${p.reading ? "busy" : ""}">
-      ${camera}
       <div class="row">
-        <button type="button" class="btn pri" data-act="phototake">📷 Take photo</button>
-        <button type="button" class="btn sm" data-act="photochoose">Choose image</button>
-        <input type="file" id="ph-cam" class="photo-in" accept="image/*" capture="environment" hidden>
+        <button type="button" class="btn pri" data-act="photochoose">🖼️ Choose photo</button>
         <input type="file" id="ph-file" class="photo-in" accept="image/*" hidden>
       </div>
-      <span class="h">Photograph the printer's LAN Only page: IP address, serial number and access code are filled in for you. ${where}</span>
+      <span class="h">Take a picture of the LAN Only screen with your camera app (no flash, lower the exposure if you can), then choose it here. IP address, serial number and access code are filled in for you. ${where}</span>
       ${status}</div>`;
   }
 
@@ -1194,110 +1231,15 @@ class FdmPrinterPanel extends HTMLElement {
     this._render();
   }
 
-  /**
-   * "Take photo": the camera inside the page (getUserMedia), set up for photographing a lit screen
-   * (like the reference photo that read well: no flash, exposure about -3 EV, metering on the centre).
-   * Every camera setting is optional. Without getUserMedia (plain http:// is not a secure context,
-   * or the camera is refused) it falls back to the file input with capture="environment".
-   */
-  async _openCamera() {
-    if (this._camStream) return;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      // Status first: drawing it replaces the file inputs, so the picker is opened afterwards.
-      if (!window.isSecureContext) {
-        this._setPhotoStatus(
-          "The camera can only open inside Home Assistant over https:// (this page is http://). If the camera does not open, take the photo with the camera app and use Choose image.",
-          "err",
-        );
-      }
-      this._pickPhoto("ph-cam");
-      return;
-    }
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 4080 }, height: { ideal: 3072 } },
-      });
-    } catch (err) {
-      console.warn("FDM Printer Manager: camera refused or missing", err);
-      this._setPhotoStatus(
-        "The camera could not be opened (allow camera access for Home Assistant). Opening the picker instead — or use Choose image.",
-        "err",
-      );
-      this._pickPhoto("ph-cam");
-      return;
-    }
-    this._camStream = stream;
-    await this._tuneCamera(stream.getVideoTracks()[0]);
-    this._setPhotoStatus("");
-  }
-
-  /** Flash off, exposure towards -3 EV, focus and metering on the centre: each only if the camera has it. */
-  async _tuneCamera(track) {
-    if (!track) return;
-    const caps = track.getCapabilities?.() || {};
-    const tries = [];
-    if ("torch" in caps) tries.push({ torch: false });
-    const ev = caps.exposureCompensation;
-    if (ev && typeof ev.min === "number") tries.push({ exposureCompensation: Math.min(ev.max ?? 0, Math.max(ev.min, -3)) });
-    if ("pointsOfInterest" in caps) tries.push({ pointsOfInterest: [{ x: 0.5, y: 0.5 }] });
-    for (const c of tries) {
-      try {
-        await track.applyConstraints({ advanced: [c] });
-      } catch (_err) {
-        // not supported on this camera: carry on
-      }
-    }
-  }
-
-  _closeCamera() {
-    this._camStream?.getTracks().forEach((t) => t.stop());
-    this._camStream = null;
-  }
-
-  /** Grab the full-size frame, close the camera, then read it like any other photo. */
-  async _snapCamera() {
-    const video = this.shadowRoot.getElementById("ph-video");
-    if (!video || !video.videoWidth) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video, 0, 0);
-    this._closeCamera();
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
-    this._readPhoto(blob);
-  }
-
-  /** Open the camera (phones, the Home Assistant app) or the file picker. */
-  _pickPhoto(id) {
-    const input = this.shadowRoot.getElementById(id);
+  /** Open the file picker (gallery on phones). */
+  _pickPhoto() {
+    const input = this.shadowRoot.getElementById("ph-file");
     if (!input) return;
     input.value = "";
-    this._photo.waiting = id;
-    // The Android app gives no "cancel" when the camera is not allowed: notice the page coming back empty-handed.
-    const back = () => {
-      window.removeEventListener("focus", back);
-      setTimeout(() => this._photo.waiting === id && this._photoCancelled(), 1500);
-    };
-    window.addEventListener("focus", back);
     input.click();
   }
 
-  _photoCancelled() {
-    const id = this._photo.waiting;
-    this._photo.waiting = null;
-    if (!id || this._photo.reading) return;
-    if (id === "ph-cam" && /android/i.test(navigator.userAgent)) {
-      this._setPhotoStatus(
-        "No photo received. If the camera did not open, allow camera access for the Home Assistant app in Android settings (Apps → Home Assistant → Permissions → Camera), or use Choose image.",
-        "err",
-      );
-    }
-  }
-
   async _readPhoto(file) {
-    this._photo.waiting = null;
     if (!file) return;
     this._photo.reading = true;
     this._setPhotoStatus("Reading…");
@@ -1330,6 +1272,7 @@ class FdmPrinterPanel extends HTMLElement {
     const filled = {};
     for (const [name, value] of Object.entries(res.fields || {})) {
       if (!names.includes(name)) continue;
+      if (name === "printer_name" && String(this._data.printer_name || "").trim()) continue; // a name typed by the user wins
       this._data[name] = value;
       filled[name] = true;
     }
@@ -1409,11 +1352,7 @@ class FdmPrinterPanel extends HTMLElement {
     root.querySelectorAll("input.cb").forEach((el) => this._setupCombo(el));
     root.querySelectorAll("input.photo-in").forEach((el) => {
       el.addEventListener("change", () => this._readPhoto(el.files?.[0]));
-      el.addEventListener("cancel", () => this._photoCancelled());
     });
-    const video = root.getElementById("ph-video");
-    if (video && this._camStream) video.srcObject = this._camStream; // the page is redrawn: reattach the camera
-    else if (this._camStream && !video) this._closeCamera(); // left the Bambu LAN form
     const form = root.getElementById("form");
     if (form) {
       form.addEventListener("submit", (ev) => {
@@ -1427,13 +1366,7 @@ class FdmPrinterPanel extends HTMLElement {
 
   async _action(el) {
     const act = el.dataset.act;
-    if (act === "phototake") return this._openCamera();
-    if (act === "photochoose") return this._pickPhoto("ph-file");
-    if (act === "photosnap") return this._snapCamera();
-    if (act === "photocamclose") {
-      this._closeCamera();
-      return this._setPhotoStatus("");
-    }
+    if (act === "photochoose") return this._pickPhoto();
     if (act === "add") return this._startAdd();
     if (act === "scan") return this._scan();
     if (act === "found") {
@@ -1487,6 +1420,32 @@ class FdmPrinterPanel extends HTMLElement {
       return this._call("button", "press", el.dataset.entity, what === "cancel" ? "Cancelling the print…" : what === "pause" ? "Pausing…" : "Resuming…");
     }
     if (act === "mark") return this._mark(el.dataset.entry, el.dataset.result, el.dataset.job);
+    if (act === "light") return this._call("light", "toggle", el.dataset.entity, "Switching the light…");
+    if (act === "zsize") {
+      this._zstep = { ...(this._zstep || {}), [el.dataset.entry]: Number(el.dataset.step) };
+      return this._render();
+    }
+    if (act === "zasksave") {
+      this._ask = { kind: "zsave", entry: el.dataset.entry };
+      return this._render();
+    }
+    if (act === "zstep" || act === "zreset" || act === "zsave") {
+      this._ask = null;
+      const data = { entry_id: el.dataset.entry };
+      if (act === "zstep") Object.assign(data, { direction: el.dataset.dir, step: this._zstep?.[el.dataset.entry] ?? 0.01 });
+      if (act === "zreset") data.reset = true;
+      if (act === "zsave") data.save = true;
+      return this._service("babystep", data, act === "zsave" ? "Saving the Z offset…" : act === "zreset" ? "Z offset back to 0" : `Z ${data.direction === "up" ? "+" : "−"}${data.step} mm`);
+    }
+  }
+
+  async _service(service, data, message) {
+    this._flash(message);
+    try {
+      await this._hass.callService(DOMAIN, service, data);
+    } catch (err) {
+      this._flash(String(err?.message || err));
+    }
   }
 
   async _mark(entryId, result, jobId) {
