@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.0]
+
+- **Klipper printers found without zeroconf**: the integration searches Home Assistant's
+  own network for Moonraker (ports 7125 and 80, at most 254 addresses, a few at a time)
+  when it starts, every 30 minutes, when you open **Add printer** and with the new
+  **Search again** button in "Found on the network". Printers already added are not offered again.
+- **Klipper with just the IP address** now finds Moonraker on port 80 too
+  (for example the Elegoo Centauri Carbon), not only on 7125.
+
 ## [0.4.0] — first numbered release
 
 First release published on GitHub, so HACS shows a real version number.

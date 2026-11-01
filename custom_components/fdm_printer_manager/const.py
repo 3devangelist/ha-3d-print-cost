@@ -94,6 +94,7 @@ MAX_UPDATE_INTERVAL: Final = 300
 
 # HTTP
 HTTP_TIMEOUT: Final = 10  # seconds
+PROBE_TIMEOUT: Final = 3  # seconds per port when looking for Moonraker (7125, then 80)
 
 # Power integration: an interval longer than this (HA restart, sensor outage)
 # is still integrated but reported as a gap in the job attributes.

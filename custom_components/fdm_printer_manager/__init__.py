@@ -31,6 +31,7 @@ from .const import (
     STATIC_URL,
 )
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
+from .scanner import async_scan_network, async_start_scanning
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,10 +91,13 @@ async def _async_ensure_panel(hass: HomeAssistant) -> None:
     data = hass.data.setdefault(DOMAIN, {})
     if not data.get("ws"):
         websocket_api.async_register_command(hass, ws_history)
+        websocket_api.async_register_command(hass, ws_scan)
         data["ws"] = True
     if "ssdp" not in data:
         data["ssdp"] = []  # set before awaiting so two entries never start two listeners
         data["ssdp"] = await async_listen_ssdp(lambda found: _on_bambu_found(hass, found))
+    if "scan_stop" not in data:
+        data["scan_stop"] = async_start_scanning(hass)
     if data.get("panel"):
         return
     if not data.get("static") and hass.http is not None:
@@ -135,6 +139,8 @@ def _remove_panel_if_unused(hass: HomeAssistant, unloading: PrintCostConfigEntry
     if not others and "ssdp" in data:
         for transport in data.pop("ssdp") or []:
             transport.close()
+    if not others and "scan_stop" in data:
+        data.pop("scan_stop")()
 
 
 def _on_bambu_found(hass: HomeAssistant, found: BambuAnnouncement) -> None:
@@ -188,3 +194,12 @@ async def ws_history(hass: HomeAssistant, connection: websocket_api.ActiveConnec
     rows.sort(key=lambda r: r.get("finished_at") or "", reverse=True)
     start = msg["offset"]
     connection.send_result(msg["id"], {"total": len(rows), "rows": rows[start : start + msg["limit"]]})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/scan"})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_scan(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Look for Klipper printers now ("Search again" / "Add printer"); they show up in "Found on the network"."""
+    found = await async_scan_network(hass)
+    connection.send_result(msg["id"], {"found": [{"host": f.host, "port": f.port} for f in found]})

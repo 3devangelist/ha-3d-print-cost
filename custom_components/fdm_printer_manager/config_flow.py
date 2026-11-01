@@ -26,6 +26,7 @@ from .adapters.moonraker import (
     MoonrakerError,
     default_web_url,
 )
+from .adapters.netscan import SCAN_PORTS, async_probe
 from .const import (
     BAMBU_DOMAIN,
     CONF_ACCESS_CODE,
@@ -55,6 +56,7 @@ from .const import (
     HTTP_TIMEOUT,
     MAX_UPDATE_INTERVAL,
     MIN_UPDATE_INTERVAL,
+    PROBE_TIMEOUT,
     PrinterType,
 )
 
@@ -319,7 +321,9 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
-        """A Bambu Lab printer heard on the network (SSDP on UDP 2021)."""
+        """A Bambu Lab printer heard on the network (SSDP on UDP 2021), or a Klipper printer found by the scan."""
+        if discovery_info.get(CONF_PRINTER_TYPE) == PrinterType.KLIPPER:
+            return await self._async_klipper_found(discovery_info)
         serial = str(discovery_info[CONF_PRINTER_SERIAL]).upper()
         host = str(discovery_info[CONF_HOST])
         await self.async_set_unique_id(f"bambu_{serial}")
@@ -328,6 +332,17 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         self._bambu = {CONF_HOST: host, CONF_PRINTER_SERIAL: serial, CONF_PRINTER_NAME: name}
         self.context["title_placeholders"] = {"name": name}
         return await self.async_step_bambu_lan()
+
+    async def _async_klipper_found(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
+        """A Moonraker server that answered the network scan (no zeroconf needed)."""
+        host = str(discovery_info[CONF_HOST])
+        port = int(discovery_info.get(CONF_PORT) or DEFAULT_PORT)
+        await self.async_set_unique_id(f"klipper_{host.lower()}_{port}")
+        self._abort_if_unique_id_configured()
+        name = discovery_info.get(CONF_PRINTER_NAME) or host
+        self._klipper = {CONF_HOST: host, CONF_PORT: port, CONF_PRINTER_NAME: name}
+        self.context["title_placeholders"] = {"name": name}
+        return await self.async_step_zeroconf_confirm()
 
     # ------------------------------------------------------------------ #
     # Bambu Lab over the local network
@@ -369,15 +384,22 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             host, port = split_host_port(user_input[CONF_HOST])
-            self._klipper = {CONF_HOST: host, CONF_PORT: port or DEFAULT_PORT}
-            await self.async_set_unique_id(f"klipper_{host.lower()}_{self._klipper[CONF_PORT]}")
-            self._abort_if_unique_id_configured()
-            errors, hostname = await validate_klipper(self.hass, self._klipper)
-            if errors.get(CONF_API_KEY):
-                # Moonraker wants a key: ask for it, and only for it.
-                return await self.async_step_klipper_auth()
-            if not errors:
-                return await self._async_klipper_done(hostname)
+            if port is None:
+                # No port typed: Moonraker's 7125, else 80 (where some printers serve it).
+                found = await async_probe(async_get_clientsession(self.hass), host, SCAN_PORTS, timeout=PROBE_TIMEOUT)
+                port = found.port if found else None
+            if port is None:
+                errors = {CONF_HOST: "cannot_connect"}
+            else:
+                self._klipper = {CONF_HOST: host, CONF_PORT: port}
+                await self.async_set_unique_id(f"klipper_{host.lower()}_{port}")
+                self._abort_if_unique_id_configured()
+                errors, hostname = await validate_klipper(self.hass, self._klipper)
+                if errors.get(CONF_API_KEY):
+                    # Moonraker wants a key: ask for it, and only for it.
+                    return await self.async_step_klipper_auth()
+                if not errors:
+                    return await self._async_klipper_done(hostname)
         return self.async_show_form(step_id="klipper", data_schema=klipper_add_schema(user_input or {}), errors=errors)
 
     async def async_step_klipper_auth(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

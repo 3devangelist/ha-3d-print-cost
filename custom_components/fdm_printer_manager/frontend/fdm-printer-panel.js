@@ -227,6 +227,7 @@ class FdmPrinterPanel extends HTMLElement {
     this._history = { rows: [], total: 0, limit: 10, filter: "" };
     this._showPrice = false;
     this._toast = null;
+    this._scanning = false;
   }
 
   set hass(hass) {
@@ -269,7 +270,7 @@ class FdmPrinterPanel extends HTMLElement {
     if (this._view === "list") this._render();
   }
 
-  /** Discovery flows of this domain waiting for the user (Klipper via zeroconf, Bambu via SSDP). */
+  /** Discovery flows of this domain waiting for the user (Klipper via zeroconf or the scan, Bambu via SSDP). */
   async _loadDiscovered() {
     try {
       const flows = await this._hass.callWS({ type: "config_entries/flow/progress" });
@@ -279,17 +280,42 @@ class FdmPrinterPanel extends HTMLElement {
     }
   }
 
-  _renderDiscovered() {
+  /** Ask Home Assistant to look for Klipper printers now; found ones appear in "Found on the network". */
+  async _scan() {
+    if (this._scanning) return;
+    this._scanning = true;
+    this._renderIfIdle();
+    try {
+      await this._hass.callWS({ type: `${DOMAIN}/scan` });
+    } catch (err) {
+      console.error("FDM Printers: network search failed", err);
+    }
+    await this._loadDiscovered();
+    this._scanning = false;
+    this._renderIfIdle();
+  }
+
+  /** Re-render only the printer list or the "Add printer" menu, never a form the user may be typing in. */
+  _renderIfIdle() {
+    if (this._view === "list" || (this._view === "flow" && this._flow?.result?.type === "menu")) this._render();
+  }
+
+  /** "Found on the network". The list view always shows it (with "Search again"); the add menu only when there is something. */
+  _renderDiscovered(always = false) {
     const found = this._discovered || [];
-    if (!found.length) return "";
+    if (!found.length && !always && !this._scanning) return "";
     const items = found
       .map((f) => {
         const name = f.context?.title_placeholders?.name || f.step_id;
-        const kind = f.context?.source === "zeroconf" ? "Klipper" : "Bambu Lab";
+        const kind = f.step_id === "bambu_lan" ? "Bambu Lab" : "Klipper";
         return `<button class="type" data-act="found" data-flow="${esc(f.flow_id)}"><b>${esc(name)}</b><small>${kind} · found on the network</small></button>`;
       })
       .join("");
-    return `<h2>Found on the network</h2><div class="types">${items}</div>`;
+    const search = this._scanning
+      ? `<span class="sub">Searching the network…</span>`
+      : `<button class="btn sm" data-act="scan">Search again</button>`;
+    const empty = found.length ? "" : `<p class="empty">${this._scanning ? "" : "No new printers found."}</p>`;
+    return `<h2>Found on the network ${search}</h2>${found.length ? `<div class="types">${items}</div>` : empty}`;
   }
 
   async _continueFound(flowId) {
@@ -356,7 +382,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.4.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.5.0</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -379,7 +405,7 @@ class FdmPrinterPanel extends HTMLElement {
           <button class="btn pri" data-act="add">＋ Add printer</button>
         </div>
         ${printers.length ? `<div class="grid">${printers.map((p) => this._card(p)).join("")}</div>` : `<p class="empty">No printers yet. Use “＋ Add printer” to add the first one.</p>`}
-        ${this._renderDiscovered()}
+        ${this._renderDiscovered(true)}
         ${printers.length ? this._renderNow(active) + this._renderHistory(printers) : ""}
       </main>`;
   }
@@ -505,6 +531,7 @@ class FdmPrinterPanel extends HTMLElement {
   }
 
   async _startAdd() {
+    this._scan(); // in the background: printers found while choosing the type show up in the menu
     this._view = "flow";
     this._flow = { kind: "config", title: "Add printer" };
     await this._openFlow("config/config_entries/flow", { handler: DOMAIN, show_advanced_options: false });
@@ -950,6 +977,7 @@ class FdmPrinterPanel extends HTMLElement {
   async _action(el) {
     const act = el.dataset.act;
     if (act === "add") return this._startAdd();
+    if (act === "scan") return this._scan();
     if (act === "found") {
       this._dropFlow(); // leaving the menu flow of "Add printer"
       return this._continueFound(el.dataset.flow);

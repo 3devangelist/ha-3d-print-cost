@@ -19,8 +19,8 @@ that electricity **cost**. Filament is out of scope.
 - **Bambu Lab**: directly on the LAN (IP, serial number, access code — no cloud, no
   other integration), or through the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)
   if you already use it.
-- **Found automatically**: Klipper printers (Moonraker zeroconf) and Bambu Lab printers
-  (SSDP on the LAN) show up as *Discovered*.
+- **Found automatically**: Klipper printers (searched on your network, or announced by
+  Moonraker zeroconf) and Bambu Lab printers (SSDP on the LAN) show up as *Discovered*.
 - **OctoPrint**: planned, for older machines.
 - **Any smart plug**. With an energy meter you also get consumption and cost;
   a plain on/off plug works too.
@@ -52,8 +52,8 @@ Everything happens in that one window:
 1. **What kind of printer?** Klipper, Bambu Lab (LAN) or Bambu Lab (via the Bambu
    Lab integration). Printers found on the network are listed first.
 2. **Connection**
-   - *Klipper*: just the IP address (add `:port` only if Moonraker does not
-     use 7125). The connection is tested before you can continue. Name, port
+   - *Klipper*: just the IP address. Moonraker is looked for on port 7125, then 80
+     (add `:port` only if it uses another one). The connection is tested before you can continue. Name, port
      and web interface (`http://<IP>/`, i.e. Mainsail or Fluidd) are filled in
      automatically. An API key is asked only if your Moonraker refuses the
      connection without one.
@@ -67,9 +67,11 @@ Everything happens in that one window:
    reused for the next printers). The printer then gets its own counters:
    energy and cost in total and today.
 
-Easiest: use the **FDM Printers** page in the sidebar. Klipper needs Moonraker's
-`[zeroconf]` section to be discovered; Bambu printers announce themselves every few
-seconds while LAN mode is on.
+Easiest: use the **FDM Printers** page in the sidebar. Klipper printers are searched
+for on Home Assistant's own network (at most 254 addresses, ports 7125 and 80) when
+the integration starts, every 30 minutes, when you open **Add printer** and with
+**Search again**; Moonraker's `[zeroconf]` section is not needed. Bambu printers
+announce themselves every few seconds while LAN mode is on.
 
 The printer appears as a device with its name. For Klipper the device page has
 a **Visit** button that opens Mainsail / Fluidd.
@@ -240,6 +242,8 @@ restart recovery, last print, `print_finished` event.
   switch, Pause / Resume / Cancel, the printer's own energy and cost counters, typed price
 - ✅ **0.3.0-alpha.4** — Bambu Lab direct LAN, discovery (Moonraker zeroconf, Bambu SSDP),
   one-click panel on the first Add integration
+- ✅ **0.5.0** — Klipper printers found by searching the network (no zeroconf needed),
+  Moonraker on port 7125 or 80, "Search again" in the FDM Printers page
 - 🚧 to-do list entry per print (⏳ while printing, ✅ / ❌ at the end)
 - 🚧 run a script / notify when a print ends
 - 🚧 printer down while printing: notify, wait, close as failed if it comes back idle

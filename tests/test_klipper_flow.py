@@ -9,9 +9,11 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fdm_printer_manager.adapters.moonraker import MoonrakerAuthError, MoonrakerConnectionError
+from custom_components.fdm_printer_manager.adapters.netscan import FoundKlipper
 from custom_components.fdm_printer_manager.const import DOMAIN
 
 CLIENT = "custom_components.fdm_printer_manager.config_flow.MoonrakerClient"
+PROBE = "custom_components.fdm_printer_manager.config_flow.async_probe"
 
 pytestmark = pytest.mark.usefixtures("panel_entry")
 
@@ -140,3 +142,52 @@ async def test_edit_klipper_ip_keeps_the_entry(hass: HomeAssistant, bypass_setup
     assert merged["host"] == "192.168.1.91"
     assert merged["web_url"] == "http://192.168.1.91/"
     assert merged["api_key"] is None  # cleared key really cleared
+
+
+async def test_ip_only_finds_moonraker_on_port_80(hass: HomeAssistant, bypass_setup) -> None:
+    """Some printers (Elegoo Centauri Carbon) serve Moonraker on port 80 only."""
+    result = await _open_klipper(hass)
+    probe = AsyncMock(return_value=FoundKlipper("192.168.1.95", 80))
+    with patch(PROBE, probe), _moonraker(hostname="centauri"):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.95"})
+    assert probe.await_args.args[1:] == ("192.168.1.95", (7125, 80))
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["data"]["port"] == 80
+    assert result["data"]["web_url"] == "http://192.168.1.95/"
+
+
+async def test_typed_port_is_not_probed(hass: HomeAssistant, bypass_setup) -> None:
+    result = await _open_klipper(hass)
+    probe = AsyncMock()
+    with patch(PROBE, probe), _moonraker():
+        await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "192.168.1.89:7126"})
+    probe.assert_not_called()
+
+
+async def test_found_by_the_network_scan(hass: HomeAssistant, bypass_setup) -> None:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+        data={"printer_type": "klipper", "host": "192.168.1.95", "port": 80, "printer_name": "centauri"},
+    )
+    assert result["step_id"] == "zeroconf_confirm"
+    assert result["description_placeholders"] == {"name": "centauri", "host": "192.168.1.95"}
+    with _moonraker(hostname="centauri"):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "electricity"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["host"] == "192.168.1.95"
+    assert result["data"]["port"] == 80
+    assert result["result"].unique_id == "klipper_192.168.1.95_80"
+
+
+async def test_found_by_the_scan_but_already_added(hass: HomeAssistant) -> None:
+    MockConfigEntry(domain=DOMAIN, unique_id="klipper_192.168.1.95_80", data={}).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+        data={"printer_type": "klipper", "host": "192.168.1.95", "port": 80, "printer_name": None},
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"

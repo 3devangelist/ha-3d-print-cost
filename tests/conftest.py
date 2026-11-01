@@ -1,5 +1,7 @@
 """Shared fixtures."""
 
+from unittest.mock import patch
+
 import pytest
 
 
@@ -7,6 +9,13 @@ import pytest
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Let Home Assistant load custom_components/ in every test."""
     return
+
+
+@pytest.fixture(autouse=True)
+def no_network_scan():
+    """No background Klipper scan of the real network when the integration starts (test_scanner.py tests it)."""
+    with patch("custom_components.fdm_printer_manager.async_start_scanning", return_value=lambda: None):
+        yield
 
 
 @pytest.fixture
