@@ -3,6 +3,37 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.0]
+
+### Added
+
+- **"Google Sheets" button in the FDM Printers page** (next to "Add printer"). Setting up the
+  print log is now done from the integration:
+  - no Google Sheets entry yet: **Connect Google Sheets** opens Home Assistant's own "add Google
+    Sheets" window (`/config/integrations/dashboard/add?domain=google_sheets`, the page the My
+    link opens); you only sign in with Google;
+  - one or more entries: pick one (by name, the first by default), type the tab name (default
+    `Prints`) and press **Start logging**;
+  - when on: "✓ Logging to *spreadsheet* › *tab*", **Open the sheet ↗**, **Change**,
+    **Turn off for all printers**, and **Log all printers here** when only some printers log.
+- **Action `fdm_printer_manager.sheets_setup`** (and websocket commands `sheets_status`,
+  `sheets_setup`, `sheets_off` for the page). It creates the tab when it is missing, with the
+  login of that Google Sheets entry (the same gspread client the core integration uses), writes
+  the header row in a new or empty tab and freezes it, then sets `sheets_config_entry` and
+  `sheets_worksheet` in the options of every printer (or of `entry_id`), keeping all other
+  options. Returns the spreadsheet URL. Clear errors when Google Sheets is not set up, the entry
+  needs a new sign-in, or Google refuses; nothing is changed then.
+- **Guide** [docs/google-sheets.md](docs/google-sheets.md) and
+  [em português](docs/google-sheets.pt.md): the Google Cloud credentials (project, Sheets and
+  Drive APIs, consent screen, Web client with the `https://my.home-assistant.io/redirect/oauth`
+  redirect), the button, the columns, the limits, and how to reuse an older tab with Portuguese
+  headers. Linked from the README and from the button.
+
+### Changed
+
+- The per-printer option (**Edit → When a print ends**) still works; its help says the button
+  creates the tab.
+
 ## [0.11.0]
 
 ### Added

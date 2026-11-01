@@ -9,20 +9,29 @@ starts. Sending never delays nor breaks the end of a print.
 Limits of the ``google_sheets`` integration: it can only write to spreadsheets it
 created itself, and the worksheet (tab) must already exist. It adds the time it
 writes the row in a ``created`` column, and any column missing from the header row.
+
+Setting up (the panel's "Google Sheets" button, or the ``sheets_setup`` action):
+``async_setup_log`` creates the tab with its header row when it is missing, using
+the Google login of that ``google_sheets`` entry (the same gspread client the core
+integration uses), then chooses that entry and tab in every printer's options.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, tzinfo
 from typing import Any
 
 from homeassistant.components import persistent_notification
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.const import CONF_ACCESS_TOKEN, CONF_TOKEN
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
-from .const import CONF_SHEETS_ENTRY, CONF_SHEETS_WORKSHEET, DEFAULT_SHEETS_WORKSHEET, DOMAIN
+from .const import CONF_PANEL, CONF_SHEETS_ENTRY, CONF_SHEETS_WORKSHEET, DEFAULT_SHEETS_WORKSHEET, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,6 +55,10 @@ COLUMNS: tuple[str, ...] = (
     "notes",
     "job_id",
 )
+# Header row written in a new tab ("created" first, as google_sheets fills it in).
+HEADER: tuple[str, ...] = ("created", *COLUMNS)
+NEW_TAB_ROWS = 1000
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/{}"
 
 
 def _local(value: Any, tz: tzinfo) -> str:
@@ -174,3 +187,170 @@ class SheetsLog:
             title=f"{self._printer}: Google Sheets",
             notification_id=self._notification_id,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Setting up: one button in the panel
+# --------------------------------------------------------------------------- #
+def spreadsheet_url(entry: ConfigEntry) -> str:
+    """Link to the spreadsheet of a ``google_sheets`` entry (its unique ID is the spreadsheet ID)."""
+    return SPREADSHEET_URL.format(entry.unique_id)
+
+
+def printer_entries(hass: HomeAssistant) -> list[ConfigEntry]:
+    """The printers of this integration (not the sidebar page entry)."""
+    return [e for e in hass.config_entries.async_entries(DOMAIN) if not e.data.get(CONF_PANEL)]
+
+
+def _printer_conf(entry: ConfigEntry) -> dict[str, Any]:
+    return {**entry.data, **entry.options}
+
+
+def sheets_status(hass: HomeAssistant) -> dict[str, Any]:
+    """The Google Sheets entries that can be chosen, and where each printer logs now."""
+    entries = [
+        {
+            "entry_id": e.entry_id,
+            "title": e.title,
+            "loaded": e.state is ConfigEntryState.LOADED,
+            "url": spreadsheet_url(e),
+        }
+        for e in hass.config_entries.async_entries(SHEETS_DOMAIN)
+    ]
+    printers = []
+    for entry in printer_entries(hass):
+        conf = _printer_conf(entry)
+        chosen = conf.get(CONF_SHEETS_ENTRY) or None
+        worksheet = (conf.get(CONF_SHEETS_WORKSHEET) or "").strip() or DEFAULT_SHEETS_WORKSHEET
+        printers.append(
+            {
+                "entry_id": entry.entry_id,
+                "title": entry.title,
+                "sheets_entry": chosen,
+                "worksheet": worksheet if chosen else None,
+            }
+        )
+    return {"entries": entries, "printers": printers}
+
+
+def prepare_worksheet(access_token: str, spreadsheet_id: str, title: str) -> dict[str, Any]:
+    """Open the spreadsheet; add the tab (with its header row) if it is missing. Runs in the executor.
+
+    gspread and google-auth are installed with Home Assistant's ``google_sheets``
+    integration, so they are imported only here, once that integration is set up.
+    """
+    from google.oauth2.credentials import Credentials  # noqa: PLC0415
+    from gspread import Client  # noqa: PLC0415
+    from gspread.exceptions import WorksheetNotFound  # noqa: PLC0415
+
+    sheet = Client(Credentials(access_token)).open_by_key(spreadsheet_id)
+    created = False
+    try:
+        worksheet = sheet.worksheet(title)
+    except WorksheetNotFound:
+        worksheet = sheet.add_worksheet(title=title, rows=NEW_TAB_ROWS, cols=len(HEADER))
+        created = True
+    header = False
+    if created or not worksheet.row_values(1):
+        worksheet.append_row(list(HEADER), value_input_option="RAW")
+        header = True
+        with contextlib.suppress(Exception):  # only cosmetic: keep the header row in view
+            worksheet.freeze(rows=1)
+    return {"spreadsheet_title": sheet.title, "created": created, "header": header, "gid": worksheet.id}
+
+
+def _sheets_entry(hass: HomeAssistant, entry_id: str | None) -> ConfigEntry:
+    entries = hass.config_entries.async_entries(SHEETS_DOMAIN)
+    if not entries:
+        raise ServiceValidationError(
+            "Google Sheets is not set up in Home Assistant. Add the Google Sheets integration first "
+            "(it creates the spreadsheet), then try again."
+        )
+    if not entry_id:
+        return entries[0]
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.domain != SHEETS_DOMAIN:
+        raise ServiceValidationError(f"{entry_id} is not a Google Sheets integration entry")
+    return entry
+
+
+def _targets(hass: HomeAssistant, printer_ids: list[str] | None) -> list[ConfigEntry]:
+    printers = printer_entries(hass)
+    if printer_ids:
+        printers = [e for e in printers if e.entry_id in printer_ids]
+        if missing := set(printer_ids) - {e.entry_id for e in printers}:
+            raise ServiceValidationError(f"Not a printer of {DOMAIN}: {', '.join(sorted(missing))}")
+    if not printers:
+        raise ServiceValidationError("There is no printer to log yet. Add a printer first.")
+    return printers
+
+
+async def async_setup_log(
+    hass: HomeAssistant,
+    sheets_entry_id: str | None = None,
+    worksheet: str | None = None,
+    printer_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Log the printers (all of them, or ``printer_ids``) to a tab of a Google Sheets entry.
+
+    Creates the tab when it is missing, then sets the entry and the tab in each
+    printer's options, keeping every other option. Returns where the rows go.
+    """
+    entry = _sheets_entry(hass, sheets_entry_id)
+    title = (worksheet or "").strip() or DEFAULT_SHEETS_WORKSHEET
+    targets = _targets(hass, printer_ids)
+    if entry.state is not ConfigEntryState.LOADED:
+        raise ServiceValidationError(
+            f"The Google Sheets entry '{entry.title}' is not working ({entry.state.value}). "
+            "Open Settings, Devices and services, Google Sheets, and sign in with Google again."
+        )
+    try:
+        await entry.runtime_data.async_ensure_token_valid()
+        token = entry.data[CONF_TOKEN][CONF_ACCESS_TOKEN]
+        found = await hass.async_add_executor_job(prepare_worksheet, token, entry.unique_id, title)
+    except Exception as err:  # gspread / Google errors: say what failed, change nothing
+        if type(err).__name__ == "RefreshError":
+            entry.async_start_reauth(hass)
+        raise HomeAssistantError(
+            f"Cannot open the spreadsheet of '{entry.title}' or add the tab '{title}': {err or type(err).__name__}"
+        ) from err
+
+    changed = []
+    for printer in targets:
+        options = {**printer.options, CONF_SHEETS_ENTRY: entry.entry_id, CONF_SHEETS_WORKSHEET: title}
+        if options != dict(printer.options):
+            hass.config_entries.async_update_entry(printer, options=options)
+            changed.append(printer.title)
+    url = spreadsheet_url(entry)
+    _LOGGER.info(
+        "Google Sheets: %s log to '%s' > %s%s",
+        ", ".join(p.title for p in targets),
+        entry.title,
+        title,
+        " (tab created)" if found["created"] else "",
+    )
+    return {
+        "config_entry": entry.entry_id,
+        "title": entry.title,
+        "spreadsheet_title": found["spreadsheet_title"],
+        "worksheet": title,
+        "created": found["created"],
+        "header": found["header"],
+        "url": url,
+        "worksheet_url": f"{url}/edit#gid={found['gid']}",
+        "printers": [p.title for p in targets],
+        "changed": changed,
+    }
+
+
+async def async_stop_log(hass: HomeAssistant, printer_ids: list[str] | None = None) -> list[str]:
+    """Stop logging to Google Sheets (all printers, or ``printer_ids``); the tab name is kept."""
+    stopped = []
+    for printer in printer_entries(hass):
+        if printer_ids and printer.entry_id not in printer_ids:
+            continue
+        if not _printer_conf(printer).get(CONF_SHEETS_ENTRY):
+            continue
+        hass.config_entries.async_update_entry(printer, options={**printer.options, CONF_SHEETS_ENTRY: None})
+        stopped.append(printer.title)
+    return stopped
