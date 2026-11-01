@@ -130,3 +130,47 @@ async def test_unreachable_printer_keeps_the_print_open(
     await poll(hass, freezer, 5, 10100)
     assert len(events) == 1
     assert events[0].data["result"] == "failed"
+
+
+async def test_new_printer_gets_its_own_counters(hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer) -> None:
+    """A new user: plug with an energy meter and a typed price, no price entity."""
+    freezer.move_to("2026-10-28 22:00:00+00:00")  # 22:00 in Lisbon (UTC+0 after the clock change)
+    hass.states.async_set(ENERGY, "10000", {"unit_of_measurement": "Wh"})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Ender 6",
+        unique_id="klipper_192.168.1.89_7125",
+        data={
+            "printer_type": "klipper",
+            "printer_name": "Ender 6",
+            "host": "192.168.1.89",
+            "port": 7125,
+            "switch_entity": "switch.escritorio_tomada_ender6",
+            "energy_entity": ENERGY,
+            "price_per_kwh": 0.2,
+            "integration_method": "left",
+        },
+    )
+    entry.add_to_hass(hass)
+    await hass.config.async_set_time_zone("Europe/Lisbon")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    await poll(hass, freezer, 60, 10500)  # +0.5 kWh before midnight (23:00)
+    assert float(hass.states.get("sensor.ender_6_energy_total").state) == pytest.approx(0.5)
+    assert float(hass.states.get("sensor.ender_6_cost_total").state) == pytest.approx(0.1)
+    assert float(hass.states.get("sensor.ender_6_energy_today").state) == pytest.approx(0.5)
+
+    await poll(hass, freezer, 90, 11000)  # 00:30 next day: today restarts, total keeps going
+    await poll(hass, freezer, 30, 11250)
+    assert float(hass.states.get("sensor.ender_6_energy_total").state) == pytest.approx(1.25)
+    assert float(hass.states.get("sensor.ender_6_energy_today").state) == pytest.approx(0.25)
+    assert float(hass.states.get("sensor.ender_6_cost_today").state) == pytest.approx(0.05)
+    total = hass.states.get("sensor.ender_6_energy_total")
+    assert total.attributes["state_class"] == "total_increasing"
+
+    # Counters survive a restart.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await poll(hass, freezer, 10, 11350)
+    assert float(hass.states.get("sensor.ender_6_energy_total").state) == pytest.approx(1.35)

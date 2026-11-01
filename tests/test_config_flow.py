@@ -10,7 +10,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fdm_printer_manager.const import (
     CONF_ENERGY_ENTITY,
-    CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
     CONF_POWER_ENTITY,
     CONF_PRICE_ENTITY,
@@ -21,6 +20,8 @@ from custom_components.fdm_printer_manager.const import (
 )
 
 from .helpers import BAMBU_SENSORS, SERIAL, register_bambu_printer
+
+pytestmark = pytest.mark.usefixtures("panel_entry")
 
 
 @pytest.fixture
@@ -40,7 +41,6 @@ ELEC = {
     CONF_POWER_ENTITY: "sensor.x2d_power",
     CONF_ENERGY_ENTITY: "sensor.x2d_energy",
     CONF_PRICE_ENTITY: "sensor.prix_electricite_octopus",
-    CONF_INTEGRATION_METHOD: "left",
 }
 
 
@@ -53,7 +53,7 @@ def set_electric_states(hass: HomeAssistant, price_unit: str = "EUR/kWh") -> Non
 async def _start_bambu(hass: HomeAssistant):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     assert result["type"] is FlowResultType.MENU
-    assert result["menu_options"] == ["klipper", "bambu_device"]
+    assert result["menu_options"] == ["klipper", "bambu_lan", "bambu_device"]
     return await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "bambu_device"})
 
 
@@ -93,17 +93,15 @@ async def test_price_required_with_a_meter(hass: HomeAssistant) -> None:
     set_electric_states(hass)
     _, result = await _go_to_electricity(hass)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_ENERGY_ENTITY: "sensor.x2d_energy", CONF_INTEGRATION_METHOD: "left"}
+        result["flow_id"], {CONF_ENERGY_ENTITY: "sensor.x2d_energy"}
     )
-    assert result["errors"] == {CONF_PRICE_ENTITY: "price_required"}
+    assert result["errors"] == {"price_per_kwh": "price_required"}
 
 
 async def test_plug_without_meter_is_accepted(hass: HomeAssistant) -> None:
     hass.states.async_set("switch.x2d_plug", "on")
     _, result = await _go_to_electricity(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"switch_entity": "switch.x2d_plug", CONF_INTEGRATION_METHOD: "left"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"switch_entity": "switch.x2d_plug"})
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
@@ -150,7 +148,6 @@ async def test_options_flow_changes_price_and_clears_energy(hass: HomeAssistant,
         {
             CONF_POWER_ENTITY: "sensor.x2d_power",
             CONF_PRICE_ENTITY: "sensor.tempo_price",
-            CONF_INTEGRATION_METHOD: "trapezoidal",
         },
     )
     assert result["step_id"] == "behaviour"
@@ -161,5 +158,4 @@ async def test_options_flow_changes_price_and_clears_energy(hass: HomeAssistant,
     merged = {**entry.data, **entry.options}
     assert merged[CONF_PRICE_ENTITY] == "sensor.tempo_price"
     assert merged[CONF_ENERGY_ENTITY] is None  # cleared field really cleared
-    assert merged[CONF_INTEGRATION_METHOD] == "trapezoidal"
     assert merged["currency"] == "EUR"

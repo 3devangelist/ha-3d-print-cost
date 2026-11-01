@@ -38,6 +38,12 @@ class ElectricitySources:
     power_entity: str | None
     energy_entity: str | None
     price_entity: str | None
+    price_fixed: float | None = None
+
+    @property
+    def measures_energy(self) -> bool:
+        """A power sensor or an energy meter is configured."""
+        return bool(self.power_entity or self.energy_entity)
 
 
 class ElectricityReader:
@@ -95,9 +101,11 @@ class ElectricityReader:
             return None
 
     def price_per_kwh(self):
-        """Current price in <currency>/kWh (Decimal)."""
+        """Current price in <currency>/kWh (Decimal): the price entity, else the typed price."""
         state = self._state(self.sources.price_entity)
         if state is None:
+            if not self.sources.price_entity and self.sources.price_fixed is not None:
+                return to_decimal(str(self.sources.price_fixed))
             return None
         value = to_decimal(state.state)
         if value is None:

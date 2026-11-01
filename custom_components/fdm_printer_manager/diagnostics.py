@@ -8,10 +8,10 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
-from .const import CONF_API_KEY, DOMAIN
+from .const import CONF_ACCESS_CODE, CONF_API_KEY, DOMAIN
 from .coordinator import PrintCostConfigEntry
 
-TO_REDACT = {CONF_API_KEY}
+TO_REDACT = {CONF_API_KEY, CONF_ACCESS_CODE}
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: PrintCostConfigEntry) -> dict[str, Any]:
@@ -36,8 +36,12 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: PrintCo
         },
         "printer": {
             "type": str(coordinator.printer_type),
-            "reachable": coordinator.klipper.available if coordinator.klipper else None,
-            "last_reading": str(coordinator.klipper.reading) if coordinator.klipper else None,
+            "reachable": (coordinator.klipper or coordinator.bambu_lan).available
+            if (coordinator.klipper or coordinator.bambu_lan)
+            else None,
+            "last_reading": str((coordinator.klipper or coordinator.bambu_lan).reading)
+            if (coordinator.klipper or coordinator.bambu_lan)
+            else None,
         },
         "active_job": active.as_dict() if active else None,
         "finalizing_jobs": [j.as_dict() for j in coordinator.state.finalizing],

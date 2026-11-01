@@ -6,6 +6,7 @@
         "description": "What kind of printer is it?",
         "menu_options": {
           "klipper": "Klipper (Moonraker)",
+          "bambu_lan": "Bambu Lab (local network)",
           "bambu_device": "Bambu Lab (through the Bambu Lab integration)"
         }
       },
@@ -13,18 +14,18 @@
         "title": "Smart plug",
         "description": "The plug the printer is connected to. A plug without energy metering works too: there is just no consumption or cost.",
         "data": {
-          "switch_entity": "Plug",
-          "power_entity": "Power sensor (W)",
-          "energy_entity": "Energy meter (Wh / kWh)",
-          "price_entity": "Electricity price",
-          "integration_method": "Power integration method"
+          "switch_entity": "Smart plug",
+          "power_entity": "Power sensor (found from the plug)",
+          "energy_entity": "Energy meter (found from the plug)",
+          "price_entity": "Price entity (instead of a fixed price)",
+          "price_per_kwh": "Price per kWh"
         },
         "data_description": {
           "switch_entity": "The switch that powers the printer.",
           "power_entity": "Optional.",
           "energy_entity": "Optional. Recommended: a cumulative meter is exact, even across restarts.",
-          "price_entity": "Needed when a power sensor or energy meter is set. Any entity in EUR/kWh, c€/kWh or EUR/MWh; it may change during a print.",
-          "integration_method": "Only used when no energy meter is available."
+          "price_entity": "Optional: a sensor or input_number whose price may change (tariffs). Used instead of the fixed price.",
+          "price_per_kwh": "What you pay per kWh, e.g. 0.16. Needed for the cost."
         }
       },
       "klipper": {
@@ -65,18 +66,42 @@
         "data": {
           "api_key": "API key"
         }
+      },
+      "zeroconf_confirm": {
+        "title": "Klipper printer found",
+        "description": "Add **{name}** ({host})? Next you pick the smart plug it is connected to."
+      },
+      "bambu_lan": {
+        "title": "Bambu Lab printer (LAN)",
+        "description": "Everything is on the printer's screen: Settings → WLAN / Network (IP address and access code) and Settings → Device (serial number). If the printer refuses the connection, turn on LAN mode on the printer (on recent firmware also Developer mode).",
+        "data": {
+          "printer_name": "Name",
+          "host": "IP address",
+          "printer_serial": "Serial number",
+          "access_code": "Access code"
+        },
+        "data_description": {
+          "printer_name": "Leave empty to use the printer's own name.",
+          "host": "e.g. 192.168.1.90",
+          "access_code": "8 characters, shown on the printer's screen."
+        }
       }
     },
     "error": {
       "unsupported_power_unit": "Unsupported unit (expected W or kW).",
       "unsupported_energy_unit": "Unsupported unit (expected Wh, kWh or MWh).",
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
-      "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
-      "invalid_auth": "API key refused.",
-      "price_required": "Select the electricity price: a power sensor or energy meter is set."
+      "cannot_connect": "Cannot connect. Check the IP address and that the printer is on.",
+      "invalid_auth": "Refused: check the access code (Bambu Lab) or the API key (Klipper).",
+      "price_required": "Type the price per kWh (or pick a price entity): the plug measures energy."
     },
     "abort": {
-      "already_configured": "This printer is already configured."
+      "already_configured": "This printer is already configured.",
+      "already_in_progress": "This printer is already being added."
+    },
+    "flow_title": "{name}",
+    "create_entry": {
+      "panel": "Done. Open **FDM Printers** in the sidebar to add your printers (refresh the page if it does not show up yet)."
     }
   },
   "options": {
@@ -99,18 +124,18 @@
         "title": "Smart plug",
         "description": "The plug the printer is connected to. A plug without energy metering works too: there is just no consumption or cost.",
         "data": {
-          "switch_entity": "Plug",
-          "power_entity": "Power sensor (W)",
-          "energy_entity": "Energy meter (Wh / kWh)",
-          "price_entity": "Electricity price",
-          "integration_method": "Power integration method"
+          "switch_entity": "Smart plug",
+          "power_entity": "Power sensor (found from the plug)",
+          "energy_entity": "Energy meter (found from the plug)",
+          "price_entity": "Price entity (instead of a fixed price)",
+          "price_per_kwh": "Price per kWh"
         },
         "data_description": {
           "switch_entity": "The switch that powers the printer.",
           "power_entity": "Optional.",
           "energy_entity": "Optional. Recommended: a cumulative meter is exact, even across restarts.",
-          "price_entity": "Needed when a power sensor or energy meter is set. Any entity in EUR/kWh, c€/kWh or EUR/MWh; it may change during a print.",
-          "integration_method": "Only used when no energy meter is available."
+          "price_entity": "Optional: a sensor or input_number whose price may change (tariffs). Used instead of the fixed price.",
+          "price_per_kwh": "What you pay per kWh, e.g. 0.16. Needed for the cost."
         }
       },
       "behaviour": {
@@ -137,15 +162,29 @@
           "api_key": "Only if Moonraker requires one (trusted_clients not set for Home Assistant).",
           "web_url": "Mainsail or Fluidd. Leave empty for http://<IP>/. Opens with \"Visit\" on the device page."
         }
+      },
+      "bambu_lan": {
+        "title": "Bambu Lab printer (LAN)",
+        "description": "Change the connection. The printer keeps its history and entities.",
+        "data": {
+          "printer_name": "Name",
+          "host": "IP address",
+          "access_code": "Access code"
+        },
+        "data_description": {
+          "printer_name": "Leave empty to use the printer's own name.",
+          "host": "e.g. 192.168.1.90",
+          "access_code": "8 characters, shown on the printer's screen."
+        }
       }
     },
     "error": {
       "unsupported_power_unit": "Unsupported unit (expected W or kW).",
       "unsupported_energy_unit": "Unsupported unit (expected Wh, kWh or MWh).",
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
-      "cannot_connect": "Cannot connect. Check the IP address and port, and that the printer is on.",
-      "invalid_auth": "API key refused.",
-      "price_required": "Select the electricity price: a power sensor or energy meter is set."
+      "cannot_connect": "Cannot connect. Check the IP address and that the printer is on.",
+      "invalid_auth": "Refused: check the access code (Bambu Lab) or the API key (Klipper).",
+      "price_required": "Type the price per kWh (or pick a price entity): the plug measures energy."
     }
   },
   "selector": {
@@ -158,6 +197,21 @@
   },
   "entity": {
     "sensor": {
+      "printer_status": {
+        "name": "Printer state"
+      },
+      "print_progress": {
+        "name": "Print progress"
+      },
+      "print_file": {
+        "name": "Print file"
+      },
+      "print_time_left": {
+        "name": "Print time left"
+      },
+      "nozzle_temperature": {
+        "name": "Nozzle temperature"
+      },
       "current_print_cost": {
         "name": "Current print cost"
       },
@@ -198,6 +252,18 @@
           "failed": "Failed",
           "unknown": "Unknown"
         }
+      },
+      "energy_total": {
+        "name": "Energy total"
+      },
+      "cost_total": {
+        "name": "Cost total"
+      },
+      "energy_today": {
+        "name": "Energy today"
+      },
+      "cost_today": {
+        "name": "Cost today"
       }
     },
     "event": {
@@ -220,6 +286,20 @@
     "switch": {
       "show_last_print": {
         "name": "Show last print"
+      },
+      "safe_power": {
+        "name": "Safe power"
+      }
+    },
+    "button": {
+      "pause_print": {
+        "name": "Pause print"
+      },
+      "resume_print": {
+        "name": "Resume print"
+      },
+      "cancel_print": {
+        "name": "Cancel print"
       }
     }
   }

@@ -24,7 +24,8 @@ class PrinterType(StrEnum):
     """How the integration talks to the printer."""
 
     KLIPPER = "klipper"  # Moonraker HTTP API, direct
-    BAMBU = "bambu"  # through the ha-bambulab integration (direct LAN mode planned)
+    BAMBU = "bambu"  # through the ha-bambulab integration
+    BAMBU_LAN = "bambu_lan"  # Bambu Lab printer over the local network (MQTT), direct
 
 
 # Direct connection (Klipper today; OctoPrint and Bambu LAN later)
@@ -32,8 +33,28 @@ CONF_HOST: Final = "host"
 CONF_PORT: Final = "port"
 CONF_API_KEY: Final = "api_key"
 CONF_WEB_URL: Final = "web_url"
+CONF_ACCESS_CODE: Final = "access_code"  # Bambu LAN
 
 KLIPPER_POLL_INTERVAL: Final = 5  # seconds
+
+# The "FDM Printers" sidebar panel. A special entry (``panel: True``) makes it
+# available before any printer is added; every printer entry also shows it.
+CONF_PANEL: Final = "panel"
+PANEL_URL_PATH: Final = "fdm-printers"
+PANEL_TITLE: Final = "FDM Printers"
+PANEL_ICON: Final = "mdi:printer-3d-nozzle"
+PANEL_ELEMENT: Final = "fdm-printer-panel"
+STATIC_URL: Final = "/fdm_printer_manager_static"
+
+# Safe power: how long to wait for the printer's computer to shut down before cutting the plug.
+SAFE_POWER_WAIT: Final = 180  # seconds
+SAFE_POWER_POLL: Final = 5  # seconds between "is it down yet?" checks
+
+# Print history kept per printer (newest first).
+HISTORY_LIMIT: Final = 500
+
+ACTIVE_STATES: Final = ("printing", "paused", "running", "pause", "prepare", "slicing")
+PAUSED_STATES: Final = ("paused", "pause")
 
 CONF_PRINTER_DEVICE_ID: Final = "printer_device_id"
 CONF_PRINTER_NAME: Final = "printer_name"
@@ -60,6 +81,7 @@ CONF_SWITCH_ENTITY: Final = "switch_entity"
 CONF_POWER_ENTITY: Final = "power_entity"
 CONF_ENERGY_ENTITY: Final = "energy_entity"
 CONF_PRICE_ENTITY: Final = "price_entity"
+CONF_PRICE_FIXED: Final = "price_per_kwh"  # typed price, used when no price entity is chosen
 CONF_INTEGRATION_METHOD: Final = "integration_method"
 
 # Behaviour

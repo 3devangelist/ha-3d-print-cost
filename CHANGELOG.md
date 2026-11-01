@@ -3,6 +3,69 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — first numbered release
+
+First release published on GitHub, so HACS shows a real version number.
+It contains everything from the 0.3.0 development versions below:
+
+- **FDM Printer Manager**: new name, English only, energy and electricity cost only (no filament).
+- **FDM Printers page** in the Home Assistant sidebar: printer cards, Add printer / Edit,
+  Printing now, Recent prints, Found on the network. The first "Add integration" creates it.
+- **Klipper direct** (Moonraker, just the IP address) with network discovery.
+- **Bambu Lab direct over LAN** (IP, serial, access code) with network discovery;
+  Bambu through the Bambu Lab integration is still available.
+- Per printer: **safe power** switch, **Pause / Resume / Cancel** buttons, energy and cost
+  counters (total and today), print history, typed price per kWh.
+
+From now on versions are numbered 0.x.y and published as GitHub releases.
+
+## [0.3.0-alpha.4]
+
+- **Bambu Lab direct (LAN)**: a new printer type that talks to the printer itself
+  (IP address, serial number and access code; MQTT over TLS on port 8883). No other
+  integration needed. State, file, progress, time left, nozzle, Pause / Resume / Cancel.
+  The printer must have LAN only mode on (and Developer mode on recent firmware).
+- **Found on the network**: Klipper printers announced by Moonraker (zeroconf) and Bambu
+  Lab printers announcing themselves on the LAN (SSDP) appear in Home Assistant's
+  *Discovered* card and in the FDM Printers page. A Bambu printer only needs its access
+  code; a Klipper printer only a click.
+- The first **Add integration** creates the FDM Printers page directly (no menu); the
+  next ones ask for the printer type.
+- "Bambu Lab (via Bambu Lab integration)" stays available for ha-bambulab users.
+- Diagnostics redact the access code.
+
+## [0.3.0-alpha.3]
+
+- **Safe power** switch per printer (`switch.<printer>_safe_power`), for any dashboard:
+  never turns off while printing or paused; Klipper shuts its computer down first and
+  the plug is cut once it is down (at most 3 minutes).
+- **Pause / Resume / Cancel** buttons per printer (Klipper via Moonraker, Bambu via the
+  Bambu Lab integration's buttons), available only when they apply.
+- **The printer's own counters**, created automatically when the plug measures energy:
+  energy total, cost total, energy today, cost today (Energy dashboard ready).
+- **Price per kWh typed in** when adding a printer (no price entity needed); a price
+  entity for changing tariffs is still possible under Advanced.
+- **Print history** of every finished print (last 500 per printer), shown in the panel.
+- The power integration method is no longer asked: the plug's energy meter is used when
+  there is one, otherwise power is integrated automatically.
+- Panel: one Add printer button, idle cards show today's energy / cost and the total
+  cost, Pause / Resume / Cancel with confirmation, plug toggle with confirmation and
+  shutdown progress, "Printing now" and "Recent prints" lists, searchable lists (any
+  words, accents ignored) for plug, sensors and price, mouse wheel never changes a value.
+
+## [0.3.0-alpha.2] — FDM Printers panel (alpha)
+
+- New **FDM Printers** page in the Home Assistant sidebar (admins only): a card per
+  printer (state, file, progress, time left, nozzle, energy, cost, plug, link to the
+  web interface) and an **Add printer** / **Edit** wizard in the app's own layout.
+  The wizard drives the integration's normal config and options flows.
+- "Add integration" offers "Only add the FDM Printers panel to the sidebar", so the
+  page exists before the first printer.
+- The plug step in the panel finds the plug's power and energy sensors on its device
+  and reuses the electricity price of the other printers.
+- New sensors: printer state (with the panel's settings as attributes), print
+  progress, print file, print time left, nozzle temperature.
+
 ## [0.3.0-alpha.1] — FDM Printer Manager (alpha)
 
 - Renamed to **FDM Printer Manager** (domain `fdm_printer_manager`), maintained by @3devangelist.
