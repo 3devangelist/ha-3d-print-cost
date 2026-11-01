@@ -21,6 +21,9 @@ from .test_auto_off import CENTAURI_SHUTDOWN_500
 def test_cosmos_is_recognised() -> None:
     assert needs_cosmos_login("cosmos", None)
     assert needs_cosmos_login("COSMOS ", None)
+    assert needs_cosmos_login("centauri-carbon-1", None)  # COSMOS 26.10 and later
+    assert needs_cosmos_login("centauri-carbon-2.local", None)
+    assert not needs_cosmos_login("centauri-carbon", None)
     assert needs_cosmos_login(None, CENTAURI_SHUTDOWN_500)
     assert not needs_cosmos_login("Ender6", "HTTP 404 from http://x/machine/shutdown")
     assert not needs_cosmos_login(None, None)

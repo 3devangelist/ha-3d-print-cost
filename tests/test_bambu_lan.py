@@ -14,10 +14,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fdm_printer_manager.adapters.bambu_lan import (
     BambuAuthError,
+    BambuCommandRefused,
     BambuConnectionError,
     BambuLanClient,
     BambuStatus,
     command,
+    command_reply,
     packet_connect,
     packet_publish,
     packet_subscribe,
@@ -104,7 +106,9 @@ async def _read(reader):
     return first, await reader.readexactly(length)
 
 
-async def _broker(code: str, reports: list[dict], received: list):
+async def _broker(code: str, reports: list[dict], received: list, answer: str | None = None):
+    """``answer``: reply to every command with this ``result`` ("success" / "fail")."""
+
     async def handle(reader, writer):
         first, body = await _read(reader)
         pw_len = struct.unpack("!H", body[-len(code) - 2 : -len(code)])[0] if len(body) > len(code) + 2 else 0
@@ -123,6 +127,14 @@ async def _broker(code: str, reports: list[dict], received: list):
                     if b"pushall" in payload:
                         for rep in reports:
                             writer.write(packet_publish(f"device/{SERIAL}/report", json.dumps({"print": rep}).encode()))
+                        await writer.drain()
+                    elif answer is not None:
+                        request = json.loads(payload)
+                        key = next(iter(request))
+                        reply = {**request[key], "result": answer}
+                        if answer == "fail":
+                            reply["reason"] = "mqtt message verify failed"
+                        writer.write(packet_publish(f"device/{SERIAL}/report", json.dumps({key: reply}).encode()))
                         await writer.drain()
         except (TimeoutError, asyncio.IncompleteReadError):
             writer.close()
@@ -160,6 +172,74 @@ async def test_client_against_fake_broker() -> None:
         bad = BambuLanClient("127.0.0.1", SERIAL, "wrong", lambda: None, port=port, use_tls=False)
         with pytest.raises(BambuAuthError):
             await bad.async_test(timeout=3)
+
+
+def test_command_reply() -> None:
+    assert command_reply({"print": {"command": "pause", "result": "fail", "reason": "x"}}) == (
+        "pause",
+        {"command": "pause", "result": "fail", "reason": "x"},
+    )
+    assert command_reply({"system": {"command": "ledctrl", "result": "success"}})[0] == "ledctrl"
+    assert command_reply({"print": {"command": "push_status", "gcode_state": "IDLE"}}) is None  # a status report
+    assert command_reply("nope") is None
+
+
+async def _live_client(port: int) -> BambuLanClient:
+    client = BambuLanClient("127.0.0.1", SERIAL, "12345678", lambda: None, port=port, use_tls=False)
+    client.start(lambda coro: asyncio.get_running_loop().create_task(coro))
+    for _ in range(50):
+        if client.available:
+            break
+        await asyncio.sleep(0.05)
+    assert client.available
+    return client
+
+
+@pytest.mark.usefixtures("socket_enabled")
+async def test_command_refused_without_developer_mode() -> None:
+    """LAN Only without Developer Mode: the printer answers commands with result fail."""
+    server, port = await _broker("12345678", [{"gcode_state": "RUNNING"}], [], answer="fail")
+    async with server:
+        client = await _live_client(port)
+        with pytest.raises(BambuCommandRefused, match="verify failed"):
+            await client.async_command("pause")
+        with pytest.raises(BambuCommandRefused):
+            await client.async_light(True)
+        await client.stop()
+
+
+@pytest.mark.usefixtures("socket_enabled")
+async def test_command_accepted() -> None:
+    server, port = await _broker("12345678", [{"gcode_state": "RUNNING"}], [], answer="success")
+    async with server:
+        client = await _live_client(port)
+        await client.async_command("resume")  # no error
+        await client.async_light(False)
+        await client.stop()
+
+
+async def test_refused_command_is_a_notice_not_an_error() -> None:
+    """The coordinator turns a refusal into a "requires Developer Mode" notice and does not raise."""
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from custom_components.fdm_printer_manager.coordinator import PrintCostCoordinator  # noqa: PLC0415
+
+    fake = SimpleNamespace(printer_name="A1 mini", hass=object(), config_entry=SimpleNamespace(entry_id="e1"))
+
+    async def refused() -> None:
+        raise BambuCommandRefused("mqtt message verify failed")
+
+    with patch("custom_components.fdm_printer_manager.coordinator.persistent_notification.async_create") as notify:
+        await PrintCostCoordinator._async_bambu_lan_send(fake, "pause", refused())
+    assert "requires Developer Mode" in notify.call_args.args[1]
+
+    async def offline() -> None:
+        raise BambuConnectionError("printer not connected")
+
+    from homeassistant.exceptions import HomeAssistantError  # noqa: PLC0415
+
+    with pytest.raises(HomeAssistantError):
+        await PrintCostCoordinator._async_bambu_lan_send(fake, "pause", offline())
 
 
 @pytest.mark.usefixtures("socket_enabled")

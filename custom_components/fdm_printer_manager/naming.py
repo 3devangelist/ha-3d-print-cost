@@ -10,10 +10,28 @@ Pure logic, no Home Assistant import.
 
 from __future__ import annotations
 
+import re
+
 # Hostname → the printer it means. Lower case.
 KNOWN_HOSTNAMES: dict[str, str] = {
     "cosmos": "Elegoo Centauri Carbon",
 }
+# Hostname patterns → the printer they mean. COSMOS 26.10 and later name the host
+# "centauri-carbon-1" (and "centauri-carbon-2"...) instead of "cosmos".
+KNOWN_HOSTNAME_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"centauri-carbon-\d+"), "Elegoo Centauri Carbon"),
+)
+
+
+def _known(key: str) -> str | None:
+    """The printer a (lower-case) hostname means, if it is a known shared one."""
+    if key in KNOWN_HOSTNAMES:
+        return KNOWN_HOSTNAMES[key]
+    for pattern, printer in KNOWN_HOSTNAME_PATTERNS:
+        if pattern.fullmatch(key):
+            return printer
+    return None
+
 
 # Hostnames of images, boards and printer firmwares, not of one printer.
 GENERIC_HOSTNAMES: frozenset[str] = frozenset(
@@ -62,15 +80,15 @@ BAMBU_CODE_MODELS: dict[str, str] = {
 def is_generic(name: str | None) -> bool:
     """A name that says nothing about the printer (empty, a shared hostname)."""
     key = (name or "").strip().lower().removesuffix(".local")
-    return not key or key in GENERIC_HOSTNAMES or key in KNOWN_HOSTNAMES
+    return not key or key in GENERIC_HOSTNAMES or _known(key) is not None
 
 
 def friendly_name(name: str | None, host: str) -> str:
     """The name to show: a known hostname becomes the printer model, a generic one "Klipper <IP>"."""
     value = (name or "").strip()
     key = value.lower().removesuffix(".local")
-    if key in KNOWN_HOSTNAMES:
-        return KNOWN_HOSTNAMES[key]
+    if (printer := _known(key)) is not None:
+        return printer
     if not value or key in GENERIC_HOSTNAMES:
         return f"Klipper {host}"
     return value

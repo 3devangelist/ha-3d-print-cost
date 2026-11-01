@@ -1,4 +1,4 @@
-# Connect a Bambu Lab printer over LAN (LAN Only + Developer Mode)
+# Connect a Bambu Lab printer over LAN (LAN Only)
 
 **English** | [Português](bambu-lan-only.pt.md)
 
@@ -8,10 +8,11 @@
 ## In short
 
 1. Turn on **LAN Only** on the printer screen.
-2. Turn on **Developer Mode** on the same page.
-3. Take a photo of that page (no flash).
-4. In Home Assistant: **FDM Printers → Add printer → Bambu Lab (LAN) → 🖼️ Choose photo**.
-5. Check the three values and finish.
+2. Take a photo of that page (no flash).
+3. In Home Assistant: **FDM Printers → Add printer → Bambu Lab (LAN) → 🖼️ Choose photo**.
+4. Check the three values and finish.
+
+**Developer Mode is optional.** You only need it to send commands (pause, chamber light). See [Step 2](#step-2--developer-mode-optional).
 
 ## Why you need this
 
@@ -20,11 +21,20 @@ It does not use the Bambu cloud.
 
 | Mode | What it does | Needed? |
 |---|---|---|
-| **LAN Only** | The printer stops using the cloud and talks only on your network | Yes |
-| **Developer Mode** | Opens local control (MQTT), the camera and file transfer to other software | Yes, on current firmware |
+| **LAN Only** | The printer stops using the cloud and talks only on your network | **Yes** |
+| **Developer Mode** | Lets other software **send commands** (G-code, pause, lights…) | **No — optional** |
 
-Since the January 2025 firmware, plain LAN mode only accepts commands through Bambu Connect.
-Without **Developer Mode**, Home Assistant can't read the status or control the printer.
+What works with **LAN Only alone** (tested on an A1 mini):
+
+| Works | Needs Developer Mode |
+|---|---|
+| Status, progress, file name | Pause, resume, stop from Home Assistant |
+| Nozzle temperature | Chamber light button |
+| Safe power: wait below 80 °C, then cut the plug | Any other command sent to the printer |
+| Print history and cost in FDM | |
+
+Since the January 2025 firmware, commands from other software need **Developer Mode**.
+Without it, FDM shows a clear notice — "requires Developer Mode" — and nothing breaks.
 
 ## What you need from the printer
 
@@ -54,7 +64,18 @@ On the X1 and H2 series you can also turn on **LAN mode liveview** (the camera o
 
 <!-- screenshot: A1 mini, LAN Only page with the switch on, IP and access code -->
 
-## Step 2 — Turn on Developer Mode
+## Step 2 — Developer Mode (optional)
+
+**Skip this step** if you only want status, temperatures and safe power.
+
+Turn it on only if you want FDM to **send commands** (pause, resume, stop, chamber light).
+It gives other software full control of the printer.
+
+Before you turn it on:
+
+- The printer shows a **risk notice**.
+- Bambu Lab can **refuse support** for problems caused by third-party software.
+- It is **reversible**: turn it off on the same page.
 
 | Printer | How |
 |---|---|
@@ -157,7 +178,8 @@ These ports come from Bambu Lab's official port list.
 | **Two integrations, discovery fails** | FDM and ha-bambulab listen on the same discovery port. Only discovery is affected; the direct connection works. |
 | **Bambu Handy shows the printer offline** | Normal in LAN Only. Handy needs the cloud. |
 | **Bambu Studio can't see the printer** | Same network? Select the printer with the lock icon and enter the access code. |
-| **Connected, but no status** | **Developer Mode** is off. Turn it on (Step 2). |
+| **Notice "requires Developer Mode"** | You pressed pause, stop or the light. Turn on Developer Mode ([Step 2](#step-2--developer-mode-optional)), or ignore it: the rest works. |
+| **Connected, but no status** | Check the **serial number** (the printer only answers its own). Turn LAN Only off and on, then update the code. |
 | **No camera on X1 / H2** | Turn on **LAN mode liveview** on the LAN Only page. |
 | **Cover image or print weight missing (newer H2 / P2S firmware)** | Turn on **Store sent files on external storage** in the printer's print options and insert a USB drive or SD card. **(not confirmed for FDM — reported by ha-bambulab)** |
 
@@ -174,8 +196,8 @@ and debug logs (`custom_components.fdm_printer_manager: debug`).
 ## How to go back to cloud mode
 
 1. Open the **LAN Only** page on the printer.
-2. Turn **Developer Mode** off, then **LAN Only** off.
-3. Bambu Handy works again. Home Assistant loses the direct connection until you turn both back on.
+2. Turn **Developer Mode** off (if you turned it on), then **LAN Only** off.
+3. Bambu Handy works again. Home Assistant loses the direct connection until you turn LAN Only back on.
 
 ## Technical notes
 

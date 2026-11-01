@@ -15,6 +15,8 @@ from .test_klipper_integration import printer  # noqa: F401 - printer is a fixtu
 def test_friendly_name() -> None:
     assert friendly_name("cosmos", "192.168.1.95") == "Elegoo Centauri Carbon"
     assert friendly_name("COSMOS.local", "192.168.1.95") == "Elegoo Centauri Carbon"
+    assert friendly_name("centauri-carbon-1", "192.168.1.95") == "Elegoo Centauri Carbon"  # COSMOS 26.10+
+    assert friendly_name("centauri-carbon-2", "192.168.1.97") == "Elegoo Centauri Carbon"
     assert friendly_name("mainsailos", "192.168.1.50") == "Klipper 192.168.1.50"
     assert friendly_name("", "192.168.1.50") == "Klipper 192.168.1.50"
     assert friendly_name(None, "192.168.1.50") == "Klipper 192.168.1.50"
