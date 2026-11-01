@@ -59,8 +59,9 @@ Everything happens in that one window:
      connection without one.
    - *Bambu Lab (LAN)*: IP address, serial number and access code (printer screen →
      Settings → LAN only mode; recent firmware also needs **Developer mode**). A printer
-     found on the network already has IP and serial filled in. **📷 Take photo** fills
-     the three fields from a photo of the printer's LAN Only page (with your AI Task, or
+     found on the network already has IP and serial filled in. **🖼️ Choose photo** fills
+     the three fields from a photo of the printer's LAN Only page, taken with your camera
+     app without flash (read with your AI Task, or
      read on your device). Step by step: [Connect a Bambu Lab printer over LAN](docs/bambu-lan-only.md).
    - *Bambu Lab (via the Bambu Lab integration)*: pick the printer from ha-bambulab;
      its entities are found automatically.
@@ -174,7 +175,7 @@ cancelled prints cost.
 
 **New access code (Bambu Lab LAN)**: it changes when LAN Only mode is turned off and on. When
 the printer refuses it, Home Assistant asks for the new one (also at the top of the FDM
-Printers page, with **📷 Take photo**).
+Printers page, with **🖼️ Choose photo**).
 
 ## How a print is detected
 
@@ -277,7 +278,7 @@ actions:
 | -------------------------- | ------------------------------------------------------------------------------------------------------ |
 | No print detected (Klipper) | open `http://<IP>:7125/server/info` in a browser: it must answer. If Moonraker asks for an API key, set it in **Configure**. |
 | Bambu LAN "access code refused" / cannot connect | LAN only mode (and Developer mode on recent firmware) must be on; the code changes when LAN mode is toggled. Port 8883 must be reachable. See [the Bambu LAN guide](docs/bambu-lan-only.md). |
-| 📷 Take photo does nothing in the Android app | Allow the camera for the Home Assistant app: Android Settings → Apps → Home Assistant → Permissions → Camera. |
+| Choose photo reads wrong values | Retake the picture without flash and with lower exposure, filling the frame with the LAN Only page; the fields stay editable. |
 | No print detected (Bambu)  | the _print status_ entity must report `prepare` / `running` / `pause` (ha-bambulab `print_status`).    |
 | Two prints merged / split  | configure the _job name_ entity.                                                                       |
 | Electricity cost `unknown` | the price entity was `unknown`/`unavailable` or in an unsupported unit; see `notes`.                   |

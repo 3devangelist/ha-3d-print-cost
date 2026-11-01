@@ -33,6 +33,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 
 - Bambu Lab LAN: partial AMS reports are merged into the last full one.
+- **Photo reading simplified**: one **🖼️ Choose photo** button; the in-page camera was removed
+  because it only worked over https. Take the picture with your camera app (no flash, lower the
+  exposure if you can), then choose it. The reading (AI Task or on-device OCR) is unchanged.
 
 ## [0.9.0]
 
