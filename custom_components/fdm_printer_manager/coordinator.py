@@ -160,7 +160,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     def __init__(self, hass: HomeAssistant, entry: PrintCostConfigEntry) -> None:
         super().__init__(hass, _LOGGER, config_entry=entry, name=f"{DOMAIN} {entry.title}", update_interval=None)
         self.conf: dict[str, Any] = {**entry.data, **entry.options}
-        self.printer_name: str = self.conf.get(CONF_PRINTER_NAME) or entry.title
+        # The entry title is the name the user sees and can rename in Home Assistant; the stored
+        # name may still be the hostname Moonraker reported when the printer was added.
+        self.printer_name: str = entry.title or self.conf.get(CONF_PRINTER_NAME) or "Printer"
         self.printer_serial: str | None = self.conf.get(CONF_PRINTER_SERIAL)
         # Entries created before 0.3 have no type: they are Bambu.
         self.printer_type = PrinterType(self.conf.get(CONF_PRINTER_TYPE) or PrinterType.BAMBU)

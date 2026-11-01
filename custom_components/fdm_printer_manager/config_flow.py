@@ -68,6 +68,7 @@ from .const import (
     PROBE_TIMEOUT,
     PrinterType,
 )
+from .naming import friendly_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -171,7 +172,10 @@ def normalise_klipper(data: dict[str, Any], hostname: str | None) -> dict[str, A
     result = dict(data)
     result[CONF_HOST] = str(data[CONF_HOST]).strip()
     result[CONF_PORT] = int(data.get(CONF_PORT) or DEFAULT_PORT)
-    result[CONF_PRINTER_NAME] = (data.get(CONF_PRINTER_NAME) or "").strip() or hostname or result[CONF_HOST]
+    # A shared hostname ("cosmos", "mainsailos"...) is not a good name: see naming.py.
+    result[CONF_PRINTER_NAME] = friendly_name(
+        (data.get(CONF_PRINTER_NAME) or "").strip() or hostname, result[CONF_HOST]
+    )
     result[CONF_WEB_URL] = (data.get(CONF_WEB_URL) or "").strip() or default_web_url(result[CONF_HOST])
     return result
 
@@ -336,7 +340,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         port = int(discovery_info.port or DEFAULT_PORT)
         await self.async_set_unique_id(f"klipper_{host.lower()}_{port}")
         self._abort_if_unique_id_configured()
-        name = (discovery_info.hostname or "").rstrip(".").removesuffix(".local") or host
+        name = friendly_name((discovery_info.hostname or "").rstrip(".").removesuffix(".local"), host)
         self._klipper = {CONF_HOST: host, CONF_PORT: port, CONF_PRINTER_NAME: name}
         self.context["title_placeholders"] = {"name": name}
         return await self.async_step_zeroconf_confirm()
@@ -376,7 +380,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
         port = int(discovery_info.get(CONF_PORT) or DEFAULT_PORT)
         await self.async_set_unique_id(f"klipper_{host.lower()}_{port}")
         self._abort_if_unique_id_configured()
-        name = discovery_info.get(CONF_PRINTER_NAME) or host
+        name = friendly_name(discovery_info.get(CONF_PRINTER_NAME), host)
         self._klipper = {CONF_HOST: host, CONF_PORT: port, CONF_PRINTER_NAME: name}
         self.context["title_placeholders"] = {"name": name}
         return await self.async_step_zeroconf_confirm()
