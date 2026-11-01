@@ -62,7 +62,8 @@ Everything happens in that one window:
      found on the network already has IP and serial filled in. **🖼️ Choose photo** fills
      the three fields from a photo of the printer's LAN Only page, taken with your camera
      app without flash (read with your AI Task, or
-     read on your device). Step by step: [Connect a Bambu Lab printer over LAN](docs/bambu-lan-only.md).
+     read on your device). Step by step: [Connect a Bambu Lab printer over LAN](docs/bambu-lan-only.md)
+     ([em português](docs/bambu-lan-only.pt.md)).
    - *Bambu Lab (via the Bambu Lab integration)*: pick the printer from ha-bambulab;
      its entities are found automatically.
 3. **Smart plug** — the switch the printer is plugged into. Its power sensor

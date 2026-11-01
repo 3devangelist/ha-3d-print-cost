@@ -36,6 +36,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Photo reading simplified**: one **🖼️ Choose photo** button; the in-page camera was removed
   because it only worked over https. Take the picture with your camera app (no flash, lower the
   exposure if you can), then choose it. The reading (AI Task or on-device OCR) is unchanged.
+- **Bambu LAN guide rewritten** ([English](docs/bambu-lan-only.md), new
+  [Português](docs/bambu-lan-only.pt.md)): short steps per model, how to take the photo, what to do
+  when the access code changes, camera ports per model, common problems and security.
 
 ## [0.9.0]
 
