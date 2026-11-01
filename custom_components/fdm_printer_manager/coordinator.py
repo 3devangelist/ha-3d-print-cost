@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 
 from homeassistant.components import persistent_notification
 from homeassistant.components.image import async_get_image
@@ -145,6 +145,9 @@ from .tracker import (
 from .watchdog import AlertKind, WatchAction, Watchdog, WatchInput
 
 _LOGGER = logging.getLogger(__name__)
+
+# Results of a power off that left the plug on (the card says why until the plug is switched again).
+LEFT_ON_RESULTS: Final = frozenset({"hot", "still_on", "no_shutdown"})
 
 # ha-bambulab button keys for each action
 _BAMBU_BUTTONS: dict[str, tuple[str, ...]] = {
@@ -396,6 +399,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._cancel_auto_off("turned on by hand")
         if self._power_task is not None:
             self._power_task.cancel()
+        self.power_result = None  # a new power action: the last "not turned off" no longer applies
         await self.hass.services.async_call(
             "homeassistant", "turn_on", {"entity_id": self.switch_entity}, blocking=True
         )
@@ -473,6 +477,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             raise HomeAssistantError(f"{self.printer_name} is printing: it will not be turned off")
         if self.power_phase is not None:  # already cooling or shutting down
             return
+        self.power_result = None  # a new power off: forget why the last one left the plug on
         if self.nozzle_is_hot:
             self.power_phase = "cooling"
             self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
@@ -581,15 +586,22 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 sent = True
             except SshError as err:
                 _LOGGER.warning("%s: SSH shutdown failed: %s", self.printer_name, err)
-        if not sent and not self.klipper.available:
-            await self._async_cut_plug()  # Moonraker gone and no SSH: as before 0.8, cut now
+        # Moonraker gone and no SSH: cut only if the computer is really off by now.
+        if (
+            not sent
+            and not self.klipper.available
+            and not await host_is_up(host, int(self.conf.get(CONF_PORT) or DEFAULT_PORT))
+        ):
+            await self._async_cut_plug()
             return
         if not sent:
-            # Moonraker answers but cannot shut down (the Elegoo Centauri Carbon replies
-            # HTTP 500 "Error running shell command") and SSH failed or is not set up:
-            # cutting now would kill a running computer, so the plug stays on.
+            # Moonraker cannot shut down (the Elegoo Centauri Carbon replies HTTP 500
+            # "Error running shell command") or does not answer while the computer
+            # still does, and SSH failed or is not set up: cutting now would kill a
+            # running computer, so the plug stays on.
+            moonraker = "Moonraker refused" if self.klipper.available else "Moonraker is not answering"
             message = (
-                f"{self.printer_name}: the printer's computer could not be shut down (Moonraker refused and "
+                f"{self.printer_name}: the printer's computer could not be shut down ({moonraker} and "
                 "SSH failed or is not set up), so the plug was left on. "
                 "Add or check the SSH login in the printer's options."
             )

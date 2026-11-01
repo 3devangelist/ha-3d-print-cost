@@ -631,8 +631,8 @@ class FdmPrinterPanel extends HTMLElement {
         : autoOff ? "Turns off by itself after the print. Tap to keep the printer on"
         : asking ? "Tap to keep the printer on"
         : on && active ? "Not while printing" : "";
-      // Why the last power off left the plug on (also sent as a notification).
-      const problem = on && !phase && !asking && !sent ? {
+      // Why the last power off left the plug on (also sent as a notification); the phase reads "on" when idle.
+      const problem = on && !turningOff && !asking && !sent ? {
         hot: "Not turned off: the nozzle stayed hot",
         still_on: "Not turned off: the computer kept running",
         no_shutdown: "Not turned off: could not shut the computer down (set the SSH login)",

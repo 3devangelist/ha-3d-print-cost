@@ -19,6 +19,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   The old text said "at most 3 minutes", which was wrong (the wait is 5 minutes) and read like a
   forced cut. The safe power switch has a new attribute `shutdown_wait_minutes`.
 
+### Fixed
+
+- **"Not turned off: …" shows again on the card.** When a power off left the plug on (nozzle stayed
+  hot, the computer kept running, or it could not be shut down) the card now says why, under the
+  toggle. It never showed before (the panel looked for an empty phase, which reads "on" when idle).
+  The reason is cleared when the plug is switched on or off again or a new power off starts.
+- **Klipper printers are never cut while their computer still answers.** With Moonraker not answering
+  and no SSH login (or SSH failing), the plug used to be cut at once. Now the computer is checked
+  first: still answering, the plug stays on, `last_result` is `no_shutdown` and a notification asks
+  for the SSH login; not answering (already off), the plug is cut as before. Bambu Lab unchanged.
+
 ## [0.10.0]
 
 ### Added
