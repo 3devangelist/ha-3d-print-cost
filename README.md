@@ -92,6 +92,35 @@ survives the reload.
 | Sampling interval        | 30 s                                 | Klipper is also polled every 5 s; Bambu updates on every change      |
 | Currency                 | HA currency                          | used for units only, no conversion                                   |
 | Power integration method | left                                 | `left` suits step-like plug sensors, `trapezoidal` smooth ones       |
+| Turn off after a print   | 15 min                               | needs a smart plug; 0 = never (see below)                            |
+| SSH login (Klipper)      | empty                                | advanced: only for printers whose Moonraker cannot shut down         |
+
+## Turning a printer off safely
+
+The **Power** button on the card (`switch.<printer>_safe_power`) and the
+**auto-off** after a print do the same thing:
+
+1. never while printing or paused;
+2. wait for the nozzle to drop below **80 °C** (at most 30 min, else the plug stays on);
+3. Klipper: shut the printer's computer down — Moonraker's `machine.shutdown`
+   first, then SSH if that fails;
+4. cut the plug only once the computer **stops answering** (ping, or a TCP
+   check): 3 checks in a row 5 s apart, then 10 s more. Still answering after
+   5 minutes, the plug is left on and a notification says so.
+
+Auto-off starts when a print ends (finished, cancelled or failed) and waits
+15 minutes (Configure → Advanced). A new print, turning the plug off by hand,
+or tapping Power on the card while it shows "Auto off at …" cancels it.
+
+**Elegoo Centauri Carbon**: its Moonraker cannot shut down (HTTP 500 "Error
+running shell command"). It is recognised (host name `cosmos`, or that error)
+and shut down with a single `poweroff` over SSH as `root`, without a password,
+as the printer ships — nothing to set up. For any other printer that needs
+SSH, give a login under Configure → Advanced (user, optional password or
+private key, command such as `sudo poweroff`). Only that one command is run;
+host keys are not checked (local network, the key changes on every firmware
+reinstall). The password and key are never logged and are redacted from
+diagnostics.
 
 ## How a print is detected
 

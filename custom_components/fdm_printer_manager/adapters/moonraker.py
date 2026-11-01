@@ -205,7 +205,9 @@ class MoonrakerClient:
                 if resp.status in (401, 403):
                     raise MoonrakerAuthError(f"HTTP {resp.status} from {url}")
                 if resp.status >= 400:
-                    raise MoonrakerConnectionError(f"HTTP {resp.status} from {url}")
+                    # Keep Moonraker's reason, e.g. "Error running shell command: 'sudo systemctl poweroff'"
+                    detail = (await resp.text())[:300]
+                    raise MoonrakerConnectionError(f"HTTP {resp.status} from {url}: {detail}")
                 return await resp.json(content_type=None) or {}
         except MoonrakerError:
             raise

@@ -79,12 +79,15 @@ class ShowLastPrintSwitch(PrintCostEntity, SwitchEntity, RestoreEntity):
 class SafePowerSwitch(PrintCostEntity, SwitchEntity):
     """``switch.<printer>_safe_power``: the printer's plug, turned off safely.
 
-    On: turns the plug on. Off: refused while printing or paused; with the
-    nozzle at 80 °C or more it waits for it to cool first (phase ``cooling``,
-    at most 30 minutes, then it gives up and leaves the plug on); Klipper
-    printers then shut their computer down and the plug is cut once it is
-    down (at most 3 minutes later); other printers are cut right away.
-    Can be put on any dashboard and used in automations.
+    On: turns the plug on (and cancels a pending auto-off). Off: refused while
+    printing or paused; with the nozzle at 80 °C or more it waits for it to
+    cool first (phase ``cooling``, at most 30 minutes, then it gives up and
+    leaves the plug on); Klipper printers then shut their computer down
+    (Moonraker, else SSH) and the plug is cut once the computer stops
+    answering (phase ``shutting_down``; still answering after 5 minutes, the
+    plug is left on); other printers are cut right away.
+    After a print ends, the same happens by itself ``auto_off_minutes`` later
+    (phase ``waiting``). Can be put on any dashboard and used in automations.
     """
 
     def __init__(self, coordinator: PrintCostCoordinator) -> None:
@@ -120,13 +123,19 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Shutdown progress, for the panel and dashboards."""
-        cut_at = self.coordinator.power_cut_at
+        coordinator = self.coordinator
+        cut_at = coordinator.power_cut_at
+        auto_off_at = coordinator.auto_off_at
         return {
-            "phase": self.coordinator.power_phase or ("on" if self.is_on else "off"),
+            "phase": coordinator.power_phase or ("on" if self.is_on else "off"),
             "cut_at": cut_at.isoformat() if cut_at else None,
+            "auto_off_at": auto_off_at.isoformat() if auto_off_at else None,
+            "auto_off_minutes": coordinator.auto_off_minutes,
+            "last_result": coordinator.power_result,
+            "ssh": coordinator.ssh_login is not None,
             "cool_to": SAFE_POWER_COOL_TEMP,
-            "printing": self.coordinator.is_printing,
-            "plug": self.coordinator.switch_entity,
+            "printing": coordinator.is_printing,
+            "plug": coordinator.switch_entity,
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:

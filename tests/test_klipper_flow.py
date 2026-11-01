@@ -191,3 +191,41 @@ async def test_found_by_the_scan_but_already_added(hass: HomeAssistant) -> None:
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_auto_off_and_ssh_options(hass: HomeAssistant, bypass_setup) -> None:
+    """0.8.0: auto-off minutes; SSH login for Klipper, an empty password keeps the stored one."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Ender 6",
+        unique_id="klipper_192.168.1.89_7125",
+        data={"printer_type": "klipper", "printer_name": "Ender 6", "host": "192.168.1.89", "port": 7125},
+        options={"ssh_username": "pi", "ssh_password": "stored"},
+    )
+    entry.add_to_hass(hass)
+
+    async def behaviour(values: dict) -> dict:
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        with _moonraker():
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"], {"printer_name": "Ender 6", "host": "192.168.1.89", "port": 7125}
+            )
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+        assert result["step_id"] == "behaviour"
+        fields = {str(k) for k in result["data_schema"].schema}
+        assert {"auto_off_minutes", "ssh_username", "ssh_password", "ssh_private_key", "ssh_command"} <= fields
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"update_interval": 30, "currency": "EUR", **values}
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        return {**entry.data, **entry.options}
+
+    merged = await behaviour({"auto_off_minutes": 20, "ssh_username": "pi", "ssh_command": "sudo poweroff"})
+    assert merged["auto_off_minutes"] == 20
+    assert merged["ssh_password"] == "stored"  # left empty: kept
+    assert merged["ssh_command"] == "sudo poweroff"
+
+    merged = await behaviour({"auto_off_minutes": 0})
+    assert merged["auto_off_minutes"] == 0
+    assert merged["ssh_username"] is None  # no user name: the login is forgotten
+    assert merged["ssh_password"] is None

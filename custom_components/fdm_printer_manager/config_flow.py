@@ -27,10 +27,12 @@ from .adapters.moonraker import (
     default_web_url,
 )
 from .adapters.netscan import SCAN_PORTS, async_probe
+from .adapters.ssh import DEFAULT_SSH_COMMAND
 from .const import (
     BAMBU_DOMAIN,
     CONF_ACCESS_CODE,
     CONF_API_KEY,
+    CONF_AUTO_OFF,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
     CONF_ENERGY_ENTITY,
@@ -48,12 +50,18 @@ from .const import (
     CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
+    CONF_SSH_COMMAND,
+    CONF_SSH_KEY,
+    CONF_SSH_PASSWORD,
+    CONF_SSH_USERNAME,
     CONF_SWITCH_ENTITY,
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
+    DEFAULT_AUTO_OFF,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     HTTP_TIMEOUT,
+    MAX_AUTO_OFF,
     MAX_UPDATE_INTERVAL,
     MIN_UPDATE_INTERVAL,
     PROBE_TIMEOUT,
@@ -211,24 +219,41 @@ def electricity_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def behaviour_schema(defaults: dict[str, Any], hass_currency: str) -> vol.Schema:
-    """Advanced options."""
-    return vol.Schema(
-        {
-            vol.Required(
-                CONF_UPDATE_INTERVAL, default=defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_UPDATE_INTERVAL,
-                    max=MAX_UPDATE_INTERVAL,
-                    step=5,
-                    unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or hass_currency): selector.TextSelector(),
-        }
-    )
+def behaviour_schema(defaults: dict[str, Any], hass_currency: str, *, with_ssh: bool = False) -> vol.Schema:
+    """Advanced options. Klipper printers also get the SSH login used to shut them down.
+
+    The password and the key are never sent back to the form: left empty, the
+    stored ones are kept.
+    """
+    fields: dict[Any, Any] = {
+        vol.Required(
+            CONF_UPDATE_INTERVAL, default=defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=MIN_UPDATE_INTERVAL,
+                max=MAX_UPDATE_INTERVAL,
+                step=5,
+                unit_of_measurement="s",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or hass_currency): selector.TextSelector(),
+        vol.Required(CONF_AUTO_OFF, default=defaults.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF)): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=MAX_AUTO_OFF, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX
+            )
+        ),
+    }
+    if with_ssh:
+        fields[_opt(CONF_SSH_USERNAME, defaults)] = selector.TextSelector()
+        fields[vol.Optional(CONF_SSH_PASSWORD)] = selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        )
+        fields[vol.Optional(CONF_SSH_KEY)] = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+        fields[vol.Optional(CONF_SSH_COMMAND, default=defaults.get(CONF_SSH_COMMAND) or DEFAULT_SSH_COMMAND)] = (
+            selector.TextSelector()
+        )
+    return vol.Schema(fields)
 
 
 # --------------------------------------------------------------------------- #
@@ -568,18 +593,35 @@ class PrintCostOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="electricity", data_schema=electricity_schema(self._current), errors=errors)
 
     async def async_step_behaviour(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Interval, currency."""
+        """Interval, currency, auto-off; SSH login for Klipper."""
         if user_input is not None:
             self._options.update(
                 {
                     CONF_UPDATE_INTERVAL: int(user_input[CONF_UPDATE_INTERVAL]),
                     CONF_CURRENCY: str(user_input[CONF_CURRENCY]).strip().upper(),
+                    CONF_AUTO_OFF: int(user_input[CONF_AUTO_OFF]),
                 }
             )
+            if self._is_klipper:
+                self._options.update(self._ssh_options(user_input))
             return self.async_create_entry(data=self._options)
         return self.async_show_form(
-            step_id="behaviour", data_schema=behaviour_schema(self._current, self.hass.config.currency)
+            step_id="behaviour",
+            data_schema=behaviour_schema(self._current, self.hass.config.currency, with_ssh=self._is_klipper),
         )
+
+    def _ssh_options(self, user_input: dict[str, Any]) -> dict[str, Any]:
+        """SSH login: an empty password or key keeps the stored one; no user name forgets them all."""
+        username = str(user_input.get(CONF_SSH_USERNAME) or "").strip()
+        if not username:
+            return {CONF_SSH_USERNAME: None, CONF_SSH_PASSWORD: None, CONF_SSH_KEY: None, CONF_SSH_COMMAND: None}
+        current = self._current
+        return {
+            CONF_SSH_USERNAME: username,
+            CONF_SSH_PASSWORD: user_input.get(CONF_SSH_PASSWORD) or current.get(CONF_SSH_PASSWORD),
+            CONF_SSH_KEY: (user_input.get(CONF_SSH_KEY) or "").strip() or current.get(CONF_SSH_KEY),
+            CONF_SSH_COMMAND: str(user_input.get(CONF_SSH_COMMAND) or "").strip() or DEFAULT_SSH_COMMAND,
+        }
 
 
 def _with_cleared(user_input: dict[str, Any], schema: vol.Schema) -> dict[str, Any]:

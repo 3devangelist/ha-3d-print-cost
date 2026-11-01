@@ -18,6 +18,23 @@ def no_network_scan():
         yield
 
 
+@pytest.fixture(autouse=True)
+def no_real_power_off():
+    """No ping, TCP check or SSH to real printers (the computer counts as off; SSH fails)."""
+    from unittest.mock import AsyncMock  # noqa: PLC0415
+
+    from custom_components.fdm_printer_manager.adapters.ssh import SshError  # noqa: PLC0415
+
+    with (
+        patch("custom_components.fdm_printer_manager.coordinator.host_is_up", AsyncMock(return_value=False)),
+        patch(
+            "custom_components.fdm_printer_manager.coordinator.ssh_shutdown",
+            AsyncMock(side_effect=SshError("no SSH in tests")),
+        ),
+    ):
+        yield
+
+
 @pytest.fixture
 def panel_entry(hass):
     """The sidebar page entry already exists, so "Add integration" shows the printer types."""
