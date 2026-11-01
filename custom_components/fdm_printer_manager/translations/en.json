@@ -226,14 +226,18 @@
       },
       "finish": {
         "title": "When a print ends",
-        "description": "Optional. Besides the event `fdm_printer_manager_print_finished`.",
+        "description": "Optional. Besides the event `fdm_printer_manager_print_finished`. Google Sheets only writes to a spreadsheet created by its own integration.",
         "data": {
           "todo_entity": "To-do list",
-          "end_script": "Script"
+          "end_script": "Script",
+          "sheets_config_entry": "Google Sheets log",
+          "sheets_worksheet": "Worksheet"
         },
         "data_description": {
           "todo_entity": "Adds \"Remove the print from [printer name]\" with the file name and the result, so a part is not forgotten on the plate.",
-          "end_script": "Started with the print summary as variables: printer, name, result, duration_s, energy_kwh, electricity_cost, currency."
+          "end_script": "Started with the print summary as variables: printer, name, result, duration_s, energy_kwh, electricity_cost, currency.",
+          "sheets_config_entry": "Adds one row per finished, failed or cancelled print to the spreadsheet of this Google Sheets integration entry. Empty: off.",
+          "sheets_worksheet": "Name of the tab to write to. It must already exist. Empty: Prints."
         }
       }
     },

@@ -3,6 +3,23 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.11.0]
+
+### Added
+
+- **Google Sheets log**: every print that ends (finished, failed, cancelled, unknown) adds one row
+  to a Google Sheet through Home Assistant's `google_sheets` integration
+  (`google_sheets.append_sheet`). Turn it on per printer in **Edit → When a print ends**: pick the
+  Google Sheets entry and the tab (default `Prints`). Columns: `printer`, `file`, `result`,
+  `result_by`, `started`, `finished`, `duration_min`, `energy_kwh`, `electricity_cost`, `currency`,
+  `notes`, `job_id` (plus `created`, added by Google Sheets).
+  The row is queued in the store with the print, so it is written exactly once, also after a
+  restart in the middle of the end of a print. When it cannot be sent (integration missing,
+  spreadsheet or tab gone, no network) the end of the print is not affected: a warning, one
+  notification, and the row is retried before the next one and when Home Assistant starts.
+  Marking a print again by hand with a different result adds a correction row (same `job_id`).
+  Replaces scripts that call `google_sheets.append_sheet` from an automation.
+
 ## [0.10.0]
 
 ### Added
