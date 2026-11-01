@@ -58,6 +58,8 @@ from .const import (
     CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
+    CONF_SHEETS_ENTRY,
+    CONF_SHEETS_WORKSHEET,
     CONF_SSH_COMMAND,
     CONF_SSH_KEY,
     CONF_SSH_PASSWORD,
@@ -313,6 +315,10 @@ def finish_schema(defaults: dict[str, Any]) -> vol.Schema:
         {
             _opt(CONF_TODO_ENTITY, defaults): _entity("todo"),
             _opt(CONF_END_SCRIPT, defaults): _entity("script"),
+            _opt(CONF_SHEETS_ENTRY, defaults): selector.ConfigEntrySelector(
+                selector.ConfigEntrySelectorConfig(integration="google_sheets")
+            ),
+            _opt(CONF_SHEETS_WORKSHEET, defaults): selector.TextSelector(),
         }
     )
 
@@ -734,7 +740,7 @@ class PrintCostOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="alerts", data_schema=alerts_schema(self._current))
 
     async def async_step_finish(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """When a print ends: a to-do item and / or a script."""
+        """When a print ends: a to-do item, a script and / or a Google Sheets row."""
         if user_input is not None:
             self._options.update(_with_cleared(user_input, finish_schema({})))
             return self.async_create_entry(data=self._options)

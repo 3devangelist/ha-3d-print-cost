@@ -141,6 +141,7 @@ async def test_safe_power_waits_for_the_nozzle_to_cool(
     await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
     assert phase(hass) == "cooling"
     assert hass.states.get("switch.ender_6_safe_power").attributes["cool_to"] == 80
+    assert hass.states.get("switch.ender_6_safe_power").attributes["shutdown_wait_minutes"] == 5
     assert printer.calls == []  # no shutdown yet: the hotend fan must keep running
 
     printer.reading = KlipperStatus(state="complete", nozzle_temp=95.0)

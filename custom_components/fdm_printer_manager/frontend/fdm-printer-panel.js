@@ -9,6 +9,8 @@
  */
 
 const DOMAIN = "fdm_printer_manager";
+// How long the power toggle stays orange ("wait") after "Turn off" while waiting for the switch to answer.
+const OFFING_MS = 20000;
 
 const STYLE = `
 :host{
@@ -84,6 +86,7 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .links{display:flex;gap:12px;align-items:center}
 a.link,.linkbtn{color:var(--accent);font-weight:600;font-size:.85rem;text-decoration:none;background:none;border:0;cursor:pointer;font-family:inherit;padding:0}
 .ask{margin:8px 12px 10px;background:rgba(239,106,90,.1);border:1px solid rgba(239,106,90,.4);border-radius:8px;padding:10px;font-size:.88rem}
+.ask ol{margin:6px 0 6px 18px;padding:0} .ask li{margin:2px 0} .ask p{margin:6px 0 0}
 .ask .row{display:flex;gap:8px;justify-content:flex-end;margin-top:8px;flex-wrap:wrap}
 .empty{color:var(--muted);padding:24px 0}
 .tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:11px}
@@ -514,7 +517,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.10.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.11.0</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -608,23 +611,33 @@ class FdmPrinterPanel extends HTMLElement {
       // Auto-off: the print ended, the printer turns itself off at auto_off_at; a tap keeps it on.
       const autoOff = phase === "waiting";
       const keepable = cooling || autoOff;
+      // Asked: the "Turn off?" box is open under the card. Sent: "Turn off" tapped, the new phase not here yet
+      // (with nothing running the phase attribute reads "on" / "off").
+      const asking = this._ask?.entry === eid && this._ask.kind === "power";
+      const sentAt = this._offing?.[eid];
+      const turningOff = waiting || cooling || autoOff;
+      const sent = !!sentAt && on && !turningOff && Date.now() - sentAt < OFFING_MS;
+      if (sentAt && !sent) delete this._offing[eid];
       const coolTo = power.attributes?.cool_to ?? 80;
       const label = cooling
         ? `Cooling nozzle — ${nozzle != null ? `${Math.round(nozzle)}°` : "…"} → ${coolTo}°`
         : autoOff ? `Auto off at ${hhmm(power.attributes?.auto_off_at)}`
         : waiting ? `Shutting down… waiting for it to go off (until ${hhmm(power.attributes?.cut_at)})`
+        : sent ? "Turning off…"
+        : asking ? "Turning off? Confirm below"
         : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
-      const disabled = waiting || power.state === "unavailable" || (on && active && !keepable);
+      const disabled = waiting || sent || power.state === "unavailable" || (on && active && !keepable);
       const title = cooling ? "Waiting for the nozzle to cool. Tap to keep the printer on"
         : autoOff ? "Turns off by itself after the print. Tap to keep the printer on"
+        : asking ? "Tap to keep the printer on"
         : on && active ? "Not while printing" : "";
-      // Why the last power off left the plug on (also sent as a notification).
-      const problem = on && !phase ? {
+      // Why the last power off left the plug on (also sent as a notification); the phase reads "on" when idle.
+      const problem = on && !turningOff && !asking && !sent ? {
         hot: "Not turned off: the nozzle stayed hot",
         still_on: "Not turned off: the computer kept running",
         no_shutdown: "Not turned off: could not shut the computer down (set the SSH login)",
       }[power.attributes?.last_result] : null;
-      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !keepable ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || keepable ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>${problem ? `<span class="sub warn">${esc(problem)}</span>` : ""}`;
+      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !keepable ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || keepable || asking || sent ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>${problem ? `<span class="sub warn">${esc(problem)}</span>` : ""}`;
     }
 
     // Camera: only when the printer has one (Klipper webcam found by the integration, or ha-bambulab's own).
@@ -675,8 +688,19 @@ class FdmPrinterPanel extends HTMLElement {
     let ask = "";
     if (this._ask?.entry === eid && this._ask.kind === "zsave")
       ask = `<div class="ask">Keep the Z offset ${bs?.z_offset != null ? `(${bs.z_offset.toFixed(3)} mm)` : ""}? It is applied now; run SAVE_CONFIG when the printer is idle to keep it after a restart (Klipper restarts).<div class="row"><button class="btn sm" data-act="askno">Not now</button><button class="btn sm" data-act="zsave" data-entry="${esc(eid)}">Save</button></div></div>`;
-    if (this._ask?.entry === eid && this._ask.kind === "power")
-      ask = `<div class="ask">Turn ${esc(p.entry.title)} off? ${nozzle != null && nozzle >= (power?.attributes?.cool_to ?? 80) ? `The nozzle is at ${Math.round(nozzle)}°: it waits for it to cool below ${power?.attributes?.cool_to ?? 80}° first. ` : ""}${attrs.printer_type === "klipper" ? "Its computer shuts down first; the plug is cut once it is down (at most 3 minutes)." : "The plug is cut now."}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
+    if (this._ask?.entry === eid && this._ask.kind === "power") {
+      const coolTo = power?.attributes?.cool_to ?? 80;
+      const hot = nozzle != null && nozzle >= coolTo;
+      const waitMin = power?.attributes?.shutdown_wait_minutes;
+      const steps = [hot ? `Waits for the nozzle to cool below ${coolTo}° (now ${Math.round(nozzle)}°).` : ""];
+      if (attrs.printer_type === "klipper")
+        steps.push("Shuts down its computer safely.", "Cuts the plug only after the computer is off.");
+      else steps.push("Cuts the plug (this printer has no computer to shut down).");
+      const note = attrs.printer_type === "klipper"
+        ? `<p><b>It never cuts the power while the printer is still on.</b> If it does not turn off within ${waitMin ? `${waitMin} min` : "a few minutes"}, the plug stays on and you get a notification.</p>`
+        : "";
+      ask = `<div class="ask"><b>Turn ${esc(p.entry.title)} off?</b><ol>${steps.filter(Boolean).map((t) => `<li>${esc(t)}</li>`).join("")}</ol>${note}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entry="${esc(eid)}" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
+    }
     if (this._ask?.entry === eid && this._ask.kind === "cancel")
       ask = `<div class="ask">Cancel the print${fileShown ? ` of <b>${esc(fileShown)}</b>` : ""}? This cannot be undone.<div class="row"><button class="btn sm" data-act="askno">Keep printing</button><button class="btn sm danger" data-act="ctl" data-what="cancel" data-entity="${esc(p.ents.cancel_print)}">Cancel print</button></div></div>`;
 
@@ -1404,7 +1428,9 @@ class FdmPrinterPanel extends HTMLElement {
     }
     if (act === "power") {
       if (el.dataset.on === "1") {
-        this._ask = { kind: "power", entry: el.dataset.entry };
+        // A second tap while the box is open is the same as "Keep on".
+        const open = this._ask?.kind === "power" && this._ask.entry === el.dataset.entry;
+        this._ask = open ? null : { kind: "power", entry: el.dataset.entry };
         return this._render();
       }
       const p = this._printers().find((x) => x.entry.entry_id === el.dataset.entry);
@@ -1412,7 +1438,16 @@ class FdmPrinterPanel extends HTMLElement {
     }
     if (act === "poweroff") {
       this._ask = null;
-      return this._call("switch", "turn_off", el.dataset.entity, "Turning off…");
+      // Keep the toggle orange ("wait") until the switch reports its new phase (or the plug is off).
+      const entry = el.dataset.entry;
+      this._offing = { ...(this._offing || {}), [entry]: Date.now() };
+      setTimeout(() => this._view === "list" && this._render(), OFFING_MS + 500);
+      const ok = await this._call("switch", "turn_off", el.dataset.entity, "Turning off…");
+      if (!ok && this._offing) {
+        delete this._offing[entry];
+        this._render();
+      }
+      return;
     }
     if (act === "ctl") {
       this._ask = null;
@@ -1465,8 +1500,10 @@ class FdmPrinterPanel extends HTMLElement {
     this._flash(message);
     try {
       await this._hass.callService(domain, service, { entity_id: entity });
+      return true;
     } catch (err) {
       this._flash(String(err?.message || err));
+      return false;
     }
   }
 

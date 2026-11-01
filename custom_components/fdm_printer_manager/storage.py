@@ -36,6 +36,8 @@ class StoredState:
     today_date: str | None = None
     # Finished prints, newest first (flat summaries, see PrintJob.summary)
     history: list[dict[str, Any]] = field(default_factory=list)
+    # Google Sheets rows not sent yet (oldest first), retried on the next print and at start
+    sheets_pending: list[dict[str, Any]] = field(default_factory=list)
 
 
 class JobStore:
@@ -61,6 +63,7 @@ class JobStore:
         state.today = _acc_or_none(raw.get("today"))
         state.today_date = raw.get("today_date")
         state.history = [h for h in raw.get("history") or [] if isinstance(h, dict)]
+        state.sheets_pending = [r for r in raw.get("sheets_pending") or [] if isinstance(r, dict)]
         return state
 
     async def async_save(self, state: StoredState) -> None:
@@ -94,6 +97,7 @@ def _serialise(state: StoredState) -> dict[str, Any]:
         "today": state.today.as_dict() if state.today else None,
         "today_date": state.today_date,
         "history": state.history,
+        "sheets_pending": state.sheets_pending,
     }
 
 

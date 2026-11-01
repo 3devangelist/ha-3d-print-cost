@@ -173,7 +173,35 @@ card (last print) and on every row of "Recent prints", or the action
 cancelled prints cost.
 
 **When a print ends** (**Edit → When a print ends**): add "Remove the print from
-&lt;printer&gt;" to a to-do list, and / or start a script with the print summary as variables.
+&lt;printer&gt;" to a to-do list, and / or start a script with the print summary as variables,
+and / or add a row to a Google Sheet (below).
+
+### Google Sheets log
+
+Every print that ends (finished, failed, cancelled or unknown) adds one row to a Google Sheet,
+through Home Assistant's own [Google Sheets](https://www.home-assistant.io/integrations/google_sheets/)
+integration.
+
+1. Add the **Google Sheets** integration (Settings → Devices & services). It creates a new
+   spreadsheet in your Google Drive.
+2. Open that spreadsheet and add a tab named **Prints** (or any name).
+3. **FDM Printers → Edit → When a print ends**: pick the Google Sheets entry in
+   **Google Sheets log** and type the tab name in **Worksheet** (empty: Prints). Do it for
+   each printer you want logged.
+
+Columns: `created` (added by Google Sheets), `printer`, `file`, `result` (`success`, `failed`,
+`cancelled`, `unknown`), `result_by` (`printer`, `watchdog` or `user`), `started`, `finished`
+(local time), `duration_min`, `energy_kwh`, `electricity_cost`, `currency`, `notes`, `job_id`.
+Missing headers are added by Google Sheets on the first row.
+
+- **One row per print.** If you later mark a print with ✓ OK / ✗ Failed and the result
+  changes, a *correction* row is added with the same `job_id`, `result_by` = `user` and a note:
+  rows cannot be edited. Keep the last row of each `job_id` when you count.
+- **Nothing is lost when Google is unreachable**: the row waits in the integration's storage
+  and is sent before the next one, at the next print or when Home Assistant starts. You get one
+  notification until it goes through. Up to 200 rows wait.
+- **Limits of the Google Sheets integration**: it only writes to the spreadsheet it created
+  (not to one you made yourself), and the tab must already exist.
 
 **New access code (Bambu Lab LAN)**: it changes when LAN Only mode is turned off and on. When
 the printer refuses it, Home Assistant asks for the new one (also at the top of the FDM
@@ -340,7 +368,7 @@ restart recovery, last print, `print_finished` event.
   script when a print ends; better default names
 - 🚧 OctoPrint
 - 🚧 LLM assistant to import an existing setup (to think about)
-- 🚧 guide: sending each print to Google Sheets
+- ✅ **0.11.0** — one row per print in a Google Sheet (Google Sheets integration)
 
 ## License
 

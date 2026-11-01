@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 
 from homeassistant.components import persistent_notification
 from homeassistant.components.image import async_get_image
@@ -35,6 +35,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
 )
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -133,6 +134,7 @@ from .filament import FilamentSlot, bambu_slots, klipper_slots
 from .finish import async_run_end_actions
 from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
 from .outcome import MARKABLE, mark_history
+from .sheets import SheetsLog, queue_row, sheet_row
 from .storage import JobStore, StoredState
 from .tracker import (
     PrinterActivity,
@@ -145,6 +147,9 @@ from .tracker import (
 from .watchdog import AlertKind, WatchAction, Watchdog, WatchInput
 
 _LOGGER = logging.getLogger(__name__)
+
+# Results of a power off that left the plug on (the card says why until the plug is switched again).
+LEFT_ON_RESULTS: Final = frozenset({"hot", "still_on", "no_shutdown"})
 
 # ha-bambulab button keys for each action
 _BAMBU_BUTTONS: dict[str, tuple[str, ...]] = {
@@ -277,6 +282,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             stall_after_s=60 * int(DEFAULT_STALL_MINUTES if stall is None else stall) or float("inf"),
         )
         self.alerts = AlertSender(hass, entry.entry_id, self.printer_name, self.conf.get(CONF_NOTIFY))
+        # One row per finished print in a Google Sheet (optional)
+        self.sheets = SheetsLog(hass, entry.entry_id, self.printer_name, self.conf)
 
         self.errors: deque[str] = deque(maxlen=20)
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -317,6 +324,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         # Jobs that were being stored when HA stopped.
         for job in list(self.state.finalizing):
             self._spawn(self._async_finalize(job))
+        # Rows that could not reach Google Sheets before; at start the integration may still be loading.
+        if self.state.sheets_pending:
+            self._unsubs.append(async_at_started(self.hass, self._on_started_send_rows))
 
         self._process(dt_util.utcnow())
 
@@ -396,6 +406,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._cancel_auto_off("turned on by hand")
         if self._power_task is not None:
             self._power_task.cancel()
+        self.power_result = None  # a new power action: the last "not turned off" no longer applies
         await self.hass.services.async_call(
             "homeassistant", "turn_on", {"entity_id": self.switch_entity}, blocking=True
         )
@@ -473,6 +484,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             raise HomeAssistantError(f"{self.printer_name} is printing: it will not be turned off")
         if self.power_phase is not None:  # already cooling or shutting down
             return
+        self.power_result = None  # a new power off: forget why the last one left the plug on
         if self.nozzle_is_hot:
             self.power_phase = "cooling"
             self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
@@ -581,15 +593,22 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 sent = True
             except SshError as err:
                 _LOGGER.warning("%s: SSH shutdown failed: %s", self.printer_name, err)
-        if not sent and not self.klipper.available:
-            await self._async_cut_plug()  # Moonraker gone and no SSH: as before 0.8, cut now
+        # Moonraker gone and no SSH: cut only if the computer is really off by now.
+        if (
+            not sent
+            and not self.klipper.available
+            and not await host_is_up(host, int(self.conf.get(CONF_PORT) or DEFAULT_PORT))
+        ):
+            await self._async_cut_plug()
             return
         if not sent:
-            # Moonraker answers but cannot shut down (the Elegoo Centauri Carbon replies
-            # HTTP 500 "Error running shell command") and SSH failed or is not set up:
-            # cutting now would kill a running computer, so the plug stays on.
+            # Moonraker cannot shut down (the Elegoo Centauri Carbon replies HTTP 500
+            # "Error running shell command") or does not answer while the computer
+            # still does, and SSH failed or is not set up: cutting now would kill a
+            # running computer, so the plug stays on.
+            moonraker = "Moonraker refused" if self.klipper.available else "Moonraker is not answering"
             message = (
-                f"{self.printer_name}: the printer's computer could not be shut down (Moonraker refused and "
+                f"{self.printer_name}: the printer's computer could not be shut down ({moonraker} and "
                 "SSH failed or is not set up), so the plug was left on. "
                 "Add or check the SSH login in the printer's options."
             )
@@ -673,6 +692,14 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._sync_state()
         await self.store.async_save(self.state)
 
+    async def _on_started_send_rows(self, _hass: HomeAssistant) -> None:
+        self._send_sheet_rows()
+
+    def _send_sheet_rows(self) -> None:
+        """Send the queued Google Sheets rows in the background."""
+        if self.sheets.enabled and self.state.sheets_pending:
+            self._spawn(self.sheets.async_flush(self.state.sheets_pending, lambda: self.store.async_save(self.state)))
+
     def _spawn(self, coro) -> None:
         task = self.config_entry.async_create_background_task(self.hass, coro, f"{DOMAIN}_task")
         self._tasks.add(task)
@@ -702,6 +729,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         job_id = job_id or (last.job_id if last else None)
         if job_id is None:
             raise HomeAssistantError(f"{self.printer_name} has no finished print yet")
+        row = next((h for h in self.state.history if h.get("job_id") == job_id), None)
+        before = row.get("result") if row else (str(last.result) if last and last.job_id == job_id else None)
         found = mark_history(self.state.history, job_id, result)
         if last is not None and last.job_id == job_id:
             last.result = PrintResult(result)
@@ -709,12 +738,24 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             found = True
         if not found:
             raise HomeAssistantError(f"{self.printer_name}: print {job_id} not found")
+        # Google Sheets rows cannot be changed: a changed result is added as a correction row (same job_id).
+        if self.sheets.enabled and before != result:
+            summary = row or (last.summary() if last else {})
+            queue_row(
+                self.state.sheets_pending,
+                sheet_row(
+                    {"printer": self.printer_name, "currency": self.currency, **summary, "result_by": "user"},
+                    dt_util.get_default_time_zone(),
+                    correction=f"Correction: marked as {result} by hand (was {before or 'unknown'})",
+                ),
+            )
         await self.store.async_save(self.state)
         self.hass.bus.async_fire(
             EVENT_PRINT_MARKED,
             {"entry_id": self.config_entry.entry_id, "printer": self.printer_name, "job_id": job_id, "result": result},
         )
         _LOGGER.info("%s: print %s marked as %s", self.printer_name, job_id, result)
+        self._send_sheet_rows()
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
 
     # ------------------------------------------------------------------ #
@@ -1143,14 +1184,18 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         summary = job.summary()
         self.state.history.insert(0, {"printer": self.printer_name, **summary})
         del self.state.history[HISTORY_LIMIT:]
+        payload = {"printer": self.printer_name, "currency": self.currency, **summary}
+        # Queued with the same save as the history: exactly one row per print, kept if Sheets cannot be reached.
+        if self.sheets.enabled:
+            queue_row(self.state.sheets_pending, sheet_row(payload, dt_util.get_default_time_zone()))
         await self.store.async_save(self.state)
         await self.store.async_save_image(image)
 
-        payload = {"printer": self.printer_name, "currency": self.currency, **summary}
         self.hass.bus.async_fire(EVENT_PRINT_FINISHED, {"entry_id": self.config_entry.entry_id, **payload})
         for listener in list(self._finished_listeners):
             listener(payload)
         await async_run_end_actions(self.hass, self.conf, payload)
+        self._send_sheet_rows()
         _LOGGER.info(
             "Print '%s' finished: result=%s energy=%s kWh cost=%s %s",
             job.name,

@@ -141,6 +141,10 @@ DEFAULT_STALL_MINUTES: Final = 60
 # When a print ends: a to-do item ("remove the print") and / or a script
 CONF_TODO_ENTITY: Final = "todo_entity"
 CONF_END_SCRIPT: Final = "end_script"
+# ... and / or one row in a Google Sheet (Home Assistant's google_sheets integration)
+CONF_SHEETS_ENTRY: Final = "sheets_config_entry"
+CONF_SHEETS_WORKSHEET: Final = "sheets_worksheet"
+DEFAULT_SHEETS_WORKSHEET: Final = "Prints"
 
 
 class IntegrationMethod(StrEnum):

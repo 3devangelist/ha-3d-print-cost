@@ -16,8 +16,8 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import SAFE_POWER_COOL_TEMP
-from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
+from .const import SAFE_POWER_COOL_TEMP, SAFE_POWER_WAIT
+from .coordinator import LEFT_ON_RESULTS, PrintCostConfigEntry, PrintCostCoordinator
 from .entity import PrintCostEntity
 
 PARALLEL_UPDATES = 0
@@ -102,6 +102,17 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
 
     @callback
     def _on_plug_change(self, event: Event[EventStateChangedData]) -> None:
+        old, new = event.data["old_state"], event.data["new_state"]
+        coordinator = self.coordinator
+        if (
+            old is not None
+            and new is not None
+            and {old.state, new.state} == {"on", "off"}
+            and coordinator.power_phase is None
+            and coordinator.power_result in LEFT_ON_RESULTS
+        ):
+            # The plug was switched since: why the last power off left it on no longer applies.
+            coordinator.power_result = None
         self.async_write_ha_state()
 
     @property
@@ -134,6 +145,7 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
             "last_result": coordinator.power_result,
             "ssh": coordinator.ssh_login is not None,
             "cool_to": SAFE_POWER_COOL_TEMP,
+            "shutdown_wait_minutes": SAFE_POWER_WAIT // 60,
             "printing": coordinator.is_printing,
             "plug": coordinator.switch_entity,
         }

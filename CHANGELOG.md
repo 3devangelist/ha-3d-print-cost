@@ -3,6 +3,48 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.11.0]
+
+### Added
+
+- **Google Sheets log**: every print that ends (finished, failed, cancelled, unknown) adds one row
+  to a Google Sheet through Home Assistant's `google_sheets` integration
+  (`google_sheets.append_sheet`). Turn it on per printer in **Edit → When a print ends**: pick the
+  Google Sheets entry and the tab (default `Prints`). Columns: `printer`, `file`, `result`,
+  `result_by`, `started`, `finished`, `duration_min`, `energy_kwh`, `electricity_cost`, `currency`,
+  `notes`, `job_id` (plus `created`, added by Google Sheets).
+  The row is queued in the store with the print, so it is written exactly once, also after a
+  restart in the middle of the end of a print. When it cannot be sent (integration missing,
+  spreadsheet or tab gone, no network) the end of the print is not affected: a warning, one
+  notification, and the row is retried before the next one and when Home Assistant starts.
+  Marking a print again by hand with a different result adds a correction row (same `job_id`).
+  Replaces scripts that call `google_sheets.append_sheet` from an automation.
+
+### Changed
+
+- **The power toggle shows the turn-off is coming.** Tapping it still opens the "Turn … off?" box,
+  and the toggle now goes orange (the same colour as "Shutting down…" / "Cooling nozzle…") with
+  "Turning off? Confirm below"; "Keep on" (or a second tap) puts it back to green. After "Turn off"
+  it stays orange ("Turning off…") until the switch reports cooling / shutting down or the plug is off.
+
+- **Clearer "Turn … off?" box.** Short numbered steps (cool the nozzle if hot, shut the computer
+  down, cut the plug only after the computer is off) and, for Klipper printers, in bold: it never cuts
+  the power while the printer is still on; if it does not go off within the wait (5 min), the plug
+  stays on and you get a notification. Bambu Lab printers: "cuts the plug (no computer to shut down)".
+  The old text said "at most 3 minutes", which was wrong (the wait is 5 minutes) and read like a
+  forced cut. The safe power switch has a new attribute `shutdown_wait_minutes`.
+
+### Fixed
+
+- **"Not turned off: …" shows again on the card.** When a power off left the plug on (nozzle stayed
+  hot, the computer kept running, or it could not be shut down) the card now says why, under the
+  toggle. It never showed before (the panel looked for an empty phase, which reads "on" when idle).
+  The reason is cleared when the plug is switched on or off again or a new power off starts.
+- **Klipper printers are never cut while their computer still answers.** With Moonraker not answering
+  and no SSH login (or SSH failing), the plug used to be cut at once. Now the computer is checked
+  first: still answering, the plug stays on, `last_result` is `no_shutdown` and a notification asks
+  for the SSH login; not answering (already off), the plug is cut as before. Bambu Lab unchanged.
+
 ## [0.10.0]
 
 ### Added
