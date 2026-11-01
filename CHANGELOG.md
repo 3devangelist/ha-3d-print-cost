@@ -16,6 +16,8 @@ It contains everything from the 0.3.0 development versions below:
   Bambu through the Bambu Lab integration is still available.
 - Per printer: **safe power** switch, **Pause / Resume / Cancel** buttons, energy and cost
   counters (total and today), print history, typed price per kWh.
+- Passes the Hassfest and HACS checks: no HTML in the translations, integration
+  categories in the manifest.
 
 From now on versions are numbered 0.x.y and published as GitHub releases.
 

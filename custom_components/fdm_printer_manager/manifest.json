@@ -5,6 +5,10 @@
     "frontend",
     "http"
   ],
+  "categories": [
+    "diy_makers",
+    "energy.meters_monitoring"
+  ],
   "codeowners": [
     "@3devangelist"
   ],

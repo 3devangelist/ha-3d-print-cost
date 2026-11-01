@@ -160,7 +160,7 @@
           "host": "e.g. 192.168.1.89",
           "port": "7125 unless you changed it in moonraker.conf.",
           "api_key": "Only if Moonraker requires one (trusted_clients not set for Home Assistant).",
-          "web_url": "Mainsail or Fluidd. Leave empty for http://<IP>/. Opens with \"Visit\" on the device page."
+          "web_url": "Mainsail or Fluidd. Leave empty to use the printer's IP address (http://IP/). Opens with \"Visit\" on the device page."
         }
       },
       "bambu_lan": {
