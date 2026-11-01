@@ -15,6 +15,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -41,6 +42,7 @@ from .naming import bambu_model, bambu_name, friendly_name, is_generic
 from .outcome import history_stats
 from .scanner import async_scan_network, async_start_scanning
 from .services import async_setup_services
+from .sheets import async_setup_log, async_stop_log, sheets_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -153,6 +155,9 @@ async def _async_ensure_panel(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_photo_ai)
         websocket_api.async_register_command(hass, ws_read_photo)
         websocket_api.async_register_command(hass, ws_parse_photo_text)
+        websocket_api.async_register_command(hass, ws_sheets_status)
+        websocket_api.async_register_command(hass, ws_sheets_setup)
+        websocket_api.async_register_command(hass, ws_sheets_off)
         data["ws"] = True
     if "ssdp" not in data:
         data["ssdp"] = []  # set before awaiting so two entries never start two listeners
@@ -316,3 +321,38 @@ def ws_parse_photo_text(hass: HomeAssistant, connection: websocket_api.ActiveCon
     """Find the values in the text the browser read from the photo (the photo itself never leaves the browser)."""
     result = photo.normalise_fields(photo.parse_screen_text(msg["text"]))
     connection.send_result(msg["id"], {"status": "ok" if result["fields"] else "empty", "source": "ocr", **result})
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/sheets_status"})
+@websocket_api.require_admin
+@callback
+def ws_sheets_status(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """The Google Sheets entries and where each printer logs (the panel's "Google Sheets" button)."""
+    connection.send_result(msg["id"], sheets_status(hass))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/sheets_setup",
+        vol.Optional("config_entry"): str,
+        vol.Optional("worksheet"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sheets_setup(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Log every printer to a tab of a Google Sheets entry; the tab is created when it is missing."""
+    try:
+        result = await async_setup_log(hass, msg.get("config_entry"), msg.get("worksheet"))
+    except HomeAssistantError as err:
+        connection.send_error(msg["id"], "sheets_setup_failed", str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/sheets_off"})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_sheets_off(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Stop the Google Sheets log of every printer."""
+    connection.send_result(msg["id"], {"stopped": await async_stop_log(hass)})

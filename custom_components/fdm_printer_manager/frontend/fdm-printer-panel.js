@@ -161,12 +161,21 @@ details summary{cursor:pointer;margin-bottom:10px}
 .photo .st.err{color:var(--bad)} .photo .st.ok{color:var(--ok)}
 .f.filled input{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .f .w{font-size:.8rem;color:var(--run)}
+.btn.on{border-color:var(--accent);color:var(--accent)}
+.sheets{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin:-6px 0 18px;max-width:660px;font-size:.9rem}
+.sheets p{margin:0 0 10px} .sheets ol{margin:0 0 10px 18px;padding:0} .sheets li{margin:3px 0}
+.sheets .ok{color:var(--ok);font-weight:700;margin-bottom:8px}
+.sheets .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sheets a.btn{text-decoration:none}
 `;
 
 // "Read from photo" (Bambu LAN): the photo is made smaller first; without an AI Task it is read in the browser.
 const PHOTO_MAX_PX = 1600;
 const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
 const LAN_GUIDE_URL = "https://github.com/3devangelist/ha-3d-print-cost/blob/main/docs/bambu-lan-only.md";
+// "Google Sheets" button: the guide (Google Cloud credentials) and Home Assistant's own "add Google Sheets" page.
+const SHEETS_GUIDE_URL = "https://github.com/3devangelist/ha-3d-print-cost/blob/main/docs/google-sheets.md";
+const SHEETS_ADD_PATH = "/config/integrations/dashboard/add?domain=google_sheets";
 const PHOTO_FIELD_HINT = {
   host: "an IPv4 address like 192.168.1.96",
   printer_serial: "15 or 18 letters and digits",
@@ -289,6 +298,8 @@ class FdmPrinterPanel extends HTMLElement {
     this._cams = new Map(); // key -> {img, mode, at}; kept across renders so a live stream is not restarted
     this._zoom = null; // camera entity shown full size
     this._photo = { ai: undefined, status: "", kind: "", filled: {}, warnings: [], reading: false };
+    // Google Sheets log: status from the backend, the box under the title bar, the choice being made.
+    this._sheets = { status: null, open: false, busy: false, error: "", entry: "", worksheet: "Prints" };
     this._onVisibility = () => (document.hidden ? this._stopCams() : this._attachCams());
   }
 
@@ -307,6 +318,8 @@ class FdmPrinterPanel extends HTMLElement {
   }
   connectedCallback() {
     this._render();
+    // Back from Home Assistant's "add Google Sheets" page: the new entry shows up at once.
+    if (this._hass) this._loadSheets();
     this._historyTimer = setInterval(() => this._view === "list" && this._loadHistory(), 60000);
     this._camTimer = setInterval(() => this._attachCams(), 15000);
     document.addEventListener("visibilitychange", this._onVisibility);
@@ -398,6 +411,7 @@ class FdmPrinterPanel extends HTMLElement {
       console.error("FDM Printers: cannot load registry", err);
       this._registry = [];
     }
+    await this._loadSheets(false);
     await this._loadHistory(false);
     if (this._view === "list") this._render();
   }
@@ -467,6 +481,132 @@ class FdmPrinterPanel extends HTMLElement {
     this._render();
   }
 
+  // ------------------------------------------------------------------ Google Sheets
+  async _loadSheets(render = true) {
+    try {
+      this._sheets.status = await this._hass.callWS({ type: `${DOMAIN}/sheets_status` });
+    } catch (err) {
+      console.error("FDM Printers: cannot read the Google Sheets status", err);
+      this._sheets.status = null;
+    }
+    const entries = this._sheets.status?.entries || [];
+    if (!entries.some((e) => e.entry_id === this._sheets.entry)) this._sheets.entry = entries[0]?.entry_id || "";
+    if (render) this._renderIfIdle();
+  }
+
+  /** Where the printers log now: {entry, worksheet, on: [printers], off: [printers]} or null when none does. */
+  _sheetsTarget() {
+    const st = this._sheets.status;
+    if (!st) return null;
+    const on = st.printers.filter((p) => p.sheets_entry);
+    if (!on.length) return null;
+    const first = on[0];
+    const same = on.every((p) => p.sheets_entry === first.sheets_entry && p.worksheet === first.worksheet);
+    return {
+      entry: st.entries.find((e) => e.entry_id === first.sheets_entry) || null,
+      entryId: first.sheets_entry,
+      worksheet: first.worksheet,
+      same,
+      on,
+      off: st.printers.filter((p) => !p.sheets_entry),
+    };
+  }
+
+  _sheetsButton() {
+    if (!this._sheets.status) return "";
+    const target = this._sheetsTarget();
+    return `<button class="btn ${this._sheets.open ? "on" : ""}" data-act="sheets" title="Log every print to a Google Sheet">${target ? "✓ " : "▦ "}Google Sheets</button>`;
+  }
+
+  /** Display name of a Google Sheets entry (titles are often all "Google Sheets": add the end of the spreadsheet ID). */
+  _sheetsName(entry) {
+    if (!entry) return "a Google Sheets entry that was removed";
+    const entries = this._sheets.status?.entries || [];
+    const twin = entries.filter((e) => e.title === entry.title).length > 1;
+    return twin ? `${entry.title} (…${entry.url.slice(-6)})` : entry.title;
+  }
+
+  _renderSheets(printers) {
+    if (!this._sheets.open) return "";
+    const st = this._sheets.status;
+    const help = `<a class="link" href="${SHEETS_GUIDE_URL}" target="_blank" rel="noreferrer">Guide ↗</a>`;
+    const close = `<button class="btn sm ghost" data-act="sheetsclose">Close</button>`;
+    const error = this._sheets.error ? `<div class="banner err">${esc(this._sheets.error)}</div>` : "";
+    const busy = this._sheets.busy ? "busy" : "";
+    if (!st) return `<div class="sheets">${error}<p class="sub">Cannot read the Google Sheets status.</p><div class="row">${close}</div></div>`;
+    if (!printers.length) return `<div class="sheets"><p>Add a printer first. Then every print can add one row to a Google Sheet.</p><div class="row">${help}${close}</div></div>`;
+    const target = this._sheetsTarget();
+    if (target && !this._sheets.change) {
+      const where = `${esc(this._sheetsName(target.entry))} › ${esc(target.worksheet)}`;
+      const lines = [];
+      if (!target.same) lines.push(`<p class="sub">Printers log to different places: ${target.on.map((p) => `${esc(p.title)} → ${esc(p.worksheet)}`).join(", ")}.</p>`);
+      if (target.off.length) lines.push(`<p class="sub">Not logged: ${target.off.map((p) => esc(p.title)).join(", ")}.</p>`);
+      if (target.entry && !target.entry.loaded) lines.push(`<div class="banner warn">This Google Sheets entry is not working. Open Settings › Devices &amp; services › Google Sheets and sign in again.</div>`);
+      const open = target.entry ? `<a class="btn sm" href="${esc(target.entry.url)}" target="_blank" rel="noreferrer">Open the sheet ↗</a>` : "";
+      const all = target.off.length || !target.same ? `<button class="btn sm" data-act="sheetsall">Log all printers here</button>` : "";
+      return `<div class="sheets ${busy}">${error}<div class="ok">✓ Logging to ${where}</div>${lines.join("")}
+        <div class="row">${open}${all}<button class="btn sm" data-act="sheetschange">Change</button><button class="btn sm danger" data-act="sheetsoff">Turn off for all printers</button>${help}${close}</div></div>`;
+    }
+    const entries = st.entries;
+    if (!entries.length) {
+      return `<div class="sheets ${busy}">${error}
+        <p><b>Log every print to a Google Sheet.</b> One row per print: printer, file, result, times, energy and cost.</p>
+        <ol>
+          <li>Once: create Google Cloud credentials (about 10 minutes). The guide shows each click.</li>
+          <li>Connect Google Sheets in Home Assistant: you only sign in with Google. It creates a spreadsheet called “Home Assistant” in your Drive.</li>
+          <li>Come back here and press <b>Start logging</b>.</li>
+        </ol>
+        <div class="row"><button class="btn sm pri" data-act="sheetsadd">Connect Google Sheets</button><button class="btn sm" data-act="sheetsreload">Check again</button>${help}${close}</div></div>`;
+    }
+    const options = entries
+      .map((e) => `<option value="${esc(e.entry_id)}" ${e.entry_id === this._sheets.entry ? "selected" : ""}>${esc(this._sheetsName(e))}${e.loaded ? "" : " (not working)"}</option>`)
+      .join("");
+    const back = target ? `<button class="btn sm ghost" data-act="sheetsback">Cancel</button>` : close;
+    return `<div class="sheets ${busy}">${error}
+      <p><b>Log every print to a Google Sheet.</b> The tab is created if it is missing, and the log is turned on for all ${printers.length} printer${printers.length === 1 ? "" : "s"}.</p>
+      <div class="f"><label for="sheetsentry">Spreadsheet (Google Sheets entry)</label><select id="sheetsentry" class="keep">${options}</select></div>
+      <div class="f"><label for="sheetsws">Tab name</label><input id="sheetsws" class="keep" value="${esc(this._sheets.worksheet)}" placeholder="Prints" autocomplete="off"></div>
+      <div class="row"><button class="btn sm pri" data-act="sheetssetup">${this._sheets.busy ? "Setting up…" : "Start logging"}</button><button class="btn sm" data-act="sheetsadd">Add another spreadsheet</button>${help}${back}</div></div>`;
+  }
+
+  /** Open Home Assistant's own "add integration" dialog for Google Sheets (the page the My link for it opens). */
+  _openSheetsAdd() {
+    history.pushState(null, "", SHEETS_ADD_PATH);
+    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
+  }
+
+  async _sheetsSetup(entryId, worksheet) {
+    this._sheets.busy = true;
+    this._sheets.error = "";
+    this._render();
+    try {
+      const msg = { type: `${DOMAIN}/sheets_setup`, worksheet: worksheet || "Prints" };
+      if (entryId) msg.config_entry = entryId;
+      const res = await this._hass.callWS(msg);
+      this._sheets.change = false;
+      this._flash(`${res.created ? `Tab “${res.worksheet}” created. ` : ""}Logging ${res.printers.length} printer${res.printers.length === 1 ? "" : "s"} to ${res.spreadsheet_title || res.title} › ${res.worksheet}`);
+    } catch (err) {
+      this._sheets.error = String(err?.message || err);
+    }
+    this._sheets.busy = false;
+    await this._loadSheets(false);
+    this._render();
+  }
+
+  async _sheetsOff() {
+    this._sheets.busy = true;
+    this._render();
+    try {
+      await this._hass.callWS({ type: `${DOMAIN}/sheets_off` });
+      this._flash("Google Sheets log turned off for all printers");
+    } catch (err) {
+      this._sheets.error = String(err?.message || err);
+    }
+    this._sheets.busy = false;
+    await this._loadSheets(false);
+    this._render();
+  }
+
   async _loadHistory(render = true) {
     try {
       const msg = { type: `${DOMAIN}/history`, limit: this._history.limit };
@@ -507,6 +647,8 @@ class FdmPrinterPanel extends HTMLElement {
     if (this._renderTimer) return;
     this._renderTimer = setTimeout(() => {
       this._renderTimer = null;
+      // Never redraw under a field the user is typing in (the Google Sheets tab name): try again later.
+      if (this.shadowRoot?.activeElement?.classList?.contains("keep")) return this._scheduleRender();
       this._render();
     }, 500);
   }
@@ -517,7 +659,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.11.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.12.0</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -539,8 +681,9 @@ class FdmPrinterPanel extends HTMLElement {
       <main>
         <div class="bar">
           <div><h1>Printers</h1><div class="sub">${printers.length} printer${printers.length === 1 ? "" : "s"} · ${active.length} printing</div></div>
-          <button class="btn pri" data-act="add">＋ Add printer</button>
+          <div class="links">${this._sheetsButton()}<button class="btn pri" data-act="add">＋ Add printer</button></div>
         </div>
+        ${this._renderSheets(printers)}
         ${(this._reauth || [])
           .map(
             (f) =>
@@ -1371,6 +1514,8 @@ class FdmPrinterPanel extends HTMLElement {
       this._history.limit = 10;
       this._loadHistory();
     });
+    root.getElementById("sheetsentry")?.addEventListener("change", (ev) => (this._sheets.entry = ev.target.value));
+    root.getElementById("sheetsws")?.addEventListener("input", (ev) => (this._sheets.worksheet = ev.target.value));
     // A wheel over a number field must scroll the page, not change the value.
     root.querySelectorAll('input[type="number"]').forEach((el) => el.addEventListener("wheel", () => el.blur(), { passive: true }));
     root.querySelectorAll("input.cb").forEach((el) => this._setupCombo(el));
@@ -1392,6 +1537,27 @@ class FdmPrinterPanel extends HTMLElement {
     const act = el.dataset.act;
     if (act === "photochoose") return this._pickPhoto();
     if (act === "add") return this._startAdd();
+    if (act === "sheets" || act === "sheetsclose") {
+      Object.assign(this._sheets, { open: act === "sheets" && !this._sheets.open, error: "", change: false });
+      if (this._sheets.open) this._loadSheets(false);
+      return this._render();
+    }
+    if (act === "sheetsreload") {
+      this._sheets.error = "";
+      return this._loadSheets();
+    }
+    if (act === "sheetsadd") return this._openSheetsAdd();
+    if (act === "sheetschange" || act === "sheetsback") {
+      this._sheets.change = act === "sheetschange";
+      this._sheets.error = "";
+      return this._render();
+    }
+    if (act === "sheetssetup") return this._sheetsSetup(this._sheets.entry, this._sheets.worksheet.trim());
+    if (act === "sheetsall") {
+      const target = this._sheetsTarget();
+      return this._sheetsSetup(target?.entryId, target?.worksheet);
+    }
+    if (act === "sheetsoff") return this._sheetsOff();
     if (act === "scan") return this._scan();
     if (act === "found") {
       this._dropFlow(); // leaving the menu flow of "Add printer"

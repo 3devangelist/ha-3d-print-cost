@@ -126,6 +126,7 @@ EVENT_PRINT_MARKED: Final = f"{DOMAIN}_print_marked"  # a finished print was mar
 
 SERVICE_MARK_PRINT: Final = "mark_print"
 SERVICE_BABYSTEP: Final = "babystep"
+SERVICE_SHEETS_SETUP: Final = "sheets_setup"
 
 # Watching a running print (printer down, stuck or interrupted print, no progress)
 EVENT_ALERT: Final = f"{DOMAIN}_alert"

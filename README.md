@@ -182,12 +182,20 @@ Every print that ends (finished, failed, cancelled or unknown) adds one row to a
 through Home Assistant's own [Google Sheets](https://www.home-assistant.io/integrations/google_sheets/)
 integration.
 
-1. Add the **Google Sheets** integration (Settings → Devices & services). It creates a new
-   spreadsheet in your Google Drive.
-2. Open that spreadsheet and add a tab named **Prints** (or any name).
-3. **FDM Printers → Edit → When a print ends**: pick the Google Sheets entry in
-   **Google Sheets log** and type the tab name in **Worksheet** (empty: Prints). Do it for
-   each printer you want logged.
+Step by step, with the Google Cloud credentials it needs once:
+[Log every print to a Google Sheet](docs/google-sheets.md) ([em português](docs/google-sheets.pt.md)).
+
+1. Once: create Google Cloud OAuth credentials (about 10 minutes, see the guide).
+2. **FDM Printers → Google Sheets → Connect Google Sheets**: Home Assistant's own window opens;
+   you only sign in with Google. It creates a spreadsheet called "Home Assistant" in your Drive.
+3. **FDM Printers → Google Sheets → Start logging**: pick the spreadsheet and the tab name
+   (default **Prints**). The tab is created if it is missing (with the header row), and the log is
+   turned on for every printer. The page then shows "✓ Logging to … › Prints", a link to the
+   sheet, and **Turn off for all printers**.
+
+The same from an automation or script: the action `fdm_printer_manager.sheets_setup`
+(`config_entry`, `worksheet`, optional `entry_id`; returns the spreadsheet URL).
+One printer on its own tab: **Edit → When a print ends** (**Google Sheets log** and **Worksheet**).
 
 Columns: `created` (added by Google Sheets), `printer`, `file`, `result` (`success`, `failed`,
 `cancelled`, `unknown`), `result_by` (`printer`, `watchdog` or `user`), `started`, `finished`
@@ -201,7 +209,8 @@ Missing headers are added by Google Sheets on the first row.
   and is sent before the next one, at the next print or when Home Assistant starts. You get one
   notification until it goes through. Up to 200 rows wait.
 - **Limits of the Google Sheets integration**: it only writes to the spreadsheet it created
-  (not to one you made yourself), and the tab must already exist.
+  (not to one you made yourself). The **Google Sheets** button creates the tab; with the options
+  form alone, the tab must already exist.
 
 **New access code (Bambu Lab LAN)**: it changes when LAN Only mode is turned off and on. When
 the printer refuses it, Home Assistant asks for the new one (also at the top of the FDM
@@ -369,6 +378,8 @@ restart recovery, last print, `print_finished` event.
 - 🚧 OctoPrint
 - 🚧 LLM assistant to import an existing setup (to think about)
 - ✅ **0.11.0** — one row per print in a Google Sheet (Google Sheets integration)
+- ✅ **0.12.0** — "Google Sheets" button in the FDM Printers page: connect, create the tab and
+  log every printer in one click; guide in English and Portuguese
 
 ## License
 

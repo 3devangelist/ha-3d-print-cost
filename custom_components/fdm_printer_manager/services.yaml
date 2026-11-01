@@ -52,3 +52,20 @@ babystep:
       default: false
       selector:
         boolean:
+sheets_setup:
+  fields:
+    config_entry:
+      required: false
+      selector:
+        config_entry:
+          integration: google_sheets
+    worksheet:
+      required: false
+      example: "Prints"
+      selector:
+        text:
+    entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: fdm_printer_manager

@@ -237,7 +237,7 @@
           "todo_entity": "Adds \"Remove the print from [printer name]\" with the file name and the result, so a part is not forgotten on the plate.",
           "end_script": "Started with the print summary as variables: printer, name, result, duration_s, energy_kwh, electricity_cost, currency.",
           "sheets_config_entry": "Adds one row per finished, failed or cancelled print to the spreadsheet of this Google Sheets integration entry. Empty: off.",
-          "sheets_worksheet": "Name of the tab to write to. It must already exist. Empty: Prints."
+          "sheets_worksheet": "Name of the tab to write to. It must already exist: the Google Sheets button of the FDM Printers page creates it for you. Empty: Prints."
         }
       }
     },
@@ -436,6 +436,24 @@
         "save": {
           "name": "Save",
           "description": "Keep the offset (Z_OFFSET_APPLY_PROBE / ENDSTOP). Needs \"Allow saving the Z offset\" in the options; run SAVE_CONFIG when idle."
+        }
+      }
+    },
+    "sheets_setup": {
+      "name": "Set up the Google Sheets log",
+      "description": "Adds one row per finished print to a tab of a Google Sheets spreadsheet. Creates the tab when it is missing and sets it in the options of every printer (or of one).",
+      "fields": {
+        "config_entry": {
+          "name": "Google Sheets entry",
+          "description": "The spreadsheet, as an entry of the Google Sheets integration. Empty: the first one."
+        },
+        "worksheet": {
+          "name": "Worksheet",
+          "description": "Name of the tab. Created when it is missing. Empty: Prints."
+        },
+        "entry_id": {
+          "name": "Printer",
+          "description": "Optional. Only this printer. Empty: every printer."
         }
       }
     }

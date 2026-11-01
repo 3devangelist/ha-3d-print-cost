@@ -6,19 +6,23 @@ off the plate, a "failed" one may be usable).
 
 ``fdm_printer_manager.babystep``: move the nozzle up or down while a Klipper
 printer prints (live Z offset), reset that offset, or keep it.
+
+``fdm_printer_manager.sheets_setup``: log every printer (or one) to a tab of a
+Google Sheets integration entry; the tab is created when it is missing.
 """
 
 from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
 from .adapters.klipper_extras import BABYSTEP_STEPS
-from .const import CONF_PANEL, DOMAIN, SERVICE_BABYSTEP, SERVICE_MARK_PRINT
+from .const import CONF_PANEL, DOMAIN, SERVICE_BABYSTEP, SERVICE_MARK_PRINT, SERVICE_SHEETS_SETUP
 from .outcome import MARKABLE
+from .sheets import async_setup_log
 
 ATTR_ENTRY_ID = "entry_id"
 ATTR_RESULT = "result"
@@ -43,6 +47,17 @@ BABYSTEP_SCHEMA = vol.Schema(
         vol.Optional(ATTR_STEP, default=0.01): vol.All(vol.Coerce(float), vol.In(BABYSTEP_STEPS)),
         vol.Optional(ATTR_RESET, default=False): cv.boolean,
         vol.Optional(ATTR_SAVE, default=False): cv.boolean,
+    }
+)
+
+ATTR_CONFIG_ENTRY = "config_entry"
+ATTR_WORKSHEET = "worksheet"
+
+SHEETS_SETUP_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_CONFIG_ENTRY): cv.string,
+        vol.Optional(ATTR_WORKSHEET): cv.string,
+        vol.Optional(ATTR_ENTRY_ID): vol.All(cv.ensure_list, [cv.string]),
     }
 )
 
@@ -80,4 +95,20 @@ def async_setup_services(hass: HomeAssistant) -> None:
         await coordinator.async_babystep(delta, reset=reset, save=save)
 
     hass.services.async_register(DOMAIN, SERVICE_MARK_PRINT, _mark_print, schema=MARK_PRINT_SCHEMA)
+
+    async def _sheets_setup(call: ServiceCall) -> ServiceResponse:
+        return await async_setup_log(
+            hass,
+            call.data.get(ATTR_CONFIG_ENTRY),
+            call.data.get(ATTR_WORKSHEET),
+            call.data.get(ATTR_ENTRY_ID) or None,
+        )
+
     hass.services.async_register(DOMAIN, SERVICE_BABYSTEP, _babystep, schema=BABYSTEP_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SHEETS_SETUP,
+        _sheets_setup,
+        schema=SHEETS_SETUP_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
