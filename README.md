@@ -59,7 +59,9 @@ Everything happens in that one window:
      connection without one.
    - *Bambu Lab (LAN)*: IP address, serial number and access code (printer screen →
      Settings → LAN only mode; recent firmware also needs **Developer mode**). A printer
-     found on the network already has IP and serial filled in.
+     found on the network already has IP and serial filled in. **📷 Take photo** fills
+     the three fields from a photo of the printer's LAN Only page (with your AI Task, or
+     read on your device). Step by step: [Connect a Bambu Lab printer over LAN](docs/bambu-lan-only.md).
    - *Bambu Lab (via the Bambu Lab integration)*: pick the printer from ha-bambulab;
      its entities are found automatically.
 3. **Smart plug** — the switch the printer is plugged into. Its power sensor
@@ -191,7 +193,8 @@ actions:
 | Symptom                    | Check                                                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------------------------------ |
 | No print detected (Klipper) | open `http://<IP>:7125/server/info` in a browser: it must answer. If Moonraker asks for an API key, set it in **Configure**. |
-| Bambu LAN "access code refused" / cannot connect | LAN only mode (and Developer mode on recent firmware) must be on; the code changes when LAN mode is toggled. Port 8883 must be reachable. |
+| Bambu LAN "access code refused" / cannot connect | LAN only mode (and Developer mode on recent firmware) must be on; the code changes when LAN mode is toggled. Port 8883 must be reachable. See [the Bambu LAN guide](docs/bambu-lan-only.md). |
+| 📷 Take photo does nothing in the Android app | Allow the camera for the Home Assistant app: Android Settings → Apps → Home Assistant → Permissions → Camera. |
 | No print detected (Bambu)  | the _print status_ entity must report `prepare` / `running` / `pause` (ha-bambulab `print_status`).    |
 | Two prints merged / split  | configure the _job name_ entity.                                                                       |
 | Electricity cost `unknown` | the price entity was `unknown`/`unavailable` or in an unsupported unit; see `notes`.                   |
