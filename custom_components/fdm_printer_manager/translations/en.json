@@ -193,6 +193,12 @@
         "left": "Left (step sensors)",
         "trapezoidal": "Trapezoidal"
       }
+    },
+    "mark_result": {
+      "options": {
+        "success": "Success",
+        "failed": "Failed"
+      }
     }
   },
   "entity": {
@@ -305,6 +311,26 @@
       },
       "cancel_print": {
         "name": "Cancel print"
+      }
+    }
+  },
+  "services": {
+    "mark_print": {
+      "name": "Mark a print",
+      "description": "Mark a finished print as a success or a failure. Use it when the printer got it wrong, e.g. a \"finished\" print that came off the plate.",
+      "fields": {
+        "entry_id": {
+          "name": "Printer",
+          "description": "The printer the print was made on."
+        },
+        "result": {
+          "name": "Result",
+          "description": "Success or failed."
+        },
+        "job_id": {
+          "name": "Print ID",
+          "description": "Optional. The print to mark (the `job_id` of the print history). Empty: the last print."
+        }
       }
     }
   }

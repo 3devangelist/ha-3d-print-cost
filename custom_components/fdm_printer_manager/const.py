@@ -107,6 +107,9 @@ MAX_SAMPLE_GAP: Final = 300  # seconds
 
 EVENT_PRINT_FINISHED: Final = f"{DOMAIN}_print_finished"
 EVENT_TYPE_PRINT_FINISHED: Final = "print_finished"
+EVENT_PRINT_MARKED: Final = f"{DOMAIN}_print_marked"  # a finished print was marked success / failed by hand
+
+SERVICE_MARK_PRINT: Final = "mark_print"
 
 
 class IntegrationMethod(StrEnum):

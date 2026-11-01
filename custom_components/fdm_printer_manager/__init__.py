@@ -15,7 +15,9 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import SOURCE_INTEGRATION_DISCOVERY, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.typing import ConfigType
 
 from . import photo
 from .adapters.bambu_lan import BambuAnnouncement, async_listen_ssdp
@@ -32,9 +34,13 @@ from .const import (
     STATIC_URL,
 )
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
+from .outcome import history_stats
 from .scanner import async_scan_network, async_start_scanning
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -47,6 +53,12 @@ PLATFORMS: list[Platform] = [
 
 # Entities of the removed history and G-code estimate features.
 REMOVED_KEYS = ("print_history", "gcode_estimate", "gcode_file", "estimate_gcode", "refresh_gcode_files")
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the actions (they work for every printer entry)."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -> bool:
@@ -204,7 +216,9 @@ async def ws_history(hass: HomeAssistant, connection: websocket_api.ActiveConnec
         rows.extend({"entry_id": entry.entry_id, "currency": currency, **h} for h in coordinator.state.history)
     rows.sort(key=lambda r: r.get("finished_at") or "", reverse=True)
     start = msg["offset"]
-    connection.send_result(msg["id"], {"total": len(rows), "rows": rows[start : start + msg["limit"]]})
+    connection.send_result(
+        msg["id"], {"total": len(rows), "rows": rows[start : start + msg["limit"]], "stats": history_stats(rows)}
+    )
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/scan"})

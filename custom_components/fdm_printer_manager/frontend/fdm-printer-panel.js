@@ -50,6 +50,9 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .state{font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:5px;background:var(--surface-2);color:var(--idle);white-space:nowrap}
 .state.run{color:var(--run);background:rgba(240,163,58,.15)} .state.ok{color:var(--ok);background:rgba(87,194,122,.15)} .state.off{color:var(--bad);background:rgba(239,106,90,.15)}
 .job{padding:0 14px;font-family:var(--mono);font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mark{display:flex;gap:6px;padding:6px 14px 0}
+.rmark{display:inline-flex;gap:6px;margin-left:6px}
+.stats{margin:-4px 0 8px}
 .prog{margin:8px 14px 0;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
 .prog i{display:block;height:100%;background:var(--run)}
 .meta{display:flex;justify-content:space-between;gap:8px;padding:4px 14px 0;font:500 .74rem var(--mono);color:var(--muted);min-height:1.5em}
@@ -441,6 +444,7 @@ class FdmPrinterPanel extends HTMLElement {
       const res = await this._hass.callWS(msg);
       this._history.rows = res.rows || [];
       this._history.total = res.total || 0;
+      this._history.stats = res.stats || null;
     } catch (err) {
       console.error("FDM Printers: cannot load history", err);
     }
@@ -536,6 +540,14 @@ class FdmPrinterPanel extends HTMLElement {
         ? `Last: ${RESULT_ICON[lastResult] || ""} ${lastResult} · ${money(num(s("last_print_cost")), unit)}`
         : "";
     const eid = p.entry.entry_id;
+    // The printer's verdict can be wrong (a "finished" print that came off the plate): mark the last print by hand.
+    const hasLast = s("last_print_result") && !["unavailable"].includes(lastResult);
+    const markHtml =
+      !active && hasLast
+        ? `<div class="mark">${lastResult !== "success" ? `<button class="btn sm" data-act="mark" data-entry="${esc(eid)}" data-result="success" title="Mark the last print as a success">✓ OK</button>` : ""}${
+            lastResult !== "failed" ? `<button class="btn sm danger" data-act="mark" data-entry="${esc(eid)}" data-result="failed" title="Mark the last print as failed">✗ Failed</button>` : ""
+          }</div>`
+        : "";
 
     const foot = active
       ? `<div><div class="k">Energy</div><div class="v">${kwh(num(s("current_print_energy")))}</div></div>
@@ -588,6 +600,7 @@ class FdmPrinterPanel extends HTMLElement {
         <div class="hd"><div><div class="nm">${esc(p.entry.title)}</div><div class="ty">${type}${where}</div></div><span class="state ${cls}">${esc(shown)}</span></div>
         ${camHtml}
         <div class="job">${esc(active ? fileShown || "—" : lastLine || "—")}</div>
+        ${markHtml}
         <div class="prog"><i style="width:${active && progress != null ? Math.min(100, progress) : 0}%"></i></div>
         <div class="meta"><span>${active && progress != null ? `${Math.round(progress)}%${paused ? " · paused" : ""}` : ""}</span><span>${active && left != null ? `${fmtMin(left)} left` : ""}</span></div>
         <div class="temps">${nozzle != null ? `▲ ${nozzle.toFixed(1)}°` : ""}</div>
@@ -628,15 +641,28 @@ class FdmPrinterPanel extends HTMLElement {
     const opts = [`<option value="">All printers</option>`]
       .concat(printers.map((p) => `<option value="${esc(p.entry.entry_id)}" ${h.filter === p.entry.entry_id ? "selected" : ""}>${esc(p.entry.title)}</option>`))
       .join("");
+    const markBtn = (r, result, label, title) =>
+      r.result !== result && r.job_id
+        ? `<button class="linkbtn" data-act="mark" data-entry="${esc(r.entry_id)}" data-job="${esc(r.job_id)}" data-result="${result}" title="${title}">${label}</button>`
+        : "";
     const rows = h.rows
       .map(
-        (r) => `<tr><td>${RESULT_ICON[r.result] || "❔"} ${esc(r.result || "")}</td><td>${esc(r.printer)}</td><td class="m">${esc(r.name || "—")}</td>
+        (r) => `<tr><td>${RESULT_ICON[r.result] || "❔"} ${esc(r.result || "")}${r.result_by === "user" ? ` <span class="sub" title="Marked by hand">✎</span>` : ""}
+          <span class="rmark">${markBtn(r, "success", "✓", "Mark as a success")}${markBtn(r, "failed", "✗", "Mark as failed")}</span></td><td>${esc(r.printer)}</td><td class="m">${esc(r.name || "—")}</td>
           <td>${fmtWhen(r.finished_at)}</td><td class="n">${fmtMin((r.duration_s || 0) / 60)}</td>
           <td class="n">${kwh(r.energy_kwh)}</td><td class="n">${money(r.electricity_cost, r.currency)}</td></tr>`,
       )
       .join("");
+    const st = h.stats;
+    const cur = h.rows[0]?.currency || "";
+    const statsHtml =
+      st && st.prints
+        ? `<div class="stats sub">${st.prints} prints · ${st.success_rate != null ? `${st.success_rate}% successful` : "no verdicts yet"} · ${st.counts.failed} failed${
+            st.counts.cancelled ? ` · ${st.counts.cancelled} cancelled` : ""
+          } · failed and cancelled prints cost ${money(st.wasted_cost, cur)}</div>`
+        : "";
     const more = h.total > h.rows.length ? `<div class="more"><button class="btn sm" data-act="more">Show more (${h.total - h.rows.length})</button></div>` : "";
-    return `<h2>Recent prints <span class="filters"><select id="hfilter" aria-label="Filter by printer">${opts}</select></span></h2>${
+    return `<h2>Recent prints <span class="filters"><select id="hfilter" aria-label="Filter by printer">${opts}</select></span></h2>${statsHtml}${
       h.rows.length
         ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
         : `<p class="empty" style="padding:4px 0">No finished prints yet. They appear here as soon as a print ends.</p>`
@@ -1316,6 +1342,19 @@ class FdmPrinterPanel extends HTMLElement {
       this._ask = null;
       const what = el.dataset.what;
       return this._call("button", "press", el.dataset.entity, what === "cancel" ? "Cancelling the print…" : what === "pause" ? "Pausing…" : "Resuming…");
+    }
+    if (act === "mark") return this._mark(el.dataset.entry, el.dataset.result, el.dataset.job);
+  }
+
+  async _mark(entryId, result, jobId) {
+    const data = { entry_id: entryId, result };
+    if (jobId) data.job_id = jobId;
+    this._flash(result === "success" ? "Marked as a success" : "Marked as failed");
+    try {
+      await this._hass.callService(DOMAIN, "mark_print", data);
+      await this._loadHistory();
+    } catch (err) {
+      this._flash(String(err?.message || err));
     }
   }
 

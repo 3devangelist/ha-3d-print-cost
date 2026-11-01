@@ -3,6 +3,20 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## 0.9.0 (unreleased)
+
+### Added
+
+- **Mark a print as a success or a failure** by hand: **✓ OK** / **✗ Failed** on the printer
+  card (last print) and on every row of "Recent prints". The printer's own verdict is not always
+  right (a "finished" print may have come off the plate). New action
+  `fdm_printer_manager.mark_print` (`entry_id`, `result`, optional `job_id`; empty = the last
+  print) and event `fdm_printer_manager_print_marked`. A marked print shows ✎ in the history and
+  `result_by: user` in the last print attributes.
+- **History numbers** above "Recent prints": number of prints, success rate (successes against
+  failures; cancelled prints don't count) and what the failed and cancelled prints cost.
+  The `fdm_printer_manager/history` websocket command returns them as `stats`.
+
 ## [0.7.0]
 
 ### Added

@@ -73,6 +73,7 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     EVENT_PRINT_FINISHED,
+    EVENT_PRINT_MARKED,
     HISTORY_LIMIT,
     HTTP_TIMEOUT,
     KLIPPER_POLL_INTERVAL,
@@ -86,7 +87,8 @@ from .const import (
     IntegrationMethod,
     PrinterType,
 )
-from .models import ElectricityAccumulator, JobPhase, PrintJob
+from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
+from .outcome import MARKABLE, mark_history
 from .storage import JobStore, StoredState
 from .tracker import PrinterSnapshot, PrintTracker, TransitionKind
 
@@ -451,6 +453,32 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._finished_listeners.remove(listener)
 
         return _remove
+
+    # ------------------------------------------------------------------ #
+    # Marking a finished print by hand
+    # ------------------------------------------------------------------ #
+    async def async_mark_result(self, result: str, job_id: str | None = None) -> None:
+        """Mark a finished print (the last one when no job id is given) as a success or a failure."""
+        if result not in MARKABLE:
+            raise HomeAssistantError(f"A print can only be marked as {' or '.join(MARKABLE)}")
+        last = self.state.last_job
+        job_id = job_id or (last.job_id if last else None)
+        if job_id is None:
+            raise HomeAssistantError(f"{self.printer_name} has no finished print yet")
+        found = mark_history(self.state.history, job_id, result)
+        if last is not None and last.job_id == job_id:
+            last.result = PrintResult(result)
+            last.result_by = "user"
+            found = True
+        if not found:
+            raise HomeAssistantError(f"{self.printer_name}: print {job_id} not found")
+        await self.store.async_save(self.state)
+        self.hass.bus.async_fire(
+            EVENT_PRINT_MARKED,
+            {"entry_id": self.config_entry.entry_id, "printer": self.printer_name, "job_id": job_id, "result": result},
+        )
+        _LOGGER.info("%s: print %s marked as %s", self.printer_name, job_id, result)
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
 
     # ------------------------------------------------------------------ #
     # Sampling
