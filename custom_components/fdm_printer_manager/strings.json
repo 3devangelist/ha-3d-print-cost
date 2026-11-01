@@ -155,7 +155,19 @@
         "title": "Advanced",
         "data": {
           "update_interval": "Sampling interval while printing",
-          "currency": "Currency"
+          "currency": "Currency",
+          "auto_off_minutes": "Turn the printer off after a print (minutes)",
+          "ssh_username": "SSH user name",
+          "ssh_password": "SSH password",
+          "ssh_private_key": "SSH private key",
+          "ssh_command": "SSH shutdown command"
+        },
+        "data_description": {
+          "auto_off_minutes": "After a print ends (finished, cancelled or failed) and this long without a new one, the printer is turned off safely: nozzle below 80 °C, its computer shut down, the plug cut once it stops answering. 0 = never. Needs a smart plug.",
+          "ssh_username": "Advanced: only for a printer whose Moonraker cannot shut its computer down. The Elegoo Centauri Carbon needs nothing here: it is recognised and shut down over SSH as root by itself. Leave empty to not use SSH.",
+          "ssh_password": "Optional. Leave empty to keep the stored one (or for a login without a password).",
+          "ssh_private_key": "Optional, instead of the password (OpenSSH format). Leave empty to keep the stored one.",
+          "ssh_command": "Run on the printer to shut it down, for example poweroff or sudo poweroff."
         }
       },
       "klipper": {

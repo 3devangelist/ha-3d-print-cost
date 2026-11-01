@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## 0.9.0 (unreleased)
+## [0.9.0]
 
 ### Added
 
@@ -42,6 +42,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   rename the device.
 - Last print attributes and the history: `result_by` (`user`, `watchdog`, or empty for the
   printer's own verdict).
+
+## [0.8.0]
+
+### Added
+
+- **Auto-off after a print**: when a print ends (finished, cancelled or failed), the printer is
+  turned off safely after **15 minutes** without a new print (Configure → Advanced, 0 = never).
+  It waits for the nozzle to drop below 80 °C, shuts the printer's computer down and cuts the
+  plug only once that computer stops answering. A new print, the plug turned off by hand, or
+  tapping the power button on the card cancels it. The card shows "Auto off at HH:MM".
+- **SSH shutdown fallback** for Klipper printers whose Moonraker cannot shut down. The
+  **Elegoo Centauri Carbon** ("cosmos" firmware) answers `POST /machine/shutdown` with HTTP 500
+  "Error running shell command: 'sudo systemctl poweroff'" and stays on; it is recognised by its
+  host name or that error and shut down with one `poweroff` over SSH as `root` (no password, as
+  the printer ships), with nothing to set up. Other printers can be given an SSH login in the
+  options (user, optional password or key, command). Only that one command is ever run.
+- **Take photo opens the camera inside the page** (getUserMedia), because the Home Assistant
+  Android app ignores `capture="environment"`. Set up for photographing a lit screen: flash off,
+  exposure towards −3 EV, focus and metering on the centre, high resolution (each only when the
+  camera supports it). Without a camera API (Home Assistant over plain `http://`) or when access
+  is refused, it falls back to the file picker with a clear message.
+
+### Changed
+
+- **Safe power** cuts the plug only once the printer's computer stops answering a ping (or a
+  TCP check): 3 checks in a row 5 s apart, then 10 s more. Moonraker going quiet is not enough
+  any more. Still answering after 5 minutes, or no way to shut it down, the plug is **left on**
+  and a notification says why (before: cut after 3 minutes regardless).
+- New `safe_power` attributes: `auto_off_at`, `auto_off_minutes`, `last_result`
+  (`power_off`, `aborted`, `hot`, `still_on`, `no_shutdown`) and `ssh`; new phase `waiting`.
+- The SSH password and key are redacted from diagnostics.
+- `asyncssh` is now a requirement (only imported when an SSH shutdown is needed).
 
 ## [0.7.0]
 

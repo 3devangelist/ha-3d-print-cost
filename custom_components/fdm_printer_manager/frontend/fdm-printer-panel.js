@@ -145,6 +145,8 @@ details summary{cursor:pointer;margin-bottom:10px}
 .photo .h{font-size:.8rem;color:var(--muted)}
 .photo .st{font-size:.88rem}
 .photo .st.err{color:var(--bad)} .photo .st.ok{color:var(--ok)}
+.photo .cam{display:flex;flex-direction:column;gap:8px}
+.photo .cam video{width:100%;max-height:60vh;background:#000;border-radius:8px;object-fit:contain}
 .f.filled input{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .f .w{font-size:.8rem;color:var(--run)}
 `;
@@ -503,7 +505,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.6.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.8.0</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -589,17 +591,31 @@ class FdmPrinterPanel extends HTMLElement {
     if (power) {
       const phase = power.attributes?.phase;
       const on = power.state === "on";
+      const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+      // Shutting down: the computer is going off; the plug is cut once it stops answering.
       const waiting = phase === "shutting_down";
       // Cooling: the nozzle has to drop below cool_to before the plug is cut; a tap keeps the printer on.
       const cooling = phase === "cooling";
+      // Auto-off: the print ended, the printer turns itself off at auto_off_at; a tap keeps it on.
+      const autoOff = phase === "waiting";
+      const keepable = cooling || autoOff;
       const coolTo = power.attributes?.cool_to ?? 80;
-      const cutAt = power.attributes?.cut_at ? new Date(power.attributes.cut_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
       const label = cooling
         ? `Cooling nozzle — ${nozzle != null ? `${Math.round(nozzle)}°` : "…"} → ${coolTo}°`
-        : waiting ? `Shutting down… cut by ${cutAt}` : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
-      const disabled = waiting || power.state === "unavailable" || (on && active && !cooling);
-      const title = cooling ? "Waiting for the nozzle to cool. Tap to keep the printer on" : on && active ? "Not while printing" : "";
-      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !cooling ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || cooling ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>`;
+        : autoOff ? `Auto off at ${hhmm(power.attributes?.auto_off_at)}`
+        : waiting ? `Shutting down… waiting for it to go off (until ${hhmm(power.attributes?.cut_at)})`
+        : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
+      const disabled = waiting || power.state === "unavailable" || (on && active && !keepable);
+      const title = cooling ? "Waiting for the nozzle to cool. Tap to keep the printer on"
+        : autoOff ? "Turns off by itself after the print. Tap to keep the printer on"
+        : on && active ? "Not while printing" : "";
+      // Why the last power off left the plug on (also sent as a notification).
+      const problem = on && !phase ? {
+        hot: "Not turned off: the nozzle stayed hot",
+        still_on: "Not turned off: the computer kept running",
+        no_shutdown: "Not turned off: could not shut the computer down (set the SSH login)",
+      }[power.attributes?.last_result] : null;
+      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !keepable ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || keepable ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>${problem ? `<span class="sub warn">${esc(problem)}</span>` : ""}`;
     }
 
     // Camera: only when the printer has one (Klipper webcam found by the integration, or ha-bambulab's own).
@@ -1136,7 +1152,19 @@ class FdmPrinterPanel extends HTMLElement {
         ? "Read on this device: the photo never leaves it (the first time downloads the reader, about 10 MB)."
         : "";
     const status = p.status ? `<div class="st ${esc(p.kind)}">${esc(p.status)}</div>` : "";
+    // Camera inside the page: the Home Assistant Android app ignores capture="environment" on a file input.
+    const camera = this._camStream
+      ? `<div class="cam">
+        <video id="ph-video" autoplay playsinline muted></video>
+        <div class="row">
+          <button type="button" class="btn pri" data-act="photosnap">● Capture</button>
+          <button type="button" class="btn sm" data-act="photocamclose">Cancel</button>
+        </div>
+        <span class="h">No flash: the screen is lit already. Fill the frame with the LAN Only page and avoid reflections.</span>
+      </div>`
+      : "";
     return `<div class="photo ${p.reading ? "busy" : ""}">
+      ${camera}
       <div class="row">
         <button type="button" class="btn pri" data-act="phototake">📷 Take photo</button>
         <button type="button" class="btn sm" data-act="photochoose">Choose image</button>
@@ -1164,6 +1192,81 @@ class FdmPrinterPanel extends HTMLElement {
     Object.assign(this._data, this._collect());
     Object.assign(this._photo, { status, kind });
     this._render();
+  }
+
+  /**
+   * "Take photo": the camera inside the page (getUserMedia), set up for photographing a lit screen
+   * (like the reference photo that read well: no flash, exposure about -3 EV, metering on the centre).
+   * Every camera setting is optional. Without getUserMedia (plain http:// is not a secure context,
+   * or the camera is refused) it falls back to the file input with capture="environment".
+   */
+  async _openCamera() {
+    if (this._camStream) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      // Status first: drawing it replaces the file inputs, so the picker is opened afterwards.
+      if (!window.isSecureContext) {
+        this._setPhotoStatus(
+          "The camera can only open inside Home Assistant over https:// (this page is http://). If the camera does not open, take the photo with the camera app and use Choose image.",
+          "err",
+        );
+      }
+      this._pickPhoto("ph-cam");
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 4080 }, height: { ideal: 3072 } },
+      });
+    } catch (err) {
+      console.warn("FDM Printer Manager: camera refused or missing", err);
+      this._setPhotoStatus(
+        "The camera could not be opened (allow camera access for Home Assistant). Opening the picker instead — or use Choose image.",
+        "err",
+      );
+      this._pickPhoto("ph-cam");
+      return;
+    }
+    this._camStream = stream;
+    await this._tuneCamera(stream.getVideoTracks()[0]);
+    this._setPhotoStatus("");
+  }
+
+  /** Flash off, exposure towards -3 EV, focus and metering on the centre: each only if the camera has it. */
+  async _tuneCamera(track) {
+    if (!track) return;
+    const caps = track.getCapabilities?.() || {};
+    const tries = [];
+    if ("torch" in caps) tries.push({ torch: false });
+    const ev = caps.exposureCompensation;
+    if (ev && typeof ev.min === "number") tries.push({ exposureCompensation: Math.min(ev.max ?? 0, Math.max(ev.min, -3)) });
+    if ("pointsOfInterest" in caps) tries.push({ pointsOfInterest: [{ x: 0.5, y: 0.5 }] });
+    for (const c of tries) {
+      try {
+        await track.applyConstraints({ advanced: [c] });
+      } catch (_err) {
+        // not supported on this camera: carry on
+      }
+    }
+  }
+
+  _closeCamera() {
+    this._camStream?.getTracks().forEach((t) => t.stop());
+    this._camStream = null;
+  }
+
+  /** Grab the full-size frame, close the camera, then read it like any other photo. */
+  async _snapCamera() {
+    const video = this.shadowRoot.getElementById("ph-video");
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    this._closeCamera();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
+    this._readPhoto(blob);
   }
 
   /** Open the camera (phones, the Home Assistant app) or the file picker. */
@@ -1308,6 +1411,9 @@ class FdmPrinterPanel extends HTMLElement {
       el.addEventListener("change", () => this._readPhoto(el.files?.[0]));
       el.addEventListener("cancel", () => this._photoCancelled());
     });
+    const video = root.getElementById("ph-video");
+    if (video && this._camStream) video.srcObject = this._camStream; // the page is redrawn: reattach the camera
+    else if (this._camStream && !video) this._closeCamera(); // left the Bambu LAN form
     const form = root.getElementById("form");
     if (form) {
       form.addEventListener("submit", (ev) => {
@@ -1321,7 +1427,13 @@ class FdmPrinterPanel extends HTMLElement {
 
   async _action(el) {
     const act = el.dataset.act;
-    if (act === "phototake" || act === "photochoose") return this._pickPhoto(act === "phototake" ? "ph-cam" : "ph-file");
+    if (act === "phototake") return this._openCamera();
+    if (act === "photochoose") return this._pickPhoto("ph-file");
+    if (act === "photosnap") return this._snapCamera();
+    if (act === "photocamclose") {
+      this._closeCamera();
+      return this._setPhotoStatus("");
+    }
     if (act === "add") return this._startAdd();
     if (act === "scan") return this._scan();
     if (act === "found") {

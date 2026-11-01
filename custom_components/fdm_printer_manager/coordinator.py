@@ -25,11 +25,16 @@ from typing import Any
 from homeassistant.components import persistent_notification
 from homeassistant.components.image import async_get_image
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_ON
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_point_in_utc_time,
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -44,6 +49,15 @@ from .adapters.moonraker import (
     Webcam,
     default_web_url,
 )
+from .adapters.reach import host_is_up
+from .adapters.ssh import (
+    COSMOS_LOGIN,
+    DEFAULT_SSH_COMMAND,
+    SshError,
+    SshLogin,
+    needs_cosmos_login,
+    ssh_shutdown,
+)
 from .alerts import AlertSender
 from .const import (
     ACTIVE_STATES,
@@ -51,6 +65,7 @@ from .const import (
     CONF_ACCESS_CODE,
     CONF_ALERTS,
     CONF_API_KEY,
+    CONF_AUTO_OFF,
     CONF_CLOSE_MINUTES,
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
@@ -71,10 +86,15 @@ from .const import (
     CONF_PRINTER_TYPE,
     CONF_PROGRESS_ENTITY,
     CONF_REMAINING_TIME_ENTITY,
+    CONF_SSH_COMMAND,
+    CONF_SSH_KEY,
+    CONF_SSH_PASSWORD,
+    CONF_SSH_USERNAME,
     CONF_STALL_MINUTES,
     CONF_SWITCH_ENTITY,
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
+    DEFAULT_AUTO_OFF,
     DEFAULT_CLOSE_MINUTES,
     DEFAULT_DOWN_MINUTES,
     DEFAULT_INTEGRATION_METHOD,
@@ -90,6 +110,8 @@ from .const import (
     PAUSED_STATES,
     SAFE_POWER_COOL_TEMP,
     SAFE_POWER_COOL_TIMEOUT,
+    SAFE_POWER_DOWN_CHECKS,
+    SAFE_POWER_GRACE,
     SAFE_POWER_POLL,
     SAFE_POWER_WAIT,
     WEBCAM_CHECK_INTERVAL,
@@ -211,11 +233,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._last_bambu_state: str | None = None
         self._polling = False
         self._last_snapshot: PrinterSnapshot | None = None
-        # Safe power: "on" / "off" follow the plug; "cooling" while the nozzle cools down,
-        # then "shutting_down" while waiting to cut it.
+        # Safe power: "on" / "off" follow the plug; "waiting" after a print (auto-off),
+        # "cooling" while the nozzle cools down, then "shutting_down" until the computer is off.
         self.power_phase: str | None = None
         self.power_cut_at: datetime | None = None
+        self.auto_off_at: datetime | None = None
+        # How the last power off ended: power_off, aborted, hot (nozzle stayed hot), still_on (computer kept running)
+        self.power_result: str | None = None
         self._power_task: asyncio.Task | None = None
+        self._auto_off_unsub: CALLBACK_TYPE | None = None
         # Klipper camera found through Moonraker (None: no camera, or not checked yet).
         self.webcam: Webcam | None = None
         self._webcam_checked = False
@@ -343,14 +369,81 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         await self.hass.services.async_call("button", "press", {"entity_id": button}, blocking=True)
 
     async def async_power_on(self) -> None:
-        """Turn the plug on (cancels a pending safe shutdown)."""
+        """Turn the plug on (cancels a pending auto-off or safe shutdown)."""
         if not self.switch_entity:
             raise HomeAssistantError(f"{self.printer_name} has no smart plug")
+        if self.power_phase == "waiting":
+            self._cancel_auto_off("turned on by hand")
         if self._power_task is not None:
             self._power_task.cancel()
         await self.hass.services.async_call(
             "homeassistant", "turn_on", {"entity_id": self.switch_entity}, blocking=True
         )
+
+    @property
+    def auto_off_minutes(self) -> int:
+        """Minutes after a print ends before the printer is turned off (0 = never)."""
+        return int(self.conf.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF) or 0)
+
+    @property
+    def plug_is_on(self) -> bool:
+        """The smart plug is on."""
+        state = self.hass.states.get(self.switch_entity) if self.switch_entity else None
+        return state is not None and state.state == STATE_ON
+
+    @callback
+    def _start_auto_off(self) -> None:
+        """A print ended: turn the printer off safely after ``auto_off_minutes`` (a timer, no task while waiting)."""
+        if self.auto_off_minutes <= 0 or self.power_phase is not None or not self.plug_is_on:
+            return
+        self.power_phase = "waiting"
+        self.auto_off_at = dt_util.utcnow() + timedelta(minutes=self.auto_off_minutes)
+        self.power_result = None
+        self._auto_off_unsub = async_track_point_in_utc_time(self.hass, self._on_auto_off_due, self.auto_off_at)
+
+    @callback
+    def _check_auto_off(self) -> None:
+        """While waiting: a new print, or the plug turned off by hand, cancels the auto-off."""
+        if self.power_phase != "waiting":
+            return
+        if self.is_printing:
+            self._cancel_auto_off("a new print started")
+        elif not self.plug_is_on:
+            self._cancel_auto_off("the plug was turned off")
+
+    @callback
+    def _cancel_auto_off(self, why: str) -> None:
+        if self._auto_off_unsub is not None:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
+        self._end_power_off("aborted", why)
+
+    @callback
+    def _on_auto_off_due(self, now: datetime) -> None:
+        self._auto_off_unsub = None
+        self.power_phase = None
+        self.auto_off_at = None
+        self._power_task = self.config_entry.async_create_background_task(
+            self.hass, self._async_auto_off(), f"{DOMAIN}_auto_off"
+        )
+
+    async def _async_auto_off(self) -> None:
+        """The usual safe power off (cool, shut the computer down, cut once it is off)."""
+        self._power_task = None
+        try:
+            await self.async_power_off()
+        except HomeAssistantError as err:
+            self._end_power_off("aborted", str(err))
+
+    @callback
+    def _end_power_off(self, result: str, why: str) -> None:
+        _LOGGER.info("%s: power off %s (%s)", self.printer_name, result, why)
+        self.power_result = result
+        self.power_phase = None
+        self.power_cut_at = None
+        self.auto_off_at = None
+        self._power_task = None
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
 
     async def async_power_off(self) -> None:
         """Safe power off: never while printing, never with a hot nozzle; Klipper shuts its computer down first."""
@@ -403,6 +496,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                     title="FDM Printer Manager",
                     notification_id=f"{DOMAIN}_hot_{self.config_entry.entry_id}",
                 )
+                self.power_result = "hot"
                 return
         finally:
             self.power_phase = None
@@ -411,15 +505,84 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
         await self._async_power_off_cool()
 
+    @property
+    def ssh_login(self) -> SshLogin | None:
+        """The SSH login from the options, ``None`` when there is none."""
+        username = (self.conf.get(CONF_SSH_USERNAME) or "").strip()
+        if not username:
+            return None
+        return SshLogin(
+            username=username,
+            password=self.conf.get(CONF_SSH_PASSWORD) or None,
+            private_key=self.conf.get(CONF_SSH_KEY) or None,
+            command=(self.conf.get(CONF_SSH_COMMAND) or "").strip() or DEFAULT_SSH_COMMAND,
+        )
+
+    async def _async_shutdown_login(self, moonraker_error: str | None) -> SshLogin | None:
+        """SSH login for the shutdown: the one from the options, else the Elegoo "cosmos" one when recognised."""
+        if (login := self.ssh_login) is not None:
+            return login
+        hostname: str | None = None
+        if self.klipper is not None and self.klipper.available:
+            try:
+                hostname = await self.klipper.client.hostname()
+            except Exception:  # noqa: BLE001 - the error text may still tell
+                hostname = None
+        if needs_cosmos_login(hostname, moonraker_error):
+            _LOGGER.info("%s: Elegoo cosmos firmware, shutting down over SSH as root", self.printer_name)
+            return COSMOS_LOGIN
+        return None
+
     async def _async_power_off_cool(self) -> None:
-        """The nozzle is cool: Klipper shuts its computer down first, other printers are cut now."""
-        if self.klipper is None or not self.klipper.available:
+        """The nozzle is cool: Klipper shuts its computer down first, other printers are cut now.
+
+        Moonraker's ``machine.shutdown`` first; if it fails, the SSH login from
+        the options. The plug is then cut only once the computer stops answering.
+        """
+        if self.klipper is None:
             await self._async_cut_plug()
             return
-        try:
-            await self.klipper.client.shutdown_host()
-        except Exception as err:  # noqa: BLE001 - the plug is still cut after the wait
-            _LOGGER.warning("%s: host shutdown request failed: %s", self.printer_name, err)
+        host = self.conf[CONF_HOST]
+        sent = False
+        moonraker_error: str | None = None
+        if self.klipper.available:
+            try:
+                await self.klipper.client.shutdown_host()
+                sent = True
+            except Exception as err:  # noqa: BLE001 - SSH, or the wait below, decides
+                moonraker_error = str(err)
+                _LOGGER.warning("%s: Moonraker shutdown request failed: %s", self.printer_name, err)
+        elif not await host_is_up(host, int(self.conf.get(CONF_PORT) or DEFAULT_PORT)):
+            await self._async_cut_plug()  # the computer is already off
+            return
+        if not sent and (login := await self._async_shutdown_login(moonraker_error)) is not None:
+            try:
+                await ssh_shutdown(host, login)
+                sent = True
+            except SshError as err:
+                _LOGGER.warning("%s: SSH shutdown failed: %s", self.printer_name, err)
+        if not sent and not self.klipper.available:
+            await self._async_cut_plug()  # Moonraker gone and no SSH: as before 0.8, cut now
+            return
+        if not sent:
+            # Moonraker answers but cannot shut down (the Elegoo Centauri Carbon replies
+            # HTTP 500 "Error running shell command") and SSH failed or is not set up:
+            # cutting now would kill a running computer, so the plug stays on.
+            message = (
+                f"{self.printer_name}: the printer's computer could not be shut down (Moonraker refused and "
+                "SSH failed or is not set up), so the plug was left on. "
+                "Add or check the SSH login in the printer's options."
+            )
+            _LOGGER.warning(message)
+            persistent_notification.async_create(
+                self.hass,
+                message,
+                title="FDM Printer Manager",
+                notification_id=f"{DOMAIN}_no_shutdown_{self.config_entry.entry_id}",
+            )
+            self.power_result = "no_shutdown"
+            self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+            return
         self.power_phase = "shutting_down"
         self.power_cut_at = dt_util.utcnow() + timedelta(seconds=SAFE_POWER_WAIT)
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
@@ -428,22 +591,39 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         )
 
     async def _async_wait_then_cut(self) -> None:
-        """Cut the plug once the printer's computer is down (or after SAFE_POWER_WAIT)."""
+        """Cut the plug once the printer's computer stops answering; never while it still runs.
+
+        Moonraker stops early in the shutdown, so the computer itself is checked
+        (ping, or a TCP connection to it). Still answering after SAFE_POWER_WAIT:
+        the plug is left on and a notification says so.
+        """
+        host = self.conf[CONF_HOST]
+        port = int(self.conf.get(CONF_PORT) or DEFAULT_PORT)
+        deadline = dt_util.utcnow() + timedelta(seconds=SAFE_POWER_WAIT)
         try:
-            waited = 0
-            down_since: int | None = None
-            while waited < SAFE_POWER_WAIT:
+            silent = 0
+            while silent < SAFE_POWER_DOWN_CHECKS:
+                if dt_util.utcnow() >= deadline:
+                    message = (
+                        f"{self.printer_name}: still answering {SAFE_POWER_WAIT // 60} min after the shutdown "
+                        "request, so it was not switched off. The plug was left on."
+                    )
+                    _LOGGER.warning(message)
+                    persistent_notification.async_create(
+                        self.hass,
+                        message,
+                        title="FDM Printer Manager",
+                        notification_id=f"{DOMAIN}_still_on_{self.config_entry.entry_id}",
+                    )
+                    self.power_result = "still_on"
+                    return
                 await asyncio.sleep(SAFE_POWER_POLL)
-                waited += SAFE_POWER_POLL
                 if self.is_printing:  # someone started a print meanwhile
                     _LOGGER.info("%s: print started, plug left on", self.printer_name)
+                    self.power_result = "aborted"
                     return
-                assert self.klipper is not None
-                await self.klipper.async_update()
-                if not self.klipper.available:
-                    down_since = waited if down_since is None else down_since
-                    if waited - down_since >= 15:  # give the OS a moment to finish
-                        break
+                silent = 0 if await host_is_up(host, port) else silent + 1
+            await asyncio.sleep(SAFE_POWER_GRACE)  # let the last writes reach the disk
             await self._async_cut_plug()
         finally:
             self.power_phase = None
@@ -455,6 +635,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         await self.hass.services.async_call(
             "homeassistant", "turn_off", {"entity_id": self.switch_entity}, blocking=True
         )
+        self.power_result = "power_off"
         _LOGGER.info("%s: plug turned off", self.printer_name)
 
     async def async_stop(self) -> None:
@@ -462,6 +643,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        if self._auto_off_unsub is not None:
+            self._auto_off_unsub()
+            self._auto_off_unsub = None
         for task in list(self._tasks):
             task.cancel()
         if self.bambu_lan is not None:
@@ -657,6 +841,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 save_now = True
                 self.state.finalizing.append(job)
                 self._spawn(self._async_finalize(job, capture_image=True))
+                self._start_auto_off()
+        self._check_auto_off()
 
         self._sync_state()
         if save_now:

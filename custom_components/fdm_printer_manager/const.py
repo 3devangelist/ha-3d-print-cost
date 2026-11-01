@@ -47,9 +47,12 @@ PANEL_ICON: Final = "mdi:printer-3d-nozzle"
 PANEL_ELEMENT: Final = "fdm-printer-panel"
 STATIC_URL: Final = "/fdm_printer_manager_static"
 
-# Safe power: how long to wait for the printer's computer to shut down before cutting the plug.
-SAFE_POWER_WAIT: Final = 180  # seconds
+# Safe power: how long to wait for the printer's computer to shut down. Still
+# answering after this, the plug is left on and a notification is shown.
+SAFE_POWER_WAIT: Final = 300  # seconds
 SAFE_POWER_POLL: Final = 5  # seconds between "is it down yet?" checks
+SAFE_POWER_DOWN_CHECKS: Final = 3  # checks in a row without an answer = the computer is off
+SAFE_POWER_GRACE: Final = 10  # seconds more before the plug is cut (disks, last writes)
 # Safe power never cuts a hot nozzle: the hotend fan has to cool the heat break
 # first, or the filament softens inside it and can clog the nozzle.
 SAFE_POWER_COOL_TEMP: Final = 80  # °C: the plug is cut only below this
@@ -92,6 +95,15 @@ CONF_INTEGRATION_METHOD: Final = "integration_method"
 # Behaviour
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_CURRENCY: Final = "currency"
+# Minutes after a print ends before the printer is turned off safely (0 = never).
+CONF_AUTO_OFF: Final = "auto_off_minutes"
+DEFAULT_AUTO_OFF: Final = 15
+MAX_AUTO_OFF: Final = 240
+# Klipper: SSH login used to shut the computer down when Moonraker cannot (optional)
+CONF_SSH_USERNAME: Final = "ssh_username"
+CONF_SSH_PASSWORD: Final = "ssh_password"
+CONF_SSH_KEY: Final = "ssh_private_key"
+CONF_SSH_COMMAND: Final = "ssh_command"
 
 DEFAULT_UPDATE_INTERVAL: Final = 30  # seconds
 MIN_UPDATE_INTERVAL: Final = 10
