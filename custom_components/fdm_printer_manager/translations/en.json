@@ -207,6 +207,18 @@
           "stall_minutes": "Warn when the progress has not moved for this long while printing. 0: never.",
           "notify_services": "Optional. Notify actions, separated by commas, e.g. notify.mobile_app_phone, notify.mobile_app_tablet."
         }
+      },
+      "finish": {
+        "title": "When a print ends",
+        "description": "Optional. Besides the event `fdm_printer_manager_print_finished`.",
+        "data": {
+          "todo_entity": "To-do list",
+          "end_script": "Script"
+        },
+        "data_description": {
+          "todo_entity": "Adds \"Remove the print from <printer>\" with the file name and the result, so a part is not forgotten on the plate.",
+          "end_script": "Started with the print summary as variables: printer, name, result, duration_s, energy_kwh, electricity_cost, currency."
+        }
       }
     },
     "error": {

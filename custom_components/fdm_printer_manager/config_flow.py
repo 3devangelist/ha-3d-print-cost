@@ -37,6 +37,7 @@ from .const import (
     CONF_COVER_IMAGE_ENTITY,
     CONF_CURRENCY,
     CONF_DOWN_MINUTES,
+    CONF_END_SCRIPT,
     CONF_ENERGY_ENTITY,
     CONF_HOST,
     CONF_JOB_NAME_ENTITY,
@@ -55,6 +56,7 @@ from .const import (
     CONF_REMAINING_TIME_ENTITY,
     CONF_STALL_MINUTES,
     CONF_SWITCH_ENTITY,
+    CONF_TODO_ENTITY,
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
     DEFAULT_CLOSE_MINUTES,
@@ -268,6 +270,16 @@ def alerts_schema(defaults: dict[str, Any]) -> vol.Schema:
                 0, 1440
             ),
             _opt(CONF_NOTIFY, defaults): selector.TextSelector(),
+        }
+    )
+
+
+def finish_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """When a print ends."""
+    return vol.Schema(
+        {
+            _opt(CONF_TODO_ENTITY, defaults): _entity("todo"),
+            _opt(CONF_END_SCRIPT, defaults): _entity("script"),
         }
     )
 
@@ -675,8 +687,15 @@ class PrintCostOptionsFlow(OptionsFlow):
                     CONF_NOTIFY: str(user_input.get(CONF_NOTIFY) or "").strip() or None,
                 }
             )
-            return self.async_create_entry(data=self._options)
+            return await self.async_step_finish()
         return self.async_show_form(step_id="alerts", data_schema=alerts_schema(self._current))
+
+    async def async_step_finish(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """When a print ends: a to-do item and / or a script."""
+        if user_input is not None:
+            self._options.update(_with_cleared(user_input, finish_schema({})))
+            return self.async_create_entry(data=self._options)
+        return self.async_show_form(step_id="finish", data_schema=finish_schema(self._current))
 
 
 def _with_cleared(user_input: dict[str, Any], schema: vol.Schema) -> dict[str, Any]:

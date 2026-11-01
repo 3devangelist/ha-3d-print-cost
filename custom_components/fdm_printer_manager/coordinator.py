@@ -96,6 +96,7 @@ from .const import (
     IntegrationMethod,
     PrinterType,
 )
+from .finish import async_run_end_actions
 from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
 from .outcome import MARKABLE, mark_history
 from .storage import JobStore, StoredState
@@ -803,6 +804,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.hass.bus.async_fire(EVENT_PRINT_FINISHED, {"entry_id": self.config_entry.entry_id, **payload})
         for listener in list(self._finished_listeners):
             listener(payload)
+        await async_run_end_actions(self.hass, self.conf, payload)
         _LOGGER.info(
             "Print '%s' finished: result=%s energy=%s kWh cost=%s %s",
             job.name,

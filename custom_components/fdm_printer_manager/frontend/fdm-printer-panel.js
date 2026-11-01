@@ -197,6 +197,8 @@ const FIELD_LABELS = {
   close_minutes: "Close an interrupted print as failed after (min)",
   stall_minutes: "Warn when the progress does not move for (min, 0 = never)",
   notify_services: "Also send to (e.g. notify.mobile_app_phone)",
+  todo_entity: "To-do list: add “Remove the print” when a print ends",
+  end_script: "Script to run when a print ends",
 };
 
 const ERRORS = {

@@ -158,7 +158,11 @@ async def test_options_flow_changes_price_and_clears_energy(hass: HomeAssistant,
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"alerts": True, "stall_minutes": 0, "notify_services": "notify.mobile_app_phone"}
     )
+    assert result["step_id"] == "finish"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"todo_entity": "todo.shopping"})
     assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options["todo_entity"] == "todo.shopping"
+    assert entry.options["end_script"] is None
     assert entry.options["down_minutes"] == 2
     assert entry.options["close_minutes"] == 10
     assert entry.options["stall_minutes"] == 0

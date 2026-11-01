@@ -122,6 +122,10 @@ DEFAULT_DOWN_MINUTES: Final = 2
 DEFAULT_CLOSE_MINUTES: Final = 10
 DEFAULT_STALL_MINUTES: Final = 60
 
+# When a print ends: a to-do item ("remove the print") and / or a script
+CONF_TODO_ENTITY: Final = "todo_entity"
+CONF_END_SCRIPT: Final = "end_script"
+
 
 class IntegrationMethod(StrEnum):
     """How power samples are integrated into energy."""

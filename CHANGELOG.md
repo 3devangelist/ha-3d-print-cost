@@ -31,6 +31,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **New access code (Bambu Lab LAN)**: when the printer refuses its access code (it changes
   when LAN Only mode is turned off and on), Home Assistant asks for the new one (re-authentication,
   also shown at the top of the FDM Printers page, with **📷 Take photo**). The history is kept.
+- **When a print ends** (*Edit → When a print ends*, optional): add **"Remove the print from
+  &lt;printer&gt;"** to a to-do list (with the file name and the result), and / or start a
+  **script** with the print summary as variables.
 - **Better printer names**: a new Klipper printer is no longer named after a hostname shared by
   every machine of a kind: `cosmos` becomes **Elegoo Centauri Carbon**, `mainsailos`,
   `fluiddpi`, `raspberrypi`… become **Klipper &lt;IP&gt;** (a typed name always wins).
