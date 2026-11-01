@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.1]
+
+### Safety
+
+- **Safe power waits for the nozzle to cool**: turning a printer off with the nozzle at 80 °C
+  or more no longer cuts the plug right away. The hotend fan keeps running until the nozzle
+  is below 80 °C (phase `cooling`, shown on the card as "Cooling nozzle — 142° → 80°"),
+  then Klipper shuts its computer down and the plug is cut as before. A hot hotend without
+  its fan can soften the filament in the heat break and clog the nozzle.
+- If the nozzle is still hot after 30 minutes (a heater may be on), the plug is left on
+  and a notification says so.
+- No temperature reading (printer off or unreachable): the plug is cut right away, as before.
+- Turning the plug back on, or a new print, cancels the wait.
+- Bambu Lab printers through the Bambu Lab integration now also report the nozzle temperature.
+
 ## [0.5.0]
 
 - **Klipper printers found without zeroconf**: the integration searches Home Assistant's

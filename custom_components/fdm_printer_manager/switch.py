@@ -16,6 +16,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from .const import SAFE_POWER_COOL_TEMP
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
 from .entity import PrintCostEntity
 
@@ -78,8 +79,10 @@ class ShowLastPrintSwitch(PrintCostEntity, SwitchEntity, RestoreEntity):
 class SafePowerSwitch(PrintCostEntity, SwitchEntity):
     """``switch.<printer>_safe_power``: the printer's plug, turned off safely.
 
-    On: turns the plug on. Off: refused while printing or paused; Klipper
-    printers shut their computer down first and the plug is cut once it is
+    On: turns the plug on. Off: refused while printing or paused; with the
+    nozzle at 80 °C or more it waits for it to cool first (phase ``cooling``,
+    at most 30 minutes, then it gives up and leaves the plug on); Klipper
+    printers then shut their computer down and the plug is cut once it is
     down (at most 3 minutes later); other printers are cut right away.
     Can be put on any dashboard and used in automations.
     """
@@ -121,6 +124,7 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
         return {
             "phase": self.coordinator.power_phase or ("on" if self.is_on else "off"),
             "cut_at": cut_at.isoformat() if cut_at else None,
+            "cool_to": SAFE_POWER_COOL_TEMP,
             "printing": self.coordinator.is_printing,
             "plug": self.coordinator.switch_entity,
         }

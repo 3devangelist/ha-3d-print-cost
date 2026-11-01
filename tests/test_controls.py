@@ -7,6 +7,7 @@ import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -18,6 +19,8 @@ from custom_components.fdm_printer_manager.adapters.moonraker import (
     MoonrakerConnectionError,
 )
 from custom_components.fdm_printer_manager.const import DOMAIN
+
+from .helpers import BAMBU_SENSORS, SERIAL, register_bambu_printer
 
 CLIENT = "custom_components.fdm_printer_manager.coordinator.MoonrakerClient"
 PLUG = "switch.escritorio_tomada_ender6"
@@ -113,6 +116,147 @@ async def test_safe_power_shuts_the_host_down_then_cuts_the_plug(
     assert len(cut) == 1
     assert cut[0].data["entity_id"] == PLUG
     assert hass.states.get("switch.ender_6_safe_power").attributes["phase"] in ("on", "off")
+
+
+def phase(hass: HomeAssistant, entity_id: str = "switch.ender_6_safe_power") -> str:
+    return hass.states.get(entity_id).attributes["phase"]
+
+
+async def test_safe_power_waits_for_the_nozzle_to_cool(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer
+) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    printer.reading = KlipperStatus(state="complete", nozzle_temp=150.0)
+    await setup(hass)
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
+    assert phase(hass) == "cooling"
+    assert hass.states.get("switch.ender_6_safe_power").attributes["cool_to"] == 80
+    assert printer.calls == []  # no shutdown yet: the hotend fan must keep running
+
+    printer.reading = KlipperStatus(state="complete", nozzle_temp=95.0)
+    await tick(hass, freezer, 5)
+    assert phase(hass) == "cooling"
+    assert printer.calls == []
+
+    printer.reading = KlipperStatus(state="complete", nozzle_temp=79.0)
+    await tick(hass, freezer, 5)
+    assert printer.calls == ["shutdown"]
+    assert phase(hass) == "shutting_down"
+    assert cut == []
+
+    printer.reading = MoonrakerConnectionError("host is down")
+    for _ in range(6):
+        await tick(hass, freezer, 5)
+    assert len(cut) == 1
+
+
+async def test_safe_power_gives_up_when_the_nozzle_stays_hot(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer, caplog: pytest.LogCaptureFixture
+) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    printer.reading = KlipperStatus(state="standby", nozzle_temp=210.0)
+    await setup(hass)
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
+    assert phase(hass) == "cooling"
+
+    await tick(hass, freezer, 30 * 60 + 5)
+    assert cut == []
+    assert printer.calls == []
+    assert phase(hass) == "on"
+    assert "nozzle still at 210 °C after 30 min" in caplog.text
+
+
+async def test_safe_power_cuts_at_once_without_a_temperature_reading(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer
+) -> None:
+    printer.reading = MoonrakerConnectionError("printer is off")
+    await setup(hass)
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
+    assert len(cut) == 1
+    assert printer.calls == []
+
+
+async def test_turning_on_cancels_the_cooling(hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    printer.reading = KlipperStatus(state="complete", nozzle_temp=150.0)
+    await setup(hass)
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    async_mock_service(hass, "homeassistant", "turn_on")
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
+    assert phase(hass) == "cooling"
+
+    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
+    await hass.async_block_till_done()
+    assert phase(hass) == "on"
+
+    printer.reading = KlipperStatus(state="complete", nozzle_temp=40.0)
+    for _ in range(3):
+        await tick(hass, freezer, 5)
+    assert cut == []
+    assert printer.calls == []
+
+
+async def test_a_new_print_cancels_the_cooling(hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    printer.reading = KlipperStatus(state="complete", nozzle_temp=150.0)
+    await setup(hass)
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
+    printer.reading = KlipperStatus(state="printing", filename="b.gcode", progress=1, nozzle_temp=150.0)
+    for _ in range(3):
+        await tick(hass, freezer, 5)
+    assert cut == []
+    assert printer.calls == []
+    assert phase(hass) == "on"
+
+
+async def test_bambu_safe_power_waits_for_the_nozzle_to_cool(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    device_id = register_bambu_printer(hass)
+    nozzle = "sensor.x2d_nozzle_temperature"
+    er.async_get(hass).async_get_or_create(
+        "sensor",
+        "bambu_lab",
+        f"{SERIAL}_nozzle_temp",
+        suggested_object_id="x2d_nozzle_temperature",
+        device_id=device_id,
+        translation_key="nozzle_temp",
+    )
+    plug = "switch.x2d_plug"
+    hass.states.async_set(plug, "on")
+    hass.states.async_set(BAMBU_SENSORS["print_status"], "finish")
+    hass.states.async_set(nozzle, "120", {"unit_of_measurement": "°C"})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="X2D",
+        unique_id=device_id,
+        data={
+            "printer_device_id": device_id,
+            "printer_name": "X2D",
+            "printer_serial": SERIAL,
+            "print_status_entity": BAMBU_SENSORS["print_status"],
+            "switch_entity": plug,
+            "price_per_kwh": 0.16,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.x2d_safe_power"}, blocking=True)
+    assert phase(hass, "switch.x2d_safe_power") == "cooling"
+    assert cut == []
+
+    hass.states.async_set(nozzle, "70", {"unit_of_measurement": "°C"})
+    await tick(hass, freezer, 5)
+    assert len(cut) == 1
+    assert cut[0].data["entity_id"] == plug
 
 
 async def test_pause_resume_cancel_buttons(hass: HomeAssistant, printer) -> None:

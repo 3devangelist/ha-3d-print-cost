@@ -382,7 +382,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.5.0</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.5.1</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
@@ -453,15 +453,21 @@ class FdmPrinterPanel extends HTMLElement {
       const phase = power.attributes?.phase;
       const on = power.state === "on";
       const waiting = phase === "shutting_down";
+      // Cooling: the nozzle has to drop below cool_to before the plug is cut; a tap keeps the printer on.
+      const cooling = phase === "cooling";
+      const coolTo = power.attributes?.cool_to ?? 80;
       const cutAt = power.attributes?.cut_at ? new Date(power.attributes.cut_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-      const label = waiting ? `Shutting down… cut by ${cutAt}` : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
-      const disabled = waiting || power.state === "unavailable" || (on && active);
-      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on ? 1 : 0}" ${disabled ? "disabled" : ""} title="${on && active ? "Not while printing" : ""}"><span class="tg ${waiting ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>`;
+      const label = cooling
+        ? `Cooling nozzle — ${nozzle != null ? `${Math.round(nozzle)}°` : "…"} → ${coolTo}°`
+        : waiting ? `Shutting down… cut by ${cutAt}` : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
+      const disabled = waiting || power.state === "unavailable" || (on && active && !cooling);
+      const title = cooling ? "Waiting for the nozzle to cool. Tap to keep the printer on" : on && active ? "Not while printing" : "";
+      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !cooling ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || cooling ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>`;
     }
 
     let ask = "";
     if (this._ask?.entry === eid && this._ask.kind === "power")
-      ask = `<div class="ask">Turn ${esc(p.entry.title)} off? ${attrs.printer_type === "klipper" ? "Its computer shuts down first; the plug is cut once it is down (at most 3 minutes)." : "The plug is cut now."}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
+      ask = `<div class="ask">Turn ${esc(p.entry.title)} off? ${nozzle != null && nozzle >= (power?.attributes?.cool_to ?? 80) ? `The nozzle is at ${Math.round(nozzle)}°: it waits for it to cool below ${power?.attributes?.cool_to ?? 80}° first. ` : ""}${attrs.printer_type === "klipper" ? "Its computer shuts down first; the plug is cut once it is down (at most 3 minutes)." : "The plug is cut now."}<div class="row"><button class="btn sm" data-act="askno">Keep on</button><button class="btn sm danger" data-act="poweroff" data-entity="${esc(p.ents.safe_power)}">Turn off</button></div></div>`;
     if (this._ask?.entry === eid && this._ask.kind === "cancel")
       ask = `<div class="ask">Cancel the print${fileShown ? ` of <b>${esc(fileShown)}</b>` : ""}? This cannot be undone.<div class="row"><button class="btn sm" data-act="askno">Keep printing</button><button class="btn sm danger" data-act="ctl" data-what="cancel" data-entity="${esc(p.ents.cancel_print)}">Cancel print</button></div></div>`;
 

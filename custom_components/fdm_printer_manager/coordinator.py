@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from homeassistant.components import persistent_notification
 from homeassistant.components.image import async_get_image
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
@@ -70,6 +71,8 @@ from .const import (
     KLIPPER_POLL_INTERVAL,
     MAX_SAMPLE_GAP,
     PAUSED_STATES,
+    SAFE_POWER_COOL_TEMP,
+    SAFE_POWER_COOL_TIMEOUT,
     SAFE_POWER_POLL,
     SAFE_POWER_WAIT,
     IntegrationMethod,
@@ -87,6 +90,8 @@ _BAMBU_BUTTONS: dict[str, tuple[str, ...]] = {
     "resume": ("resume",),
     "cancel": ("stop", "cancel"),
 }
+# ha-bambulab sensor keys for the nozzle temperature
+_BAMBU_NOZZLE_KEYS: tuple[str, ...] = ("nozzle_temp", "nozzle_temperature")
 
 type PrintCostConfigEntry = ConfigEntry[PrintCostCoordinator]
 
@@ -173,7 +178,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._last_bambu_state: str | None = None
         self._polling = False
         self._last_snapshot: PrinterSnapshot | None = None
-        # Safe power: "on" / "off" follow the plug; "shutting_down" while waiting to cut it.
+        # Safe power: "on" / "off" follow the plug; "cooling" while the nozzle cools down,
+        # then "shutting_down" while waiting to cut it.
         self.power_phase: str | None = None
         self.power_cut_at: datetime | None = None
         self._power_task: asyncio.Task | None = None
@@ -241,15 +247,19 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         """The smart plug's switch, if any."""
         return self.conf.get(CONF_SWITCH_ENTITY)
 
-    def _bambu_button(self, keys: tuple[str, ...]) -> str | None:
-        """A button of the ha-bambulab device (pause / resume / stop), found by translation key."""
+    def _bambu_entity(self, domain: str, keys: tuple[str, ...]) -> str | None:
+        """An entity of the ha-bambulab device, found by translation key."""
         device_id = self.conf.get(CONF_PRINTER_DEVICE_ID)
         if not device_id:
             return None
         for entry in er.async_entries_for_device(er.async_get(self.hass), device_id):
-            if entry.domain == "button" and (entry.translation_key in keys or entry.unique_id.endswith(keys)):
+            if entry.domain == domain and (entry.translation_key in keys or entry.unique_id.endswith(keys)):
                 return entry.entity_id
         return None
+
+    def _bambu_button(self, keys: tuple[str, ...]) -> str | None:
+        """A button of the ha-bambulab device (pause / resume / stop)."""
+        return self._bambu_entity("button", keys)
 
     def can_control(self, action: str) -> bool:
         """Whether pause / resume / cancel is available for this printer right now."""
@@ -291,13 +301,66 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         )
 
     async def async_power_off(self) -> None:
-        """Safe power off: never while printing; Klipper shuts its computer down first."""
+        """Safe power off: never while printing, never with a hot nozzle; Klipper shuts its computer down first."""
         if not self.switch_entity:
             raise HomeAssistantError(f"{self.printer_name} has no smart plug")
         if self.is_printing:
             raise HomeAssistantError(f"{self.printer_name} is printing: it will not be turned off")
-        if self.power_phase == "shutting_down":
+        if self.power_phase is not None:  # already cooling or shutting down
             return
+        if self.nozzle_is_hot:
+            self.power_phase = "cooling"
+            self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+            self._power_task = self.config_entry.async_create_background_task(
+                self.hass, self._async_cool_then_power_off(), f"{DOMAIN}_safe_power"
+            )
+            return
+        await self._async_power_off_cool()
+
+    @property
+    def nozzle_is_hot(self) -> bool:
+        """Nozzle at or above SAFE_POWER_COOL_TEMP. No reading (printer off or offline) counts as cool."""
+        temp = self._nozzle_temp()
+        return temp is not None and temp >= SAFE_POWER_COOL_TEMP
+
+    async def _async_cool_then_power_off(self) -> None:
+        """Wait for the nozzle to cool, then power off as usual; give up if it stays hot."""
+        deadline = dt_util.utcnow() + timedelta(seconds=SAFE_POWER_COOL_TIMEOUT)
+        cooled = False
+        try:
+            while dt_util.utcnow() < deadline:
+                await asyncio.sleep(SAFE_POWER_POLL)
+                if self.is_printing:  # someone started a print meanwhile
+                    _LOGGER.info("%s: print started, plug left on", self.printer_name)
+                    return
+                if self.klipper is not None:
+                    await self.klipper.async_update()
+                if not self.nozzle_is_hot:
+                    cooled = True
+                    break
+                self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+            if not cooled:
+                message = (
+                    f"{self.printer_name}: nozzle still at {self._nozzle_temp():.0f} °C after "
+                    f"{SAFE_POWER_COOL_TIMEOUT // 60} min, so a heater may be on. The plug was left on."
+                )
+                _LOGGER.warning(message)
+                persistent_notification.async_create(
+                    self.hass,
+                    message,
+                    title="FDM Printer Manager",
+                    notification_id=f"{DOMAIN}_hot_{self.config_entry.entry_id}",
+                )
+                return
+        finally:
+            self.power_phase = None
+            self._power_task = None
+            if not cooled:
+                self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+        await self._async_power_off_cool()
+
+    async def _async_power_off_cool(self) -> None:
+        """The nozzle is cool: Klipper shuts its computer down first, other printers are cut now."""
         if self.klipper is None or not self.klipper.available:
             await self._async_cut_plug()
             return
@@ -528,7 +591,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             return self.klipper.reading.nozzle_temp
         if self.bambu_lan is not None:
             return self.bambu_lan.reading.nozzle_temp
-        return None
+        return bambu.read_number(self.hass, self._bambu_entity("sensor", _BAMBU_NOZZLE_KEYS))
 
     @staticmethod
     def _counter_cost(acc: ElectricityAccumulator | None) -> Decimal | None:
