@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
@@ -13,8 +14,10 @@ from .const import (
     CONF_API_KEY,
     CONF_HOST,
     CONF_NOTIFY,
+    CONF_PANEL,
     CONF_PRINTER_DEVICE_ID,
     CONF_PRINTER_SERIAL,
+    CONF_PRINTER_TYPE,
     CONF_SSH_COMMAND,
     CONF_SSH_KEY,
     CONF_SSH_PASSWORD,
@@ -42,8 +45,10 @@ TO_REDACT = {
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: PrintCostConfigEntry) -> dict[str, Any]:
     """Return redacted diagnostics."""
-    coordinator = entry.runtime_data
     integration = await async_get_integration(hass, DOMAIN)
+    if entry.data.get(CONF_PANEL):
+        return _hub_diagnostics(hass, entry, str(integration.version))
+    coordinator = entry.runtime_data
 
     def unit(entity_id: str | None) -> str | None:
         state = hass.states.get(entity_id) if entity_id else None
@@ -78,6 +83,35 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: PrintCo
         "last_print_image": coordinator.last_image is not None,
         # Errors can quote the printer's URL: the host is taken out.
         "recent_errors": [_hide_host(e, coordinator.conf.get(CONF_HOST)) for e in coordinator.errors],
+    }
+
+
+def _hub_diagnostics(hass: HomeAssistant, entry: ConfigEntry, version: str) -> dict[str, Any]:
+    """The "FDM Printers" hub entry: it only holds the sidebar panel, so it has no coordinator.
+
+    Shows the panel and the background services, and the printers by type and state (no names,
+    hosts or other values that identify a printer).
+    """
+    data = hass.data.get(DOMAIN, {})
+    printers = [
+        {
+            "type": str((e.data | e.options).get(CONF_PRINTER_TYPE) or "?"),
+            "state": str(e.state.value),
+            "disabled": e.disabled_by is not None,
+        }
+        for e in hass.config_entries.async_entries(DOMAIN)
+        if not e.data.get(CONF_PANEL)
+    ]
+    return {
+        "version": version,
+        "entry": "hub",
+        "config": async_redact_data({**entry.data, **entry.options}, TO_REDACT),
+        "panel_registered": bool(data.get("panel")),
+        "websocket_commands": bool(data.get("ws")),
+        "network_scan": data.get("scan_stop") is not None,
+        "bambu_ssdp": bool(data.get("ssdp")),
+        "printer_count": len(printers),
+        "printers": printers,
     }
 
 

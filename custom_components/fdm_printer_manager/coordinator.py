@@ -212,6 +212,19 @@ class PrintCostData:
         return self.active_job or self.finalizing_job
 
 
+@callback
+def own_device(registry: dr.DeviceRegistry, entry_id: str) -> dr.DeviceEntry | None:
+    """The device of this config entry (identifier ``(DOMAIN, entry_id)``).
+
+    HA 2026.10 deprecated ``async_get_device`` (it stops working in 2027.8) in favour of
+    ``async_get_device_by_identifier``, which older HA versions do not have.
+    """
+    identifier = (DOMAIN, entry_id)
+    if (by_identifier := getattr(registry, "async_get_device_by_identifier", None)) is not None:
+        return by_identifier(identifier, entry_id)
+    return registry.async_get_device(identifiers={identifier})
+
+
 class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     """One coordinator per configured printer."""
 
@@ -955,7 +968,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             return
         _LOGGER.info("%s: firmware %s", self.printer_name, firmware.label)
         registry = dr.async_get(self.hass)
-        device = registry.async_get_device(identifiers={(DOMAIN, self.config_entry.entry_id)})
+        device = own_device(registry, self.config_entry.entry_id)
         if device is not None and device.sw_version != firmware.label:
             registry.async_update_device(device.id, sw_version=firmware.label)
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())

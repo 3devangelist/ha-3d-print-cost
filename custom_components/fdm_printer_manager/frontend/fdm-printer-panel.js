@@ -338,7 +338,13 @@ class FdmPrinterPanel extends HTMLElement {
     if (this._view === "list") this._scheduleRender();
   }
   set panel(panel) {
+    const changed = this._panel?.config?.version !== panel?.config?.version;
     this._panel = panel;
+    if (changed && this.shadowRoot) this._render();
+  }
+  // The installed version, from the panel config the integration registers (manifest.json).
+  _version() {
+    return String(this._panel?.config?.version || "");
   }
   connectedCallback() {
     this._render();
@@ -683,7 +689,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.12.2</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager${this._version() ? ` · v${esc(this._version())}` : ""}</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;

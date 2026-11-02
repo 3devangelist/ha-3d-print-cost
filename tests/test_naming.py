@@ -51,7 +51,7 @@ async def test_cosmos_printer_renames_itself_but_keeps_entity_ids(hass: HomeAssi
     await hass.async_block_till_done()
 
     assert entry.title == "Elegoo Centauri Carbon"
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    device = own_device(dr.async_get(hass), entry.entry_id)
     assert device.name == "Elegoo Centauri Carbon"
     assert er.async_get(hass).async_get("sensor.cosmos_printer_status") is not None  # entity id kept
     assert hass.states.get("sensor.cosmos_printer_status").name.startswith("Elegoo Centauri Carbon")
