@@ -38,6 +38,8 @@ class StoredState:
     history: list[dict[str, Any]] = field(default_factory=list)
     # Google Sheets rows not sent yet (oldest first), retried on the next print and at start
     sheets_pending: list[dict[str, Any]] = field(default_factory=list)
+    # Who the printer is (TLS certificate, Moonraker machine, SSH host key), learnt at first contact: identity.py
+    identity: dict[str, str] = field(default_factory=dict)
 
 
 class JobStore:
@@ -64,6 +66,10 @@ class JobStore:
         state.today_date = raw.get("today_date")
         state.history = [h for h in raw.get("history") or [] if isinstance(h, dict)]
         state.sheets_pending = [r for r in raw.get("sheets_pending") or [] if isinstance(r, dict)]
+        identity = raw.get("identity")
+        state.identity = (
+            {str(k): v for k, v in identity.items() if isinstance(v, str)} if isinstance(identity, dict) else {}
+        )
         return state
 
     async def async_save(self, state: StoredState) -> None:
@@ -98,6 +104,7 @@ def _serialise(state: StoredState) -> dict[str, Any]:
         "today_date": state.today_date,
         "history": state.history,
         "sheets_pending": state.sheets_pending,
+        "identity": state.identity,
     }
 
 

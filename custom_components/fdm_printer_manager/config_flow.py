@@ -26,6 +26,7 @@ from .adapters.moonraker import (
     MoonrakerClient,
     MoonrakerError,
     default_web_url,
+    url_host,
 )
 from .adapters.netscan import SCAN_PORTS, async_probe
 from .adapters.ssh import DEFAULT_SSH_COMMAND
@@ -120,7 +121,10 @@ def bambu_schema(defaults: dict[str, Any]) -> vol.Schema:
 
 
 def klipper_schema(defaults: dict[str, Any]) -> vol.Schema:
-    """Connection to a Klipper printer (Moonraker)."""
+    """Connection to a Klipper printer (Moonraker).
+
+    The API key is never sent back to the form: left empty, the stored one is kept.
+    """
     return vol.Schema(
         {
             _opt(CONF_PRINTER_NAME, defaults): selector.TextSelector(),
@@ -128,7 +132,7 @@ def klipper_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(CONF_PORT, default=int(defaults.get(CONF_PORT) or DEFAULT_PORT)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=65535, step=1, mode=selector.NumberSelectorMode.BOX)
             ),
-            _opt(CONF_API_KEY, defaults): selector.TextSelector(
+            vol.Optional(CONF_API_KEY): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
             _opt(CONF_WEB_URL, defaults): selector.TextSelector(
@@ -195,7 +199,11 @@ def normalise_klipper(data: dict[str, Any], hostname: str | None) -> dict[str, A
 
 
 def bambu_lan_schema(defaults: dict[str, Any], *, with_serial: bool = True) -> vol.Schema:
-    """Bambu Lab over the local network: IP, serial number, access code (all on the printer's screen)."""
+    """Bambu Lab over the local network: IP, serial number, access code (all on the printer's screen).
+
+    The access code is never sent back to the form. When editing (``with_serial``
+    False) it may be left empty to keep the stored one.
+    """
     fields: dict[Any, Any] = {
         _opt(CONF_PRINTER_NAME, defaults): selector.TextSelector(),
         vol.Required(CONF_HOST, description={"suggested_value": defaults.get(CONF_HOST)}): selector.TextSelector(),
@@ -204,9 +212,8 @@ def bambu_lan_schema(defaults: dict[str, Any], *, with_serial: bool = True) -> v
         fields[
             vol.Required(CONF_PRINTER_SERIAL, description={"suggested_value": defaults.get(CONF_PRINTER_SERIAL)})
         ] = selector.TextSelector()
-    fields[vol.Required(CONF_ACCESS_CODE, description={"suggested_value": defaults.get(CONF_ACCESS_CODE)})] = (
-        selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
-    )
+    code = vol.Required(CONF_ACCESS_CODE) if with_serial else vol.Optional(CONF_ACCESS_CODE)
+    fields[code] = selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))
     return vol.Schema(fields)
 
 
@@ -329,6 +336,11 @@ def finish_schema(defaults: dict[str, Any]) -> vol.Schema:
 def _clean(user_input: dict[str, Any]) -> dict[str, Any]:
     """Drop empty strings so cleared optional fields really disappear."""
     return {k: v for k, v in user_input.items() if v not in ("", None)}
+
+
+def valid_web_url(value: str | None) -> bool:
+    """Empty, or an http(s) address: the panel links to it ("Open web UI")."""
+    return not value or url_host(value) is not None
 
 
 def validate_electricity(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, str]:
@@ -633,6 +645,7 @@ class PrintCostOptionsFlow(OptionsFlow):
     def __init__(self) -> None:
         """Init."""
         self._options: dict[str, Any] = {}
+        self._identity_asked = False
 
     @property
     def _current(self) -> dict[str, Any]:
@@ -642,8 +655,16 @@ class PrintCostOptionsFlow(OptionsFlow):
     def _is_klipper(self) -> bool:
         return self._current.get(CONF_PRINTER_TYPE) == PrinterType.KLIPPER
 
+    @property
+    def _coordinator(self) -> Any:
+        """The running printer, ``None`` when the entry is not loaded."""
+        return getattr(self.config_entry, "runtime_data", None)
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Printer connection (Klipper) or entities (Bambu)."""
+        coordinator = self._coordinator
+        if not self._identity_asked and coordinator is not None and coordinator.identity.changed:
+            return await self.async_step_identity()
         if self._is_klipper:
             return await self.async_step_klipper()
         if self._current.get(CONF_PRINTER_TYPE) == PrinterType.BAMBU_LAN:
@@ -653,6 +674,20 @@ class PrintCostOptionsFlow(OptionsFlow):
             return await self.async_step_electricity()
         return self.async_show_form(step_id="init", data_schema=bambu_schema(self._current))
 
+    async def async_step_identity(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """The printer does not look like the same one: the admin checks it and accepts it (or not)."""
+        coordinator = self._coordinator
+        if user_input is not None or coordinator is None:
+            self._identity_asked = True
+            if user_input and user_input.get("accept_identity") and coordinator is not None:
+                await coordinator.async_accept_identity()
+            return await self.async_step_init()
+        return self.async_show_form(
+            step_id="identity",
+            data_schema=vol.Schema({vol.Required("accept_identity", default=False): selector.BooleanSelector()}),
+            description_placeholders={"name": self.config_entry.title, "what": coordinator.identity.describe()},
+        )
+
     async def async_step_klipper(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Change IP, port, API key, web interface or name (history is kept)."""
         errors: dict[str, str] = {}
@@ -661,10 +696,15 @@ class PrintCostOptionsFlow(OptionsFlow):
             old_host = self._current.get(CONF_HOST)
             if old_host and cleaned.get(CONF_WEB_URL) == default_web_url(old_host):
                 cleaned.pop(CONF_WEB_URL)  # still the default: follow the new IP
+            if CONF_API_KEY not in cleaned and self._current.get(CONF_API_KEY):
+                cleaned[CONF_API_KEY] = self._current[CONF_API_KEY]  # left empty: keep the stored key
+            if not valid_web_url(cleaned.get(CONF_WEB_URL)):
+                errors = {CONF_WEB_URL: "invalid_url"}
+        if user_input is not None and not errors:
             errors, hostname = await validate_klipper(self.hass, cleaned)
             if not errors:
                 data = normalise_klipper(cleaned, hostname)
-                # A cleared API key must override the one stored in the entry data.
+                # Options override the entry data: every connection field is written (an empty key stays kept above).
                 self._options.update({str(k): data.get(str(k)) for k in klipper_schema({}).schema})
                 if data[CONF_PRINTER_NAME] != self.config_entry.title:
                     self.hass.config_entries.async_update_entry(self.config_entry, title=data[CONF_PRINTER_NAME])
@@ -679,7 +719,8 @@ class PrintCostOptionsFlow(OptionsFlow):
         if user_input is not None:
             cleaned = _clean(user_input)
             host = str(cleaned[CONF_HOST]).strip()
-            code = str(cleaned[CONF_ACCESS_CODE]).strip()
+            # Left empty: keep the stored access code (it is never sent back to the form).
+            code = str(cleaned.get(CONF_ACCESS_CODE) or self._current.get(CONF_ACCESS_CODE) or "").strip()
             errors = await validate_bambu_lan(host, self._current[CONF_PRINTER_SERIAL], code)
             if not errors:
                 name = (cleaned.get(CONF_PRINTER_NAME) or "").strip() or self.config_entry.title

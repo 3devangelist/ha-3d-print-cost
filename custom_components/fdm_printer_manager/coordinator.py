@@ -29,6 +29,7 @@ from homeassistant.const import STATE_ON
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
@@ -58,12 +59,14 @@ from .adapters.moonraker import (
     MoonrakerError,
     Webcam,
     default_web_url,
+    url_host,
 )
 from .adapters.reach import host_is_up
 from .adapters.ssh import (
     COSMOS_LOGIN,
     DEFAULT_SSH_COMMAND,
     SshError,
+    SshHostKeyChanged,
     SshLogin,
     needs_cosmos_login,
     ssh_shutdown,
@@ -132,6 +135,7 @@ from .const import (
 )
 from .filament import FilamentSlot, bambu_slots, klipper_slots
 from .finish import async_run_end_actions
+from .identity import KIND_MACHINE, KIND_SSH, KIND_TLS, PrinterIdentity
 from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
 from .outcome import MARKABLE, mark_history
 from .sheets import SheetsLog, queue_row, sheet_row
@@ -149,7 +153,18 @@ from .watchdog import AlertKind, WatchAction, Watchdog, WatchInput
 _LOGGER = logging.getLogger(__name__)
 
 # Results of a power off that left the plug on (the card says why until the plug is switched again).
-LEFT_ON_RESULTS: Final = frozenset({"hot", "still_on", "no_shutdown"})
+# no_contact: the printer did not answer; identity: it does not look like the same printer;
+# print_open: a print is still open (never finished).
+LEFT_ON_RESULTS: Final = frozenset({"hot", "still_on", "no_shutdown", "no_contact", "identity", "print_open"})
+
+
+class PowerRefused(HomeAssistantError):
+    """Safe power off refused: the plug stays on. ``result`` says why (see LEFT_ON_RESULTS)."""
+
+    def __init__(self, result: str, message: str) -> None:
+        super().__init__(message)
+        self.result = result
+
 
 # ha-bambulab button keys for each action
 _BAMBU_BUTTONS: dict[str, tuple[str, ...]] = {
@@ -249,6 +264,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 self.conf[CONF_ACCESS_CODE],
                 self._on_bambu_update,
                 on_auth_failed=self._on_bambu_auth_failed,
+                check_identity=self._check_bambu_identity,
             )
         self._last_bambu_process: float = 0.0
         self._last_bambu_state: str | None = None
@@ -285,6 +301,10 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         # One row per finished print in a Google Sheet (optional)
         self.sheets = SheetsLog(hass, entry.entry_id, self.printer_name, self.conf)
 
+        # Who the printer is, learnt at first contact (identity.py); loaded from storage at start.
+        self.identity = PrinterIdentity()
+        self._identity_due = True  # Klipper: read the machine identity at the next good poll
+
         self.errors: deque[str] = deque(maxlen=20)
         self._unsubs: list[CALLBACK_TYPE] = []
         self._tasks: set[asyncio.Task] = set()
@@ -298,6 +318,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.state = await self.store.async_load()
         self.last_image = await self.store.async_load_image() if self.state.last_job else None
         self.tracker.restore(self.state.active_job)
+        self.identity = PrinterIdentity(self.state.identity)
 
         keys = (CONF_SWITCH_ENTITY, CONF_POWER_ENTITY, CONF_ENERGY_ENTITY, CONF_PRICE_ENTITY)
         if self.printer_type is PrinterType.BAMBU:
@@ -307,6 +328,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._unsubs.append(async_track_state_change_event(self.hass, watched, self._on_state_change))
         if self.klipper is not None:
             await self.klipper.async_update()
+            await self.async_check_klipper_identity()
+            self._identity_due = not self.klipper.available
             await self.async_check_webcam()
             self._unsubs.append(
                 async_track_time_interval(self.hass, self._async_poll_klipper, timedelta(seconds=KLIPPER_POLL_INTERVAL))
@@ -375,6 +398,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             return False
         if action == "cancel" and not self.is_printing:
             return False
+        if self.identity.changed:  # not the printer we know: no commands
+            return False
         if self.klipper is not None:
             return self.klipper.available
         if self.bambu_lan is not None:
@@ -423,8 +448,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         return state is not None and state.state == STATE_ON
 
     @callback
-    def _start_auto_off(self) -> None:
-        """A print ended: turn the printer off safely after ``auto_off_minutes`` (a timer, no task while waiting)."""
+    def _start_auto_off(self, job: PrintJob) -> None:
+        """A print ended well: turn the printer off safely after ``auto_off_minutes`` (a timer, no task while waiting).
+
+        Only after a successful print. Failed, cancelled, interrupted or unknown:
+        the printer stays on so it can be looked at.
+        """
+        if job.result is not PrintResult.SUCCESS:
+            _LOGGER.info("%s: print ended as %s, no auto-off", self.printer_name, job.result)
+            return
         if self.auto_off_minutes <= 0 or self.power_phase is not None or not self.plug_is_on:
             return
         self.power_phase = "waiting"
@@ -434,20 +466,24 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
 
     @callback
     def _check_auto_off(self) -> None:
-        """While waiting: a new print, or the plug turned off by hand, cancels the auto-off."""
+        """While waiting: a new print, the plug turned off by hand, or losing the printer cancels the auto-off."""
         if self.power_phase != "waiting":
             return
         if self.is_printing:
             self._cancel_auto_off("a new print started")
         elif not self.plug_is_on:
             self._cancel_auto_off("the plug was turned off")
+        elif self.identity.changed:
+            self._cancel_auto_off("it does not look like the same printer", "identity")
+        elif not self.reachable:
+            self._cancel_auto_off("lost contact with the printer", "no_contact")
 
     @callback
-    def _cancel_auto_off(self, why: str) -> None:
+    def _cancel_auto_off(self, why: str, result: str = "aborted") -> None:
         if self._auto_off_unsub is not None:
             self._auto_off_unsub()
             self._auto_off_unsub = None
-        self._end_power_off("aborted", why)
+        self._end_power_off(result, why)
 
     @callback
     def _on_auto_off_due(self, now: datetime) -> None:
@@ -463,6 +499,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._power_task = None
         try:
             await self.async_power_off()
+        except PowerRefused as err:
+            self._end_power_off(err.result, str(err))
         except HomeAssistantError as err:
             self._end_power_off("aborted", str(err))
 
@@ -476,14 +514,55 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._power_task = None
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
 
+    def power_blocker(self) -> PowerRefused | None:
+        """Why the plug must not be cut now: another printer, no contact, a print still open. ``None``: it may."""
+        if self.identity.changed:
+            return PowerRefused(
+                "identity",
+                f"{self.printer_name}: this does not look like the same printer ({self.identity.describe()} "
+                "changed) — power not cut. Check the printer, then accept it in its options.",
+            )
+        if not self.reachable:
+            return PowerRefused(
+                "no_contact",
+                f"{self.printer_name}: no contact with the printer — power not cut. "
+                "Use the plug directly if you are sure.",
+            )
+        if self.tracker.active_job is not None:
+            return PowerRefused("print_open", f"{self.printer_name}: a print is still open — power not cut.")
+        return None
+
+    @callback
+    def _power_left_on(self, refused: PowerRefused, *, notify: bool) -> None:
+        """The plug stays on: remember why (the card shows it) and, for a background power off, say so."""
+        _LOGGER.warning("%s", refused)
+        self.power_result = refused.result
+        if notify:
+            persistent_notification.async_create(
+                self.hass,
+                str(refused),
+                title="FDM Printer Manager",
+                notification_id=f"{DOMAIN}_not_off_{self.config_entry.entry_id}",
+            )
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
     async def async_power_off(self) -> None:
-        """Safe power off: never while printing, never with a hot nozzle; Klipper shuts its computer down first."""
+        """Safe power off: never while printing, never with a hot nozzle, never without contact with the printer.
+
+        Klipper shuts its computer down first. A printer that does not answer
+        (offline, Moonraker or MQTT down, state unknown) or does not look like
+        the same printer is refused with :class:`PowerRefused`: the plug stays on.
+        """
         if not self.switch_entity:
             raise HomeAssistantError(f"{self.printer_name} has no smart plug")
         if self.is_printing:
             raise HomeAssistantError(f"{self.printer_name} is printing: it will not be turned off")
         if self.power_phase is not None:  # already cooling or shutting down
             return
+        await self.async_check_klipper_identity()
+        if (refused := self.power_blocker()) is not None:
+            self._power_left_on(refused, notify=False)
+            raise refused
         self.power_result = None  # a new power off: forget why the last one left the plug on
         if self.nozzle_is_hot:
             self.power_phase = "cooling"
@@ -496,7 +575,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
 
     @property
     def nozzle_is_hot(self) -> bool:
-        """Nozzle at or above SAFE_POWER_COOL_TEMP. No reading (printer off or offline) counts as cool."""
+        """Nozzle at or above SAFE_POWER_COOL_TEMP. No reading counts as cool: callers check contact first."""
         temp = self._nozzle_temp()
         return temp is not None and temp >= SAFE_POWER_COOL_TEMP
 
@@ -512,6 +591,10 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                     return
                 if self.klipper is not None:
                     await self.klipper.async_update()
+                if (refused := self.power_blocker()) is not None:
+                    # Lost the printer while it cooled: no reading is not "cool", the plug stays on.
+                    self._power_left_on(refused, notify=True)
+                    return
                 if not self.nozzle_is_hot:
                     cooled = True
                     break
@@ -568,47 +651,45 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     async def _async_power_off_cool(self) -> None:
         """The nozzle is cool: Klipper shuts its computer down first, other printers are cut now.
 
-        Moonraker's ``machine.shutdown`` first; if it fails, the SSH login from
-        the options. The plug is then cut only once the computer stops answering.
+        Only while the printer answers and is the same printer. Moonraker's
+        ``machine.shutdown`` first; if Moonraker refuses, the SSH login (its host
+        key checked). The plug is then cut only once the computer stops answering.
         """
+        if (refused := self.power_blocker()) is not None:
+            self._power_left_on(refused, notify=True)
+            return
         if self.klipper is None:
             await self._async_cut_plug()
             return
         host = self.conf[CONF_HOST]
         sent = False
         moonraker_error: str | None = None
-        if self.klipper.available:
-            try:
-                await self.klipper.client.shutdown_host()
-                sent = True
-            except Exception as err:  # noqa: BLE001 - SSH, or the wait below, decides
-                moonraker_error = str(err)
-                _LOGGER.warning("%s: Moonraker shutdown request failed: %s", self.printer_name, err)
-        elif not await host_is_up(host, int(self.conf.get(CONF_PORT) or DEFAULT_PORT)):
-            await self._async_cut_plug()  # the computer is already off
-            return
+        try:
+            await self.klipper.client.shutdown_host()
+            sent = True
+        except Exception as err:  # noqa: BLE001 - SSH decides
+            moonraker_error = str(err)
+            _LOGGER.warning("%s: Moonraker shutdown request failed: %s", self.printer_name, err)
         if not sent and (login := await self._async_shutdown_login(moonraker_error)) is not None:
             try:
-                await ssh_shutdown(host, login)
+                key = await ssh_shutdown(host, login, host_key=self.identity.known.get(KIND_SSH))
                 sent = True
+                if isinstance(key, str):
+                    self._learn_identity(KIND_SSH, key)
+            except SshHostKeyChanged as err:
+                _LOGGER.warning("%s: %s, nothing sent", self.printer_name, err)
+                self.identity.refuse(KIND_SSH)
+                self._on_identity_changed()
+                self._power_left_on(self.power_blocker() or PowerRefused("identity", str(err)), notify=True)
+                return
             except SshError as err:
                 _LOGGER.warning("%s: SSH shutdown failed: %s", self.printer_name, err)
-        # Moonraker gone and no SSH: cut only if the computer is really off by now.
-        if (
-            not sent
-            and not self.klipper.available
-            and not await host_is_up(host, int(self.conf.get(CONF_PORT) or DEFAULT_PORT))
-        ):
-            await self._async_cut_plug()
-            return
         if not sent:
             # Moonraker cannot shut down (the Elegoo Centauri Carbon replies HTTP 500
-            # "Error running shell command") or does not answer while the computer
-            # still does, and SSH failed or is not set up: cutting now would kill a
-            # running computer, so the plug stays on.
-            moonraker = "Moonraker refused" if self.klipper.available else "Moonraker is not answering"
+            # "Error running shell command") and SSH failed or is not set up:
+            # cutting now would kill a running computer, so the plug stays on.
             message = (
-                f"{self.printer_name}: the printer's computer could not be shut down ({moonraker} and "
+                f"{self.printer_name}: the printer's computer could not be shut down (Moonraker refused and "
                 "SSH failed or is not set up), so the plug was left on. "
                 "Add or check the SSH login in the printer's options."
             )
@@ -632,9 +713,11 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     async def _async_wait_then_cut(self) -> None:
         """Cut the plug once the printer's computer stops answering; never while it still runs.
 
-        Moonraker stops early in the shutdown, so the computer itself is checked
-        (ping, or a TCP connection to it). Still answering after SAFE_POWER_WAIT:
-        the plug is left on and a notification says so.
+        Here, and only here, the printer going silent is what is waited for: it
+        has just accepted the shutdown itself (Moonraker or SSH). Moonraker stops
+        early in the shutdown, so the computer itself is checked (ping, or a TCP
+        connection to it). Still answering after SAFE_POWER_WAIT: the plug is
+        left on and a notification says so.
         """
         host = self.conf[CONF_HOST]
         port = int(self.conf.get(CONF_PORT) or DEFAULT_PORT)
@@ -780,11 +863,17 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._polling = False
         if not self.klipper.available:
             self._webcam_checked = False  # look again when it comes back
-        elif not self._webcam_checked:
-            self._spawn(self.async_check_webcam())
+            self._identity_due = True  # and check it is still the same printer
+        else:
+            if self._identity_due:
+                self._identity_due = False
+                self._spawn(self.async_check_klipper_identity())
+            if not self._webcam_checked:
+                self._spawn(self.async_check_webcam())
         self._process(dt_util.utcnow())
 
     async def _async_webcam_tick(self, now: datetime) -> None:
+        await self.async_check_klipper_identity()
         await self.async_check_webcam()
 
     async def async_check_webcam(self) -> None:
@@ -793,7 +882,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             return
         self._webcam_checked = True
         try:
-            cams = await self.klipper.client.webcams(self.configuration_url or default_web_url(self.conf[CONF_HOST]))
+            web_url = self.configuration_url or default_web_url(self.conf[CONF_HOST])
+            cams = await self.klipper.client.webcams(web_url, self.camera_hosts)
         except MoonrakerError as err:
             _LOGGER.debug("%s: cannot list webcams: %s", self.printer_name, err)
             self._webcam_checked = False
@@ -806,6 +896,88 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             return
         _LOGGER.info("%s: camera %s", self.printer_name, f"found ({webcam.name})" if webcam else "gone")
         self.webcam = webcam
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    @property
+    def camera_hosts(self) -> frozenset[str]:
+        """Hosts camera URLs may point to: the printer and its web interface, nothing else."""
+        hosts = {str(self.conf.get(CONF_HOST) or "").strip().strip("[]").lower()}
+        if (web := url_host(self.configuration_url)) is not None:
+            hosts.add(web)
+        return frozenset(h for h in hosts if h)
+
+    # ------------------------------------------------------------------ #
+    # Is it still the same printer? (identity.py)
+    # ------------------------------------------------------------------ #
+    async def async_check_klipper_identity(self) -> None:
+        """Klipper: read who the computer is and compare it with the one remembered."""
+        if self.klipper is None or not self.klipper.available:
+            return
+        try:
+            seen = await self.klipper.client.machine_identity()
+        except Exception as err:  # noqa: BLE001 - no reading is no verdict
+            _LOGGER.debug("%s: machine identity not readable: %s", self.printer_name, err)
+            return
+        self._learn_identity(KIND_MACHINE, seen if isinstance(seen, str) else None)
+
+    @callback
+    def _check_bambu_identity(self, fingerprint: str | None) -> bool:
+        """Bambu LAN, before logging in: True when this is the TLS certificate seen at first contact."""
+        return self._learn_identity(KIND_TLS, fingerprint)
+
+    @callback
+    def _learn_identity(self, kind: str, seen: str | None) -> bool:
+        """Compare (or remember at first contact) one identity value. False: not the same printer."""
+        was_changed = self.identity.changed
+        ok, learned = self.identity.check(kind, seen)
+        if learned:
+            _LOGGER.info("%s: remembered its %s", self.printer_name, kind)
+            self.state.identity = dict(self.identity.known)
+            self._spawn(self.store.async_save(self.state))
+        if not ok:
+            self._on_identity_changed()
+        elif was_changed and not self.identity.changed:
+            _LOGGER.info("%s: the known printer answers again", self.printer_name)
+            ir.async_delete_issue(self.hass, DOMAIN, self.identity_issue_id)
+            self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+        return ok
+
+    @property
+    def identity_issue_id(self) -> str:
+        """Repair issue raised when the printer does not look like the same one."""
+        return f"identity_changed_{self.config_entry.entry_id}"
+
+    @callback
+    def _on_identity_changed(self) -> None:
+        """Not the same printer: no commands, no power cut, the admin decides (options flow)."""
+        _LOGGER.warning(
+            "%s: this does not look like the same printer (%s changed): commands and power off are blocked",
+            self.printer_name,
+            self.identity.describe(),
+        )
+        if self.power_phase == "waiting":
+            self._cancel_auto_off("it does not look like the same printer", "identity")
+        elif self.power_phase == "cooling" and self._power_task is not None:
+            self._power_task.cancel()
+            self._end_power_off("identity", "it does not look like the same printer")
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self.identity_issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="identity_changed",
+            translation_placeholders={"name": self.printer_name, "what": self.identity.describe()},
+        )
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    async def async_accept_identity(self) -> None:
+        """The admin checked the printer: remember what answers now as this printer."""
+        self.identity.accept()
+        self.state.identity = dict(self.identity.known)
+        await self.store.async_save(self.state)
+        ir.async_delete_issue(self.hass, DOMAIN, self.identity_issue_id)
+        _LOGGER.info("%s: new identity accepted by the admin", self.printer_name)
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
 
     @property
@@ -847,6 +1019,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
 
     async def async_set_light(self, key: str, on: bool) -> None:
         """Turn one light on or off on the printer."""
+        if self.identity.changed:
+            raise HomeAssistantError(f"{self.printer_name}: this does not look like the same printer, nothing sent")
         if self.klipper is not None and (light := self._klipper_lights().get(key)) is not None:
             if not self.klipper.available:
                 raise HomeAssistantError(f"{self.printer_name} is not answering")
@@ -922,6 +1096,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         """Move the nozzle up / down while printing, reset the offset, or keep it (Z_OFFSET_APPLY_*)."""
         if not self.babystep_enabled or self.klipper is None or not self.klipper.available:
             raise HomeAssistantError(f"{self.printer_name}: baby steps are not available")
+        if self.identity.changed:
+            raise HomeAssistantError(f"{self.printer_name}: this does not look like the same printer, nothing sent")
         if save:
             if not (command := self.babystep_save):
                 raise HomeAssistantError(f"{self.printer_name}: saving the Z offset is turned off in the options")
@@ -932,6 +1108,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             script = BABYSTEP_RESET
         else:
             try:
+                # Like Mainsail / Fluidd: Z_ADJUST, never blocked because the offset is not read yet.
                 script = babystep_gcode(float(delta or 0), self.z_offset)
             except ValueError as err:
                 raise HomeAssistantError(f"{self.printer_name}: {err}") from err
@@ -971,7 +1148,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     def configuration_url(self) -> str | None:
         """Web interface of the printer ("Visit" on the device page). Bambu has none."""
         if self.printer_type is PrinterType.KLIPPER:
-            return self.conf.get(CONF_WEB_URL) or default_web_url(self.conf[CONF_HOST])
+            web_url = self.conf.get(CONF_WEB_URL)
+            # Only http(s): a link like javascript:... is never handed to the panel or the device page.
+            return web_url if url_host(web_url) else default_web_url(self.conf[CONF_HOST])
         return None
 
     @callback
@@ -1042,7 +1221,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 save_now = True
                 self.state.finalizing.append(job)
                 self._spawn(self._async_finalize(job, capture_image=True))
-                self._start_auto_off()
+                self._start_auto_off(job)
         self._check_auto_off()
 
         self._sync_state()

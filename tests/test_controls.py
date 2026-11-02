@@ -178,15 +178,18 @@ async def test_safe_power_gives_up_when_the_nozzle_stays_hot(
     assert "nozzle still at 210 °C after 30 min" in caplog.text
 
 
-async def test_safe_power_cuts_at_once_without_a_temperature_reading(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer
-) -> None:
+async def test_safe_power_refuses_without_contact(hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer) -> None:
+    """0.12.2: no reading is not "off and cool" any more: without contact the plug is never cut."""
     printer.reading = MoonrakerConnectionError("printer is off")
     await setup(hass)
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
-    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
-    assert len(cut) == 1
+    with pytest.raises(HomeAssistantError, match="no contact with the printer — power not cut"):
+        await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.ender_6_safe_power"}, blocking=True)
+    assert cut == []
     assert printer.calls == []
+    attrs = hass.states.get("switch.ender_6_safe_power").attributes
+    assert attrs["last_result"] == "no_contact"
+    assert attrs["reachable"] is False
 
 
 async def test_turning_on_cancels_the_cooling(hass: HomeAssistant, freezer: FrozenDateTimeFactory, printer) -> None:

@@ -19,7 +19,8 @@ LED_PREFIXES = ("led", "neopixel", "dotstar", "pca9533", "pca9632")
 # An ``output_pin`` is a light when its name says so ("caselight", "Luz_interior", "chamber_led", ...)
 LIGHT_WORDS = ("light", "led", "lamp", "luz", "caselight", "chamber", "case")
 
-# Baby steps: one tap moves the nozzle by one of these (mm); never more than BABYSTEP_LIMIT away from 0.
+# Baby steps: one tap moves the nozzle by one of these (mm), as Mainsail / Fluidd do. When the
+# current offset is known, a tap never takes it more than BABYSTEP_LIMIT away from 0.
 BABYSTEP_STEPS = (0.005, 0.01, 0.025, 0.05)
 BABYSTEP_LIMIT = 1.0
 BABYSTEP_RESET = "SET_GCODE_OFFSET Z=0 MOVE=1"
@@ -186,9 +187,14 @@ def z_offset(status: dict[str, Any]) -> float | None:
 
 
 def babystep_gcode(delta: float, current: float | None) -> str:
-    """``SET_GCODE_OFFSET Z_ADJUST=±delta MOVE=1``; refuses odd steps and going past ±BABYSTEP_LIMIT."""
+    """``SET_GCODE_OFFSET Z_ADJUST=±delta MOVE=1``, the command Mainsail and Fluidd send for a baby step.
+
+    Refuses odd steps. The ±BABYSTEP_LIMIT cap applies only when the current
+    offset is known (``gcode_move.homing_origin``); unknown, the step is sent
+    like the printer's own web interface would (it has no cap at all).
+    """
     if not any(abs(abs(delta) - step) < 1e-9 for step in BABYSTEP_STEPS):
         raise ValueError(f"a baby step is one of {', '.join(f'{s:g}' for s in BABYSTEP_STEPS)} mm")
-    if abs((current or 0.0) + delta) > BABYSTEP_LIMIT + 1e-9:
+    if current is not None and abs(current + delta) > BABYSTEP_LIMIT + 1e-9:
         raise ValueError(f"the Z offset stays within ±{BABYSTEP_LIMIT:g} mm")
     return f"SET_GCODE_OFFSET Z_ADJUST={delta:+.3f} MOVE=1"

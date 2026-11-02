@@ -19,6 +19,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_aiohttp_proxy_web, async_get_clientsession
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .adapters.moonraker import read_limited
 from .const import DOMAIN, HTTP_TIMEOUT
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
 from .entity import PrintCostEntity
@@ -26,6 +27,9 @@ from .entity import PrintCostEntity
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
+
+# A snapshot is one JPEG: anything bigger is refused.
+MAX_SNAPSHOT = 10 * 1024 * 1024
 
 
 async def async_setup_entry(
@@ -72,19 +76,19 @@ class PrinterCamera(PrintCostEntity, Camera):
         return self.coordinator.webcam is not None and klipper is not None and klipper.available
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
-        """One JPEG from the snapshot URL (redirects are followed)."""
+        """One JPEG from the snapshot URL: same host as the printer, no redirects, at most MAX_SNAPSHOT bytes."""
         webcam = self.coordinator.webcam
         if webcam is None or not webcam.snapshot_url:
             return None
         try:
             async with self._session.get(
-                webcam.snapshot_url, timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
+                webcam.snapshot_url, timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT), allow_redirects=False
             ) as resp:
-                if resp.status >= 400:
+                if resp.status >= 300:
                     _LOGGER.debug("%s: snapshot HTTP %s", self.coordinator.printer_name, resp.status)
                     return None
-                return await resp.read()
-        except (aiohttp.ClientError, TimeoutError) as err:
+                return await read_limited(resp, MAX_SNAPSHOT)
+        except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             _LOGGER.debug("%s: snapshot failed: %s", self.coordinator.printer_name, err)
             return None
 
@@ -94,6 +98,8 @@ class PrinterCamera(PrintCostEntity, Camera):
         if webcam is None or not webcam.stream_url:
             return await super().handle_async_mjpeg_stream(request)
         stream = self._session.get(
-            webcam.stream_url, timeout=aiohttp.ClientTimeout(total=None, sock_connect=HTTP_TIMEOUT)
+            webcam.stream_url,
+            timeout=aiohttp.ClientTimeout(total=None, sock_connect=HTTP_TIMEOUT, sock_read=HTTP_TIMEOUT * 3),
+            allow_redirects=False,
         )
         return await async_aiohttp_proxy_web(self.hass, request, stream)

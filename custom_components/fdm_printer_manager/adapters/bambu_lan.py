@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import socket
@@ -35,6 +36,9 @@ SSDP_MULTICAST = "239.255.255.250"
 KEEPALIVE = 60
 PUSHALL_EVERY = 300  # seconds
 STATUS_UNAVAILABLE = "unavailable"
+# Largest MQTT packet accepted. A full report with an AMS is a few tens of kB;
+# something that announces more is not a printer (it could exhaust the memory).
+MAX_PACKET = 1024 * 1024
 
 
 class BambuError(Exception):
@@ -47,6 +51,10 @@ class BambuConnectionError(BambuError):
 
 class BambuAuthError(BambuError):
     """Access code refused."""
+
+
+class BambuIdentityError(BambuError):
+    """The broker at the printer's address is not the printer seen before (other TLS certificate)."""
 
 
 class BambuCommandRefused(BambuError):
@@ -110,16 +118,20 @@ def packet_publish(topic: str, payload: bytes) -> bytes:
 PACKET_PING = bytes([0xC0, 0x00])
 
 
-async def read_packet(reader: asyncio.StreamReader) -> tuple[int, bytes]:
-    """One MQTT packet: (type nibble, body)."""
+async def read_packet(reader: asyncio.StreamReader, max_length: int = MAX_PACKET) -> tuple[int, bytes]:
+    """One MQTT packet: (type nibble, body). At most 4 length bytes (MQTT 3.1.1) and ``max_length`` bytes."""
     first = (await reader.readexactly(1))[0]
     mult, length = 1, 0
-    while True:
+    for _ in range(4):
         byte = (await reader.readexactly(1))[0]
         length += (byte & 0x7F) * mult
         if not byte & 0x80:
             break
         mult *= 128
+    else:
+        raise BambuConnectionError("malformed MQTT packet length")
+    if length > max_length:
+        raise BambuConnectionError(f"MQTT packet too large ({length} bytes)")
     body = await reader.readexactly(length) if length else b""
     return first, body
 
@@ -216,8 +228,20 @@ PUSHALL = json.dumps({"pushing": {"sequence_id": "0", "command": "pushall"}}).en
 def _tls() -> ssl.SSLContext:
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE  # the printer's certificate is self-signed
+    # The printer's certificate is its own (not from a public CA): it is not
+    # validated here but remembered on first contact and compared at every
+    # connection, before the access code is sent (cert_fingerprint, identity.py).
+    ctx.verify_mode = ssl.CERT_NONE
     return ctx
+
+
+def cert_fingerprint(writer: asyncio.StreamWriter) -> str | None:
+    """SHA-256 of the broker's TLS certificate (``None`` without TLS)."""
+    ssl_object = writer.get_extra_info("ssl_object")
+    if ssl_object is None:
+        return None
+    der = ssl_object.getpeercert(binary_form=True)
+    return hashlib.sha256(der).hexdigest() if der else None
 
 
 # --------------------------------------------------------------------------- #
@@ -236,12 +260,15 @@ class BambuLanClient:
         port: int = MQTT_PORT,
         use_tls: bool = True,
         on_auth_failed: Callable[[], None] | None = None,
+        check_identity: Callable[[str | None], bool] | None = None,
     ) -> None:
         self.host = host
         self.serial = serial
         self.access_code = access_code
         self._on_update = on_update
         self._on_auth_failed = on_auth_failed
+        # Called with the TLS certificate's fingerprint before logging in; False: not the same printer.
+        self._check_identity = check_identity
         self._port = port
         self._tls = use_tls
         self._merged: dict[str, Any] = {}
@@ -266,6 +293,9 @@ class BambuLanClient:
             )
         except (OSError, TimeoutError) as err:
             raise BambuConnectionError(f"{self.host}:{self._port}: {err}") from err
+        if self._check_identity is not None and not self._check_identity(cert_fingerprint(writer)):
+            writer.close()
+            raise BambuIdentityError(f"{self.host}: not the same printer (TLS certificate changed)")
         writer.write(packet_connect(f"fdm-{self.serial[-6:]}", "bblp", self.access_code))
         await writer.drain()
         try:
@@ -333,6 +363,9 @@ class BambuLanClient:
                     self._on_auth_failed()  # once per refusal streak: ask the user for the new code
                 self.auth_failed = True
                 _LOGGER.warning("Bambu %s: access code refused", self.host)
+                delay = 300
+            except BambuIdentityError as err:
+                _LOGGER.warning("Bambu %s: %s; no access code sent", self.host, err)
                 delay = 300
             except (BambuError, OSError, asyncio.IncompleteReadError, TimeoutError) as err:
                 _LOGGER.debug("Bambu %s: %s", self.host, err)

@@ -103,27 +103,43 @@ survives the reload.
 The **Power** button on the card (`switch.<printer>_safe_power`) and the
 **auto-off** after a print do the same thing:
 
-1. never while printing or paused;
-2. wait for the nozzle to drop below **80 °C** (at most 30 min, else the plug stays on);
-3. Klipper: shut the printer's computer down — Moonraker's `machine.shutdown`
-   first, then SSH if that fails;
-4. cut the plug only once the computer **stops answering** (ping, or a TCP
+1. never while printing or paused, never while a print is still open;
+2. **never without contact with the printer**: offline, Moonraker or MQTT not
+   answering, state unknown → refused with "No contact with the printer —
+   power not cut. Use the plug directly if you are sure.";
+3. never when it does not look like the same printer (see below);
+4. wait for the nozzle to drop below **80 °C** (at most 30 min, else the plug stays on);
+5. Klipper: shut the printer's computer down — Moonraker's `machine.shutdown`
+   first, then SSH if Moonraker refuses;
+6. cut the plug only once the computer **stops answering** (ping, or a TCP
    check): 3 checks in a row 5 s apart, then 10 s more. Still answering after
    5 minutes, the plug is left on and a notification says so.
 
-Auto-off starts when a print ends (finished, cancelled or failed) and waits
-15 minutes (Configure → Advanced). A new print, turning the plug off by hand,
-or tapping Power on the card while it shows "Auto off at …" cancels it.
+Auto-off starts only after a **successful** print and waits 15 minutes
+(Configure → Advanced). A failed, cancelled, interrupted or unknown print
+leaves the printer on, so you can look at it. A new print, turning the plug
+off by hand, tapping Power on the card while it shows "Auto off at …", or
+losing contact with the printer cancels it. Losing contact while the nozzle
+cools also leaves the plug on.
 
 **Elegoo Centauri Carbon**: its Moonraker cannot shut down (HTTP 500 "Error
 running shell command"). It is recognised (host name `cosmos`, or that error)
 and shut down with a single `poweroff` over SSH as `root`, without a password,
 as the printer ships — nothing to set up. For any other printer that needs
 SSH, give a login under Configure → Advanced (user, optional password or
-private key, command such as `sudo poweroff`). Only that one command is run;
-host keys are not checked (local network, the key changes on every firmware
-reinstall). The password and key are never logged and are redacted from
+private key, command such as `sudo poweroff`). Only that one command is run, in
+the remote user's login shell. The printer's SSH host key is remembered the
+first time and required afterwards, so the password is never sent to another
+machine. The password and key are never logged and are redacted from
 diagnostics.
+
+**Is it still the same printer?** On first contact the integration remembers
+who the printer is: the Bambu Lab broker's TLS certificate (checked before the
+access code is sent), the Klipper computer's identity from Moonraker (CPU
+serial, else MAC addresses, else host name) and the SSH host key. If something
+else answers later at the printer's address, commands and power off are
+blocked and a repair issue says so. After a firmware reinstall or a new board,
+accept the new identity under Configure (first page).
 
 ## Lights, baby steps and filaments
 
@@ -134,7 +150,10 @@ The card only shows what the printer really has (read once, read-only:
   `output_pin`s named like a light (`SET_PIN`), the Bambu Lab chamber light.
   Also `light.<printer>_light_<name>`.
 - **Baby steps** (Klipper, while printing): Z offset with ▼ / ▲, steps of
-  0.005 / 0.01 / 0.025 / 0.05 mm, at most ±1 mm, and Reset. **Save** is off
+  0.005 / 0.01 / 0.025 / 0.05 mm, and Reset. Each tap sends
+  `SET_GCODE_OFFSET Z_ADJUST=±step MOVE=1`, like Mainsail and Fluidd; the
+  offset shown is Klipper's `gcode_move.homing_origin`. At most ±1 mm from 0
+  when that offset is known; not known yet, the step is still sent. **Save** is off
   by default (Configure → Advanced); it applies the offset to the probe or
   endstop, then run `SAVE_CONFIG` yourself when the printer is idle. Action:
 

@@ -3,6 +3,56 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.2]
+
+### Security
+
+- **The plug is never cut without contact with the printer.** A printer that does not answer
+  (offline, Moonraker or MQTT down, state unknown) is no longer taken for "off and cool": the
+  Power button refuses with "No contact with the printer — power not cut. Use the plug directly
+  if you are sure.", and the card says so. Before, an offline Bambu Lab printer was cut at once,
+  and a Klipper printer whose Moonraker was down got an SSH `poweroff`. Losing contact while the
+  nozzle cools, or while the auto-off waits, cancels the power off. A print still open also
+  blocks it.
+- **Auto-off only after a successful print.** A failed, cancelled, interrupted or unknown print
+  leaves the printer on, so it can be looked at.
+- **Is it still the same printer?** The integration remembers the printer at first contact: the
+  Bambu Lab broker's TLS certificate (checked before the access code is sent), the Klipper
+  computer's identity from Moonraker (CPU serial, else MAC addresses, else host name) and the SSH
+  host key (trust on first use instead of no check, so the SSH password never goes to another
+  machine). If something else answers, commands and power off stop, a repair issue says
+  "… does not look like the same printer", and the admin accepts the new identity in the
+  printer's options.
+- **Size and host limits.** MQTT packets: at most 4 length bytes and 1 MB. Moonraker answers: at
+  most 2 MB. Camera: only URLs on the printer's own host (or its web interface), no redirects,
+  snapshots at most 10 MB, a read timeout on the live stream.
+- **Text reader shipped with the integration.** Tesseract.js 5.1.1 (script, worker, core and
+  English data, about 11 MB) is served by Home Assistant itself instead of a CDN, frozen at that
+  version and checked by SHA-256 (see `THIRD_PARTY.md`). Nothing is downloaded from the internet
+  for "Read from photo" any more.
+- **Admin only:** the `sheets_setup` and `mark_print` actions (they change every printer's options
+  and the print log). Automations and scripts still work.
+- **Secrets stay on the server:** the edit form no longer sends the Moonraker API key or the Bambu
+  Lab access code to the browser; leave the field empty to keep the stored one.
+- **Web interface link:** only `http://` and `https://` addresses are accepted and shown.
+- **Diagnostics** also hide the IP address, web address, serial number, device id, SSH user and
+  command, and notification targets.
+- `asyncssh` 2.24.0 or later (the version Home Assistant ships).
+
+### Changed
+
+- **Baby steps work like Mainsail / Fluidd:** each tap sends `SET_GCODE_OFFSET Z_ADJUST=±step
+  MOVE=1`, also while the current offset is not read yet. The ±1 mm limit applies when the offset
+  (`gcode_move.homing_origin`) is known.
+
+### Fixed
+
+- **No more deprecation warning from Home Assistant 2026.10.** Renaming a printer added under a
+  shared hostname looked up its device with `device_registry.async_get_device`, which HA
+  2026.10 deprecated and which stops working in HA 2027.8. It now uses
+  `async_get_device_by_identifier` (identifier plus this config entry), and falls back to the
+  old call only on HA versions that do not have the new one. Behaviour is unchanged.
+
 ## [0.12.1]
 
 ### Fixed

@@ -108,7 +108,7 @@ class FakeCentauri:
             raise self.reading
         return self.reading
 
-    async def webcams(self, web_url: str) -> list[Webcam]:
+    async def webcams(self, web_url: str, hosts: frozenset[str] | None = None) -> list[Webcam]:
         if isinstance(self.cams, Exception):
             raise self.cams
         return self.cams

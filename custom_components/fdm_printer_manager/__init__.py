@@ -114,9 +114,22 @@ def _rename_generic(hass: HomeAssistant, entry: PrintCostConfigEntry) -> None:
         entry, title=name, data={**entry.data, CONF_PRINTER_NAME: name}, options=options
     )
     registry = dr.async_get(hass)
-    device = registry.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    device = own_device(registry, entry.entry_id)
     if device is not None and device.name_by_user is None:
         registry.async_update_device(device.id, name=name)
+
+
+@callback
+def own_device(registry: dr.DeviceRegistry, entry_id: str) -> dr.DeviceEntry | None:
+    """The device of this config entry (identifier ``(DOMAIN, entry_id)``).
+
+    HA 2026.10 deprecated ``async_get_device`` (it stops working in 2027.8) in favour of
+    ``async_get_device_by_identifier``, which older HA versions do not have.
+    """
+    identifier = (DOMAIN, entry_id)
+    if (by_identifier := getattr(registry, "async_get_device_by_identifier", None)) is not None:
+        return by_identifier(identifier, entry_id)
+    return registry.async_get_device(identifiers={identifier})
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -> bool:

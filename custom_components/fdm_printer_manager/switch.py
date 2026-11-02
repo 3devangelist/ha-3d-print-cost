@@ -80,14 +80,16 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
     """``switch.<printer>_safe_power``: the printer's plug, turned off safely.
 
     On: turns the plug on (and cancels a pending auto-off). Off: refused while
-    printing or paused; with the nozzle at 80 °C or more it waits for it to
+    printing or paused, without contact with the printer (it is never cut
+    blind) and when it does not look like the same printer; with the nozzle at 80 °C or more it waits for it to
     cool first (phase ``cooling``, at most 30 minutes, then it gives up and
     leaves the plug on); Klipper printers then shut their computer down
     (Moonraker, else SSH) and the plug is cut once the computer stops
     answering (phase ``shutting_down``; still answering after 5 minutes, the
     plug is left on); other printers are cut right away.
-    After a print ends, the same happens by itself ``auto_off_minutes`` later
-    (phase ``waiting``). Can be put on any dashboard and used in automations.
+    After a successful print, the same happens by itself ``auto_off_minutes``
+    later (phase ``waiting``); a failed, cancelled or unknown print leaves the
+    printer on so it can be looked at. Can be put on any dashboard and used in automations.
     """
 
     def __init__(self, coordinator: PrintCostCoordinator) -> None:
@@ -148,6 +150,9 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
             "shutdown_wait_minutes": SAFE_POWER_WAIT // 60,
             "printing": coordinator.is_printing,
             "plug": coordinator.switch_entity,
+            # Power off is refused without contact with the printer, or when it does not look like the same one
+            "reachable": coordinator.reachable,
+            "identity_ok": not coordinator.identity.changed,
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -155,5 +160,5 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
         await self.coordinator.async_power_on()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Safe power off (refused while printing)."""
+        """Safe power off (refused while printing, or without contact with the printer)."""
         await self.coordinator.async_power_off()

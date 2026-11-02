@@ -5,10 +5,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
 
 from custom_components.fdm_printer_manager.adapters.moonraker import KlipperStatus, MoonrakerConnectionError
-from custom_components.fdm_printer_manager.adapters.ssh import COSMOS_LOGIN, SshError, SshLogin
+from custom_components.fdm_printer_manager.adapters.ssh import COSMOS_LOGIN, SshLogin
 from custom_components.fdm_printer_manager.const import DOMAIN
 
 from .test_controls import CLIENT, ENERGY, PLUG, phase, tick
@@ -116,14 +118,13 @@ async def computer_goes_off(hass: HomeAssistant, freezer: FrozenDateTimeFactory,
         await tick(hass, freezer, 5)
 
 
-@pytest.mark.parametrize("end", ["complete", "cancelled", "error"])
-async def test_turns_off_15_minutes_after_any_end(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine, end: str
+async def test_turns_off_15_minutes_after_a_successful_print(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
 ) -> None:
     freezer.move_to("2026-11-01 10:00:00+00:00")
     await setup(hass)
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
-    await finish_a_print(hass, freezer, machine, end)
+    await finish_a_print(hass, freezer, machine, "complete")
     assert phase(hass) == "waiting"
     assert attrs(hass)["auto_off_at"].startswith("2026-11-01T10:15:10")
     assert attrs(hass)["auto_off_minutes"] == 15
@@ -278,7 +279,7 @@ async def test_centauri_is_shut_down_over_ssh_without_setup(
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
     await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
     assert machine.calls == ["shutdown"]
-    machine.ssh.assert_awaited_once_with("192.168.1.89", COSMOS_LOGIN)
+    machine.ssh.assert_awaited_once_with("192.168.1.89", COSMOS_LOGIN, host_key=None)
     assert COSMOS_LOGIN.username == "root"
     assert COSMOS_LOGIN.password is None
     assert COSMOS_LOGIN.command == "poweroff"
@@ -296,7 +297,7 @@ async def test_cosmos_host_name_is_recognised(
     machine.name = "cosmos"
     await setup(hass)
     await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
-    machine.ssh.assert_awaited_once_with("192.168.1.89", COSMOS_LOGIN)
+    machine.ssh.assert_awaited_once_with("192.168.1.89", COSMOS_LOGIN, host_key=None)
 
 
 async def test_no_shutdown_possible_leaves_the_plug_on(
@@ -337,108 +338,153 @@ async def test_moonraker_working_means_no_ssh(
 
 
 # --------------------------------------------------------------------------- #
-# Moonraker not answering (0.11.0): never cut while the computer still answers
+# Moonraker not answering (0.12.2): no contact, no cut, no SSH (was: SSH, or cut if the computer was off)
 # --------------------------------------------------------------------------- #
-async def test_moonraker_down_but_computer_on_leaves_the_plug_on(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
+@pytest.mark.parametrize("computer_on", [True, False])
+async def test_moonraker_down_never_cuts_and_never_sends_ssh(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine, computer_on: bool
 ) -> None:
-    """Moonraker gone, no SSH, the computer still answers: before 0.11 the plug was cut at once."""
     freezer.move_to("2026-11-01 10:00:00+00:00")
     machine.reading = MoonrakerConnectionError("Moonraker crashed")
+    machine.computer_on = computer_on
+    await setup(hass, ssh_username="pi", ssh_password="secret")
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    with pytest.raises(HomeAssistantError, match="no contact with the printer"):
+        await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
+    assert cut == []
+    assert machine.calls == []
+    machine.ssh.assert_not_awaited()
+    assert attrs(hass)["last_result"] == "no_contact"
+
+
+# --------------------------------------------------------------------------- #
+# Auto-off only after a successful print, and only while the printer answers (0.12.2)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("end", ["cancelled", "error", "standby"])
+async def test_no_auto_off_after_a_failed_cancelled_or_unknown_print(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine, end: str
+) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    await setup(hass)
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    await finish_a_print(hass, freezer, machine, end)
+    assert phase(hass) == "on"
+    assert attrs(hass)["auto_off_at"] is None
+    await tick(hass, freezer, 3600)
+    assert machine.calls == []
+    assert cut == []
+
+
+async def test_print_interrupted_by_lost_contact_gets_no_auto_off(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
+) -> None:
+    """The printer stops answering mid-print: the watchdog closes it as failed, nothing is cut."""
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    await setup(hass)
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    machine.reading = KlipperStatus(state="printing", filename="a.gcode", progress=50, nozzle_temp=210.0)
+    await tick(hass, freezer, 5)
+    machine.reading = MoonrakerConnectionError("gone")
+    for _ in range(30):
+        await tick(hass, freezer, 60)
+    assert phase(hass) == "on"
+    assert machine.calls == []
+    assert cut == []
+
+
+async def test_losing_contact_while_waiting_cancels_the_auto_off(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
+) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    await setup(hass)
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    await finish_a_print(hass, freezer, machine, "complete")
+    assert phase(hass) == "waiting"
+    machine.reading = MoonrakerConnectionError("gone")
+    await tick(hass, freezer, 5)
+    assert phase(hass) == "on"
+    assert attrs(hass)["last_result"] == "no_contact"
+    machine.reading = KlipperStatus(state="complete", nozzle_temp=30.0)  # back: the auto-off stays cancelled
+    await tick(hass, freezer, 3600)
+    assert machine.calls == []
+    assert cut == []
+
+
+async def test_losing_contact_while_cooling_leaves_the_plug_on(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
+) -> None:
+    """Before 0.12.2 no temperature reading counted as cool and the plug was cut."""
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    machine.reading = KlipperStatus(state="complete", nozzle_temp=150.0)
     await setup(hass)
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
     with patch(f"{COORD}.persistent_notification.async_create") as notify:
         await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
+        assert phase(hass) == "cooling"
+        machine.reading = MoonrakerConnectionError("gone")
+        for _ in range(4):
+            await tick(hass, freezer, 5)
     assert cut == []
     assert machine.calls == []
-    assert attrs(hass)["last_result"] == "no_shutdown"
-    message = notify.call_args.args[1]
-    assert "Moonraker is not answering" in message
-    assert "SSH login" in message
+    assert phase(hass) == "on"
+    assert attrs(hass)["last_result"] == "no_contact"
+    assert "power not cut" in notify.call_args.args[1]
 
 
-async def test_moonraker_down_ssh_fails_computer_on_leaves_the_plug_on(
+async def test_power_off_refused_while_a_print_is_still_open(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
 ) -> None:
     freezer.move_to("2026-11-01 10:00:00+00:00")
-    machine.reading = MoonrakerConnectionError("Moonraker crashed")
-    machine.ssh.side_effect = SshError("refused")
-    await setup(hass, ssh_username="pi", ssh_password="secret")
+    await setup(hass)
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
-    await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
-    machine.ssh.assert_awaited_once()
+    machine.reading = KlipperStatus(state="printing", filename="a.gcode", progress=50, nozzle_temp=30.0)
+    await tick(hass, freezer, 5)
+    machine.reading = KlipperStatus(state="startup", filename="a.gcode", nozzle_temp=30.0)  # unknown: job stays open
+    await tick(hass, freezer, 5)
+    with pytest.raises(HomeAssistantError, match="a print is still open"):
+        await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
     assert cut == []
-    assert attrs(hass)["last_result"] == "no_shutdown"
-
-
-async def test_moonraker_down_computer_off_by_now_cuts_the_plug(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
-) -> None:
-    """Moonraker gone, SSH fails, but the computer stopped answering meanwhile: it is off, so cut."""
-    freezer.move_to("2026-11-01 10:00:00+00:00")
-    machine.reading = MoonrakerConnectionError("Moonraker crashed")
-    machine.ssh.side_effect = SshError("connection lost")
-    await setup(hass, ssh_username="pi", ssh_password="secret")
-    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
-    machine.answers = [True, False]  # still up at the first check, gone at the second
-    await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
-    assert len(cut) == 1
-    assert attrs(hass)["last_result"] != "no_shutdown"
-
-
-async def test_moonraker_down_and_computer_off_cuts_at_once(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
-) -> None:
-    freezer.move_to("2026-11-01 10:00:00+00:00")
-    machine.reading = MoonrakerConnectionError("printer is off")
-    machine.computer_on = False
-    await setup(hass)
-    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
-    await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
-    assert len(cut) == 1
+    assert machine.calls == []
 
 
 # --------------------------------------------------------------------------- #
-# Why the plug was left on: kept until the next power action (0.11.0)
+# SSH host key: trusted on first use (0.12.2)
 # --------------------------------------------------------------------------- #
-async def leave_the_plug_on(hass: HomeAssistant, machine: Machine) -> None:
-    machine.shutdown_error = MoonrakerConnectionError("HTTP 404 from http://192.168.1.89:7125/machine/shutdown")
-    await setup(hass)
+async def test_ssh_host_key_is_remembered_and_then_required(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
+) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    machine.shutdown_error = MoonrakerConnectionError(CENTAURI_SHUTDOWN_500)
+    machine.ssh.return_value = "ssh-ed25519 AAAAC3first"
+    entry = await setup(hass)
     async_mock_service(hass, "homeassistant", "turn_off")
     await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
-    assert attrs(hass)["last_result"] == "no_shutdown"
-    assert phase(hass) == "on"
+    assert machine.ssh.await_args.kwargs == {"host_key": None}
+    assert entry.runtime_data.identity.known["ssh_host_key"] == "ssh-ed25519 AAAAC3first"
+    await computer_goes_off(hass, freezer, machine)
 
-
-async def test_left_on_reason_cleared_when_the_plug_is_switched(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
-) -> None:
-    freezer.move_to("2026-11-01 10:00:00+00:00")
-    await leave_the_plug_on(hass, machine)
+    machine.reading = KlipperStatus(state="standby", nozzle_temp=30.0)
     await tick(hass, freezer, 5)
-    assert attrs(hass)["last_result"] == "no_shutdown"  # stays while nothing happens
-    hass.states.async_set(PLUG, "off")
-    await hass.async_block_till_done()
-    assert attrs(hass)["last_result"] is None
-
-
-async def test_left_on_reason_cleared_by_turning_on(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
-) -> None:
-    freezer.move_to("2026-11-01 10:00:00+00:00")
-    await leave_the_plug_on(hass, machine)
-    async_mock_service(hass, "homeassistant", "turn_on")
-    await hass.services.async_call("switch", "turn_on", {"entity_id": SAFE}, blocking=True)
-    await tick(hass, freezer, 5)
-    assert attrs(hass)["last_result"] is None
-
-
-async def test_left_on_reason_cleared_by_a_new_power_off(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
-) -> None:
-    freezer.move_to("2026-11-01 10:00:00+00:00")
-    await leave_the_plug_on(hass, machine)
-    machine.shutdown_error = None  # Moonraker can shut down this time
     await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
-    assert phase(hass) == "shutting_down"
-    assert attrs(hass)["last_result"] is None
+    assert machine.ssh.await_args.kwargs == {"host_key": "ssh-ed25519 AAAAC3first"}
+
+
+async def test_changed_ssh_host_key_blocks_the_power_off(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
+) -> None:
+    from custom_components.fdm_printer_manager.adapters.ssh import SshHostKeyChanged  # noqa: PLC0415
+
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    machine.shutdown_error = MoonrakerConnectionError(CENTAURI_SHUTDOWN_500)
+    machine.ssh.side_effect = SshHostKeyChanged("the printer's SSH host key changed")
+    entry = await setup(hass)
+    entry.runtime_data.identity.known["ssh_host_key"] = "ssh-ed25519 AAAAC3first"
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    await hass.services.async_call("switch", "turn_off", {"entity_id": SAFE}, blocking=True)
+    assert cut == []
+    assert attrs(hass)["last_result"] == "identity"
+    assert attrs(hass)["identity_ok"] is False
+    issues = ir.async_get(hass).issues
+    assert (DOMAIN, f"identity_changed_{entry.entry_id}") in issues
+    await computer_goes_off(hass, freezer, machine)
+    assert cut == []

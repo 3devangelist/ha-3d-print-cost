@@ -48,11 +48,15 @@ def fake_asyncssh(conn: MagicMock | Exception) -> types.ModuleType:
     class KeyImportError(ValueError):
         pass
 
+    class HostKeyNotVerifiable(DisconnectError):
+        pass
+
     mod.Error = Error
     mod.DisconnectError = DisconnectError
     mod.PermissionDenied = PermissionDenied
     mod.ConnectionLost = ConnectionLost
     mod.KeyImportError = KeyImportError
+    mod.HostKeyNotVerifiable = HostKeyNotVerifiable
     mod.import_private_key = MagicMock(return_value="KEY")
     if isinstance(conn, Exception):
         mod.connect = AsyncMock(side_effect=conn)
