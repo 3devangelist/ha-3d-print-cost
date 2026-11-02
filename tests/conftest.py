@@ -49,6 +49,18 @@ def no_klipper_extras():
         yield
 
 
+@pytest.fixture(autouse=True)
+def no_machine_identity():
+    """Klipper printers in tests do not report a machine identity unless a test says so (identity.py)."""
+    from unittest.mock import AsyncMock  # noqa: PLC0415
+
+    with patch(
+        "custom_components.fdm_printer_manager.adapters.moonraker.MoonrakerClient.machine_identity",
+        AsyncMock(return_value=None),
+    ):
+        yield
+
+
 @pytest.fixture
 def panel_entry(hass):
     """The sidebar page entry already exists, so "Add integration" shows the printer types."""

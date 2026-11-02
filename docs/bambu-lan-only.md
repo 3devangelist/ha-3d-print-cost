@@ -114,7 +114,7 @@ The printer must be **on** while you add it. The connection is tested before you
 | You have | What happens | Where the photo goes |
 |---|---|---|
 | An **AI Task** in Home Assistant (OpenAI, Gemini, Anthropic…) | It reads the three values | To that AI provider. The form tells you which one. The copy in Home Assistant is deleted right after. |
-| No AI Task | The text is read **on your phone or computer** (Tesseract.js) | Nowhere. Only the text is sent. The first time downloads about 10 MB. |
+| No AI Task | The text is read **on your phone or computer** (Tesseract.js) | Nowhere. Only the text is sent. The text reader ships with the integration: nothing is downloaded from the internet. |
 
 ## When the access code changes
 

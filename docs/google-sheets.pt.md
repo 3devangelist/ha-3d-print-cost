@@ -129,6 +129,12 @@ Para uma impressora escrever noutro separador: **Edit → When a print ends** ne
 | **Colunas pelo nome** | Cada valor vai para a coluna com o mesmo nome na linha 1. Uma coluna que falte é juntada no fim. |
 | **Sem rede** | A linha fica à espera (até 200 linhas) e é enviada antes da seguinte: na próxima impressão ou quando o Home Assistant arranca. Recebes uma notificação. |
 
+## Quem pode configurar
+
+Só **administradores**. Configurar o registo muda as opções de todas as impressoras e cria um separador no Google. Por isso a ação `fdm_printer_manager.sheets_setup`, o botão "Google Sheets" e marcar uma impressão (`fdm_printer_manager.mark_print`, que junta linhas de correção) são recusados a outros utilizadores. Automações e scripts continuam a funcionar: correm sem utilizador.
+
+O Home Assistant não tem permissões por ação. Para deixar outra pessoa configurar o registo, torna-a administradora (Definições → Pessoas → a pessoa → **Administrador**).
+
 ## Aproveitar um registo antigo (cabeçalhos em português)
 
 Tinhas um separador escrito por uma automação antiga, com cabeçalhos em português?

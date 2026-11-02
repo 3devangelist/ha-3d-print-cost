@@ -9,14 +9,16 @@ The parsing helpers are pure functions and unit-tested without a printer.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit
 
 import aiohttp
 
+from ..identity import klipper_machine_id
 from .klipper_extras import KlipperFeatures, discover
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +31,10 @@ QUERY_OBJECTS = ("print_stats", "virtual_sdcard", "display_status", "extruder")
 # Status reported when the printer cannot be reached. The tracker treats it as
 # "unknown": a running print stays open until the printer answers again.
 STATUS_UNAVAILABLE = "unavailable"
+
+# Largest Moonraker answer read (the biggest real ones, the G-code command list
+# and file metadata, are tens of kB): something bigger is not a printer.
+MAX_RESPONSE = 2 * 1024 * 1024
 
 
 class MoonrakerError(Exception):
@@ -77,12 +83,34 @@ class Webcam:
 MJPEG_SERVICES = ("mjpegstreamer", "mjpegstreamer-adaptive", "uv4l-mjpeg", "ipstream")
 
 
-def parse_webcams(result: dict[str, Any], web_url: str) -> list[Webcam]:
+def url_host(url: str | None) -> str | None:
+    """Host name of an http(s) URL, lower case; ``None`` for anything else."""
+    try:
+        parts = urlsplit(url or "")
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    return parts.hostname.lower()
+
+
+def _same_host(url: str, hosts: frozenset[str] | None) -> str | None:
+    """``url`` when it is http(s) on one of ``hosts`` (``None``: any host), else ``None``."""
+    host = url_host(url)
+    if host is None or (hosts is not None and host not in hosts):
+        _LOGGER.warning("Ignoring a webcam URL on another host: %s", url)
+        return None
+    return url
+
+
+def parse_webcams(result: dict[str, Any], web_url: str, hosts: frozenset[str] | None = None) -> list[Webcam]:
     """``server.webcams.list`` → the enabled cameras, URLs made absolute.
 
     Webcam URLs are usually relative to the printer's web interface
     (``/webcam/?action=stream``), not to Moonraker's port, so they are
-    resolved against ``web_url`` (``http://<host>/``).
+    resolved against ``web_url`` (``http://<host>/``). A URL that points to
+    another host than ``hosts`` (the printer and its web interface) is dropped:
+    Home Assistant must not fetch addresses a printer hands it.
     """
     cams: list[Webcam] = []
     for cam in result.get("webcams") or []:
@@ -93,13 +121,11 @@ def parse_webcams(result: dict[str, Any], web_url: str) -> list[Webcam]:
         if not snapshot and not stream:
             continue
         service = str(cam.get("service") or "mjpegstreamer").lower()
-        cams.append(
-            Webcam(
-                name=str(cam.get("name") or "Camera"),
-                snapshot_url=urljoin(web_url, snapshot) if snapshot else None,
-                stream_url=urljoin(web_url, stream) if stream and service in MJPEG_SERVICES else None,
-            )
-        )
+        snapshot_url = _same_host(urljoin(web_url, snapshot), hosts) if snapshot else None
+        stream_url = _same_host(urljoin(web_url, stream), hosts) if stream and service in MJPEG_SERVICES else None
+        if not snapshot_url and not stream_url:
+            continue
+        cams.append(Webcam(name=str(cam.get("name") or "Camera"), snapshot_url=snapshot_url, stream_url=stream_url))
     return cams
 
 
@@ -165,6 +191,19 @@ def remaining_minutes(reading: KlipperStatus, meta: FileMetadata | None) -> floa
     return None
 
 
+async def read_limited(resp: Any, limit: int) -> bytes:
+    """The body of an aiohttp response, refusing more than ``limit`` bytes."""
+    length = getattr(resp, "content_length", None)
+    if length is not None and length > limit:
+        raise ValueError(f"answer too large ({length} bytes)")
+    data = bytearray()
+    async for chunk in resp.content.iter_chunked(64 * 1024):
+        data += chunk
+        if len(data) > limit:
+            raise ValueError(f"answer larger than {limit} bytes")
+    return bytes(data)
+
+
 class MoonrakerClient:
     """Minimal async client for the few endpoints we need."""
 
@@ -196,7 +235,7 @@ class MoonrakerClient:
                     raise MoonrakerAuthError(f"HTTP {resp.status} from {url}")
                 if resp.status >= 400:
                     raise MoonrakerConnectionError(f"HTTP {resp.status} from {url}")
-                data = await resp.json(content_type=None)
+                data = json.loads(await read_limited(resp, MAX_RESPONSE))
         except MoonrakerError:
             raise
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
@@ -213,9 +252,10 @@ class MoonrakerClient:
                     raise MoonrakerAuthError(f"HTTP {resp.status} from {url}")
                 if resp.status >= 400:
                     # Keep Moonraker's reason, e.g. "Error running shell command: 'sudo systemctl poweroff'"
-                    detail = (await resp.text())[:300]
+                    detail = (await read_limited(resp, MAX_RESPONSE)).decode(errors="replace")[:300]
                     raise MoonrakerConnectionError(f"HTTP {resp.status} from {url}: {detail}")
-                return await resp.json(content_type=None) or {}
+                body = await read_limited(resp, MAX_RESPONSE)
+                return (json.loads(body) if body.strip() else None) or {}
         except MoonrakerError:
             raise
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
@@ -285,7 +325,15 @@ class MoonrakerClient:
         result = await self._get(f"/server/files/metadata?filename={quote(filename)}")
         return parse_metadata(result)
 
-    async def webcams(self, web_url: str) -> list[Webcam]:
+    async def machine_identity(self) -> str | None:
+        """Who this computer is (identity.py): CPU serial, else MAC addresses, else host name."""
+        try:
+            info = (await self._get("/machine/system_info")).get("system_info")
+        except MoonrakerConnectionError:
+            info = None  # older or reduced Moonraker (Elegoo "cosmos"): the host name only
+        return klipper_machine_id(info if isinstance(info, dict) else None, await self.hostname())
+
+    async def webcams(self, web_url: str, hosts: frozenset[str] | None = None) -> list[Webcam]:
         """Enabled cameras. An older Moonraker without the webcam API has none."""
         try:
             result = await self._get("/server/webcams/list")
@@ -293,7 +341,7 @@ class MoonrakerClient:
             if "HTTP 404" in str(err):
                 return []
             raise
-        return parse_webcams(result, web_url)
+        return parse_webcams(result, web_url, hosts)
 
     async def hostname(self) -> str | None:
         """Hostname of the printer, used as default name. ``None`` if Klipper is down."""

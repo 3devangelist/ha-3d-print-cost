@@ -165,8 +165,8 @@
           "ssh_command": "SSH shutdown command"
         },
         "data_description": {
-          "auto_off_minutes": "After a print ends (finished, cancelled or failed) and this long without a new one, the printer is turned off safely: nozzle below 80 °C, its computer shut down, the plug cut once it stops answering. 0 = never. Needs a smart plug.",
-          "babystep": "Baby steps: the card shows buttons that move the nozzle up or down while printing (SET_GCODE_OFFSET), at most 1 mm from 0. Only when Klipper knows the command.",
+          "auto_off_minutes": "After a successful print and this long without a new one, the printer is turned off safely: nozzle below 80 °C, its computer shut down, the plug cut once it stops answering. A failed, cancelled or unknown print leaves it on so you can look at it, and so does losing contact with the printer. 0 = never. Needs a smart plug.",
+          "babystep": "Baby steps: the card shows buttons that move the nozzle up or down while printing (SET_GCODE_OFFSET Z_ADJUST, like Mainsail and Fluidd), at most 1 mm from 0 when the current offset is known. Only when Klipper knows the command.",
           "babystep_save": "Adds a Save button that keeps the offset (Z_OFFSET_APPLY_PROBE or Z_OFFSET_APPLY_ENDSTOP). Run SAVE_CONFIG yourself when the printer is idle. Off by default.",
           "ssh_username": "Advanced: only for a printer whose Moonraker cannot shut its computer down. The Elegoo Centauri Carbon needs nothing here: it is recognised and shut down over SSH as root by itself. Leave empty to not use SSH.",
           "ssh_password": "Optional. Leave empty to keep the stored one (or for a login without a password).",
@@ -188,8 +188,8 @@
           "printer_name": "Leave empty to use the printer's host name.",
           "host": "e.g. 192.168.1.89",
           "port": "7125 unless you changed it in moonraker.conf.",
-          "api_key": "Only if Moonraker requires one (trusted_clients not set for Home Assistant).",
-          "web_url": "Mainsail or Fluidd. Leave empty to use the printer's IP address (http://IP/). Opens with \"Visit\" on the device page."
+          "api_key": "Only if Moonraker requires one (trusted_clients not set for Home Assistant). Leave empty to keep the stored one.",
+          "web_url": "Mainsail or Fluidd (http:// or https://). Leave empty to use the printer's IP address (http://IP/). Opens with \"Visit\" on the device page."
         }
       },
       "bambu_lan": {
@@ -203,7 +203,7 @@
         "data_description": {
           "printer_name": "Leave empty to use the printer's model, e.g. Bambu Lab A1 mini.",
           "host": "e.g. 192.168.1.90",
-          "access_code": "8 characters, shown on the printer's screen."
+          "access_code": "8 characters, shown on the printer's screen. Leave empty to keep the stored one."
         }
       },
       "alerts": {
@@ -239,6 +239,13 @@
           "sheets_config_entry": "Adds one row per finished, failed or cancelled print to the spreadsheet of this Google Sheets integration entry. Empty: off.",
           "sheets_worksheet": "Name of the tab to write to. It must already exist: the Google Sheets button of the FDM Printers page creates it for you. Empty: Prints."
         }
+      },
+      "identity": {
+        "title": "Is this still your printer?",
+        "description": "{name} does not look like the same printer: {what} changed. Commands and power off are blocked until you decide. This happens after a firmware reinstall or a new board, but also when another device took the printer's IP address. Check the printer, then tick the box only if it is yours.",
+        "data": {
+          "accept_identity": "Yes, this is my printer: trust it from now on"
+        }
       }
     },
     "error": {
@@ -247,7 +254,8 @@
       "unsupported_price_unit": "Unsupported unit (expected e.g. EUR/kWh, c€/kWh, EUR/MWh).",
       "cannot_connect": "Cannot connect. Check the IP address and that the printer is on.",
       "invalid_auth": "Refused: check the access code (Bambu Lab) or the API key (Klipper).",
-      "price_required": "Type the price per kWh (or pick a price entity): the plug measures energy."
+      "price_required": "Type the price per kWh (or pick a price entity): the plug measures energy.",
+      "invalid_url": "Only an http:// or https:// address."
     }
   },
   "selector": {
@@ -456,6 +464,12 @@
           "description": "Optional. Only this printer. Empty: every printer."
         }
       }
+    }
+  },
+  "issues": {
+    "identity_changed": {
+      "title": "{name} does not look like the same printer",
+      "description": "Something at {name}'s address answers, but {what} changed. FDM Printer Manager stopped sending commands to it and will not cut its power.\n\nIf you reinstalled the printer's firmware or replaced its board, open Settings → Devices & services → FDM Printer Manager → {name} → Configure and accept its new identity. Otherwise check which device has that IP address."
     }
   }
 }

@@ -145,7 +145,7 @@ async def test_edit_klipper_ip_keeps_the_entry(hass: HomeAssistant, bypass_setup
     merged = {**entry.data, **entry.options}
     assert merged["host"] == "192.168.1.91"
     assert merged["web_url"] == "http://192.168.1.91/"
-    assert merged["api_key"] is None  # cleared key really cleared
+    assert merged["api_key"] == "old"  # left empty: the stored key is kept (it is never sent to the form)
 
 
 async def test_ip_only_finds_moonraker_on_port_80(hass: HomeAssistant, bypass_setup) -> None:

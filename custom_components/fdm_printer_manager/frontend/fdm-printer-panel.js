@@ -175,7 +175,16 @@ details summary{cursor:pointer;margin-bottom:10px}
 
 // "Read from photo" (Bambu LAN): the photo is made smaller first; without an AI Task it is read in the browser.
 const PHOTO_MAX_PX = 1600;
-const TESSERACT_URL = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+// The text reader (Tesseract.js 5.1.1, its worker, core and English data) ships with the integration and is
+// served by Home Assistant itself: nothing is downloaded from the internet, and it never updates on its own.
+// See THIRD_PARTY.md (versions, origin, SHA-256 of every file).
+const OCR_BASE = "/fdm_printer_manager_static/ocr";
+const OCR_OPTIONS = {
+  workerPath: `${OCR_BASE}/worker.min.js`,
+  corePath: `${OCR_BASE}/core`,
+  langPath: `${OCR_BASE}/lang`,
+  workerBlobURL: false,
+};
 const LAN_GUIDE_URL = "https://github.com/3devangelist/ha-3d-print-cost/blob/main/docs/bambu-lan-only.md";
 // "Google Sheets" button: the guide (Google Cloud credentials) and Home Assistant's own "add Google Sheets" page.
 const SHEETS_GUIDE_URL = "https://github.com/3devangelist/ha-3d-print-cost/blob/main/docs/google-sheets.md";
@@ -226,7 +235,11 @@ const FIELD_LABELS = {
   notify_services: "Also send to (e.g. notify.mobile_app_phone)",
   todo_entity: "To-do list: add “Remove the print” when a print ends",
   end_script: "Script to run when a print ends",
+  accept_identity: "Yes, this is my printer: trust it from now on",
 };
+
+// Secrets are never sent back to the edit form: empty keeps the stored one.
+const KEEP_SECRET = { api_key: "Unchanged (type to replace)", access_code: "Unchanged (type to replace)" };
 
 const ERRORS = {
   cannot_connect: "Cannot reach the printer. Check the IP address and that the printer is on.",
@@ -236,7 +249,11 @@ const ERRORS = {
   unsupported_energy_unit: "Unsupported unit (expected Wh, kWh or MWh).",
   unsupported_price_unit: "Unsupported unit (expected e.g. EUR/kWh).",
   already_configured: "This printer is already added.",
+  invalid_url: "Only an http:// or https:// address.",
 };
+
+/** Only http(s) links are shown (never javascript: or other schemes). */
+const safeUrl = (url) => (/^https?:\/\//i.test(String(url || "")) ? String(url) : "");
 
 const ACTIVE = ["printing", "paused", "running", "pause", "prepare", "slicing"];
 const DONE = ["complete", "finish", "finished"];
@@ -783,11 +800,17 @@ class FdmPrinterPanel extends HTMLElement {
         : asking ? "Tap to keep the printer on"
         : on && active ? "Not while printing" : "";
       // Why the last power off left the plug on (also sent as a notification); the phase reads "on" when idle.
-      const problem = on && !turningOff && !asking && !sent ? {
+      const noContact = power.attributes?.reachable === false;
+      const otherPrinter = power.attributes?.identity_ok === false;
+      const problem = on && !turningOff && !asking && !sent ? ({
         hot: "Not turned off: the nozzle stayed hot",
         still_on: "Not turned off: the computer kept running",
         no_shutdown: "Not turned off: could not shut the computer down (set the SSH login)",
-      }[power.attributes?.last_result] : null;
+        no_contact: "Not turned off: no contact with the printer. Use the plug directly if you are sure.",
+        identity: "Not turned off: this does not look like the same printer",
+        print_open: "Not turned off: a print is still open",
+      }[power.attributes?.last_result] || (otherPrinter ? "Does not look like the same printer: power off blocked (see Repairs)"
+        : noContact ? "No contact with the printer: it will not be turned off from here" : null)) : null;
       powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !keepable ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || keepable || asking || sent ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>${problem ? `<span class="sub warn">${esc(problem)}</span>` : ""}`;
     }
 
@@ -874,7 +897,7 @@ class FdmPrinterPanel extends HTMLElement {
         <div class="act">
           ${powerHtml}
           <span class="links">
-            ${attrs.web_url ? `<a class="link" href="${esc(attrs.web_url)}" target="_blank" rel="noopener">Open web UI ↗</a>` : ""}
+            ${safeUrl(attrs.web_url) ? `<a class="link" href="${esc(safeUrl(attrs.web_url))}" target="_blank" rel="noopener">Open web UI ↗</a>` : ""}
             <button class="linkbtn" data-act="edit" data-entry="${esc(eid)}">Edit</button>
           </span>
         </div>
@@ -1086,6 +1109,7 @@ class FdmPrinterPanel extends HTMLElement {
         bambu_lan: `<div class="banner info">On the printer, turn on <b>LAN Only mode</b> (A1: Settings → page 3 → LAN Only Mode; P1: Settings → WLAN; X1/H2: Settings → LAN Only). The IP address and the 8-character access code are shown on that same page. The printer must be switched on. <b>Developer Mode</b> is optional: status, temperatures and safe power work without it; it is only needed to send commands (pause, resume, stop, chamber light). <a class="link" href="${LAN_GUIDE_URL}" target="_blank" rel="noreferrer">Step-by-step guide</a></div>${this._renderPhoto()}`,
         klipper_auth: `<div class="banner info">This printer only accepts connections with a Moonraker API key.</div>`,
         electricity: `<div class="banner info">Pick the plug the printer is connected to. Its power and energy sensors are found automatically.</div>`,
+        identity: `<div class="banner warn"><b>${esc(r.description_placeholders?.name || "This printer")}</b> does not look like the same printer: ${esc(r.description_placeholders?.what || "its identity")} changed. Commands and power off are blocked. This happens after a firmware reinstall or a new board, but also when another device took the printer's IP address. Check the printer, then tick the box only if it is yours.</div>`,
       }[r.step_id] || "";
     const names = (r.data_schema || []).map((f) => f.name);
     const byName = Object.fromEntries((r.data_schema || []).map((f) => [f.name, f]));
@@ -1150,7 +1174,8 @@ class FdmPrinterPanel extends HTMLElement {
     // A value read from a photo is shown (also the access code) and highlighted, so it gets checked.
     const filled = !!this._photo.filled[name];
     const type = sel.text?.type === "password" && !filled ? "password" : "text";
-    const ph = name === "host" ? "192.168.1.89" : name === "access_code" ? "8 characters" : "";
+    const keep = this._flow?.kind === "options" && KEEP_SECRET[name];
+    const ph = name === "host" ? "192.168.1.89" : keep ? keep : name === "access_code" ? "8 characters" : "";
     const cls = `${name === "host" ? " big" : ""}${filled ? " filled" : ""}`;
     const check = !filled
       ? ""
@@ -1487,11 +1512,11 @@ class FdmPrinterPanel extends HTMLElement {
     if (!this._tesseract) {
       this._tesseract = new Promise((resolve, reject) => {
         const script = document.createElement("script");
-        script.src = TESSERACT_URL;
+        script.src = `${OCR_BASE}/tesseract.min.js`;
         script.onload = () => resolve(window.Tesseract);
         script.onerror = () => {
           this._tesseract = null;
-          reject(new Error("The text reader could not be downloaded"));
+          reject(new Error("The text reader could not be loaded"));
         };
         document.head.appendChild(script);
       });
@@ -1501,7 +1526,7 @@ class FdmPrinterPanel extends HTMLElement {
 
   async _ocr(blob) {
     const Tesseract = await this._loadTesseract();
-    const { data } = await Tesseract.recognize(blob, "eng");
+    const { data } = await Tesseract.recognize(blob, "eng", OCR_OPTIONS);
     return data?.text || "";
   }
 
@@ -1653,7 +1678,7 @@ class FdmPrinterPanel extends HTMLElement {
     try {
       await this._hass.callService(DOMAIN, service, data);
     } catch (err) {
-      this._flash(String(err?.message || err));
+      this._flash(String(err?.message || err), 10000);
     }
   }
 
@@ -1665,7 +1690,7 @@ class FdmPrinterPanel extends HTMLElement {
       await this._hass.callService(DOMAIN, "mark_print", data);
       await this._loadHistory();
     } catch (err) {
-      this._flash(String(err?.message || err));
+      this._flash(String(err?.message || err), 10000);
     }
   }
 
@@ -1676,19 +1701,19 @@ class FdmPrinterPanel extends HTMLElement {
       await this._hass.callService(domain, service, { entity_id: entity });
       return true;
     } catch (err) {
-      this._flash(String(err?.message || err));
+      this._flash(String(err?.message || err), 10000);
       return false;
     }
   }
 
-  _flash(text) {
+  _flash(text, ms = 4000) {
     this._toast = text;
     this._render();
     clearTimeout(this._toastTimer);
     this._toastTimer = setTimeout(() => {
       this._toast = null;
       this._render();
-    }, 4000);
+    }, ms);
   }
 
   async _remove() {

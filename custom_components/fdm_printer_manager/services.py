@@ -9,6 +9,11 @@ printer prints (live Z offset), reset that offset, or keep it.
 
 ``fdm_printer_manager.sheets_setup``: log every printer (or one) to a tab of a
 Google Sheets integration entry; the tab is created when it is missing.
+
+``mark_print`` and ``sheets_setup`` change the print log and the options of
+every printer, so only administrators may call them (automations and scripts
+still can: they run without a user). Home Assistant has no per-action
+permission: "users the admin allows" means users the admin makes admin.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.service import async_register_admin_service
 
 from .adapters.klipper_extras import BABYSTEP_STEPS
 from .const import CONF_PANEL, DOMAIN, SERVICE_BABYSTEP, SERVICE_MARK_PRINT, SERVICE_SHEETS_SETUP
@@ -94,7 +100,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         delta = call.data[ATTR_STEP] * (1 if direction == "up" else -1)
         await coordinator.async_babystep(delta, reset=reset, save=save)
 
-    hass.services.async_register(DOMAIN, SERVICE_MARK_PRINT, _mark_print, schema=MARK_PRINT_SCHEMA)
+    async_register_admin_service(hass, DOMAIN, SERVICE_MARK_PRINT, _mark_print, schema=MARK_PRINT_SCHEMA)
 
     async def _sheets_setup(call: ServiceCall) -> ServiceResponse:
         return await async_setup_log(
@@ -105,7 +111,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         )
 
     hass.services.async_register(DOMAIN, SERVICE_BABYSTEP, _babystep, schema=BABYSTEP_SCHEMA)
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_SHEETS_SETUP,
         _sheets_setup,

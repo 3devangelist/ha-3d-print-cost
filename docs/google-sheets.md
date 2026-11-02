@@ -128,6 +128,12 @@ To log one printer to another tab: **Edit → When a print ends** on that printe
 | **Columns by header name** | Rows are matched to the header row by name. A missing column is added at the end of the header. |
 | **No network** | The row waits (up to 200 rows) and is sent before the next one, at the next print or when Home Assistant starts. You get one notification. |
 
+## Who can set it up
+
+Only **administrators**. Setting up the log changes the options of every printer and creates a tab in Google, so the `fdm_printer_manager.sheets_setup` action, the "Google Sheets" button and marking a print (`fdm_printer_manager.mark_print`, which adds correction rows) are refused for other users. Automations and scripts still work: they run without a user.
+
+Home Assistant has no per-action permissions. To let someone else set up the log, make that person an administrator (Settings → People → the person → **Administrator**).
+
 ## Reusing an older log (Portuguese headers)
 
 Had a tab written by an older automation, with Portuguese headers? Keep it: rename the

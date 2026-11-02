@@ -10,10 +10,12 @@ The fallback when Moonraker's ``/machine/shutdown`` fails or is missing.
   (:data:`COSMOS_LOGIN`).
 * Any other printer: the user can give a login in the integration options.
 
-Host keys are not checked (``known_hosts=None``): the printer is on the local
-network, its key changes whenever the firmware is reinstalled, and the only
-thing ever sent is the shutdown command. The password is never logged.
-``asyncssh`` is imported only when it is used.
+Host keys are trusted on first use: the first connection learns the printer's
+host key (the caller remembers it, see identity.py) and every later one
+accepts only that key, so the password never goes to another machine that got
+the printer's IP address. A changed key (new firmware, or another device) is
+refused before logging in: :class:`SshHostKeyChanged`. The password is never
+logged. ``asyncssh`` is imported only when it is used.
 """
 
 from __future__ import annotations
@@ -41,6 +43,10 @@ class SshError(Exception):
     """The SSH shutdown could not be sent."""
 
 
+class SshHostKeyChanged(SshError):
+    """The printer's SSH host key is not the remembered one: nothing was sent."""
+
+
 @dataclass(frozen=True, slots=True)
 class SshLogin:
     """What the user typed in the options."""
@@ -66,8 +72,13 @@ def needs_cosmos_login(hostname: str | None, moonraker_error: str | None) -> boo
     return moonraker_error is not None and SHELL_COMMAND_ERROR in moonraker_error
 
 
-async def ssh_shutdown(host: str, login: SshLogin) -> None:
-    """Run the shutdown command. The connection dropping while it runs counts as success."""
+async def ssh_shutdown(host: str, login: SshLogin, host_key: str | None = None) -> str | None:
+    """Run the shutdown command. The connection dropping while it runs counts as success.
+
+    ``host_key``: the printer's remembered host key (OpenSSH public key line);
+    only that key is accepted. ``None``: first use, any key is accepted and
+    returned, for the caller to remember.
+    """
     try:
         import asyncssh  # noqa: PLC0415 - only needed when SSH is configured
     except ImportError as err:
@@ -77,6 +88,11 @@ async def ssh_shutdown(host: str, login: SshLogin) -> None:
     # password or key, an empty password is offered after the "none" method
     # (the Centauri lets root in with either).
     options: dict = {"username": login.username, "known_hosts": None, "port": SSH_PORT, "client_keys": None}
+    if host_key:
+        try:
+            options["known_hosts"] = ([asyncssh.import_public_key(host_key)], [], [])
+        except (asyncssh.KeyImportError, ValueError) as err:
+            raise SshHostKeyChanged("the remembered host key could not be read") from err
     if login.private_key:
         try:
             options["client_keys"] = [asyncssh.import_private_key(login.private_key)]
@@ -88,19 +104,30 @@ async def ssh_shutdown(host: str, login: SshLogin) -> None:
         options["password"] = ""
     try:
         conn = await asyncio.wait_for(asyncssh.connect(host, **options), SSH_TIMEOUT)
+    except asyncssh.HostKeyNotVerifiable as err:
+        raise SshHostKeyChanged("the printer's SSH host key changed") from err
     except asyncssh.PermissionDenied as err:
         raise SshError("SSH login refused") from err
     except TimeoutError as err:
         raise SshError("SSH timed out") from err
     except (OSError, asyncssh.Error) as err:
         raise SshError(f"SSH failed: {type(err).__name__}") from err
-    # One command, no pty, no shell features, no file transfer (the Centauri runs
-    # BusyBox). Its exit code is not trusted either: the connection often drops
-    # half-way through a poweroff. Success is the printer no longer answering,
-    # which the caller checks.
+    seen_key: str | None = None
+    try:
+        server_key = conn.get_server_host_key()
+        if server_key is not None:
+            seen_key = server_key.export_public_key("openssh").decode().strip()
+    except (AttributeError, ValueError, asyncssh.Error):
+        seen_key = None
+    # One command, no pty, no file transfer. It runs in the login shell of the
+    # remote user (the Centauri runs BusyBox), so it is whatever the admin typed
+    # in the options, nothing else is added. Its exit code is not trusted either:
+    # the connection often drops half-way through a poweroff. Success is the
+    # printer no longer answering, which the caller checks.
     try:
         async with conn:
             await asyncio.wait_for(conn.run(login.command, check=False), SSH_TIMEOUT)
     except (TimeoutError, OSError, asyncssh.Error):
         pass  # the computer went down while answering: expected
     _LOGGER.info("%s: shutdown command sent over SSH", host)
+    return host_key or seen_key

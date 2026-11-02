@@ -114,7 +114,7 @@ A impressora tem de estar **ligada** enquanto a adicionas. A ligação é testad
 | Tens | O que acontece | Para onde vai a foto |
 |---|---|---|
 | Uma **AI Task** no Home Assistant (OpenAI, Gemini, Anthropic…) | Lê os três valores | Para esse fornecedor de IA. O formulário diz qual. A cópia no Home Assistant é apagada logo a seguir. |
-| Sem AI Task | O texto é lido **no teu telemóvel ou computador** (Tesseract.js) | Para lado nenhum. Só o texto é enviado. Da primeira vez descarrega cerca de 10 MB. |
+| Sem AI Task | O texto é lido **no teu telemóvel ou computador** (Tesseract.js) | Para lado nenhum. Só o texto é enviado. O leitor de texto vem com a integração: nada é descarregado da internet. |
 
 ## Quando o código de acesso muda
 
