@@ -22,7 +22,7 @@
     "custom_components.fdm_printer_manager"
   ],
   "requirements": [
-    "asyncssh>=2.24.1"
+    "asyncssh>=2.24.0"
   ],
   "version": "0.12.2",
   "zeroconf": [

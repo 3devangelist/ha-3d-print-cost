@@ -37,7 +37,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Web interface link:** only `http://` and `https://` addresses are accepted and shown.
 - **Diagnostics** also hide the IP address, web address, serial number, device id, SSH user and
   command, and notification targets.
-- `asyncssh` 2.24.1 or later (security fixes).
+- `asyncssh` 2.24.0 or later (the version Home Assistant ships).
 
 ### Changed
 
