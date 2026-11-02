@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -46,6 +47,9 @@ PARALLEL_UPDATES = 0
 CURRENCY = "__currency__"  # replaced by the configured currency
 CURRENCY_PER_HOUR = "__currency__/h"
 CURRENCY_PER_KWH = "__currency__/kWh"
+
+# The printer's counters: never below the value shown before a restart.
+COUNTER_KEYS = frozenset({"energy_total", "cost_total", "energy_today", "cost_today"})
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -238,7 +242,10 @@ async def async_setup_entry(
 ) -> None:
     """Create the sensors; the filament and Z offset ones when the printer turns out to have them."""
     coordinator = entry.runtime_data
-    async_add_entities(PrintCostSensor(coordinator, description) for description in SENSORS)
+    async_add_entities(
+        (CounterSensor if description.key in COUNTER_KEYS else PrintCostSensor)(coordinator, description)
+        for description in SENSORS
+    )
     added: set[str] = set()
 
     @callback
@@ -383,3 +390,16 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
             if (source := self.coordinator.klipper or self.coordinator.bambu_lan)
             else None,
         }
+
+
+class CounterSensor(PrintCostSensor, RestoreSensor):
+    """Energy / cost counter of the printer: restores its last value so the first one after a restart is not lower."""
+
+    async def async_added_to_hass(self) -> None:
+        """Hand the last value shown before the restart to the coordinator (it keeps the counter at least there)."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        last_data = await self.async_get_last_sensor_data()
+        if last_state is None or last_data is None or last_data.native_value is None:
+            return
+        self.coordinator.restore_counter(self.entity_description.key, last_data.native_value, last_state.last_updated)
