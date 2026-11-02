@@ -41,7 +41,7 @@ from .const import (
     STATIC_URL,
     PrinterType,
 )
-from .coordinator import PrintCostConfigEntry, PrintCostCoordinator
+from .coordinator import PrintCostConfigEntry, PrintCostCoordinator, own_device
 from .naming import bambu_model, bambu_name, friendly_name, is_generic
 from .outcome import history_stats
 from .scanner import async_scan_network, async_start_scanning
@@ -148,19 +148,6 @@ def _rename_generic(hass: HomeAssistant, entry: PrintCostConfigEntry) -> None:
         registry.async_update_device(device.id, name=name)
 
 
-@callback
-def own_device(registry: dr.DeviceRegistry, entry_id: str) -> dr.DeviceEntry | None:
-    """The device of this config entry (identifier ``(DOMAIN, entry_id)``).
-
-    HA 2026.10 deprecated ``async_get_device`` (it stops working in 2027.8) in favour of
-    ``async_get_device_by_identifier``, which older HA versions do not have.
-    """
-    identifier = (DOMAIN, entry_id)
-    if (by_identifier := getattr(registry, "async_get_device_by_identifier", None)) is not None:
-        return by_identifier(identifier, entry_id)
-    return registry.async_get_device(identifiers={identifier})
-
-
 async def async_unload_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -> bool:
     """Unload: the active job is flushed to storage and resumed on next setup."""
     if entry.data.get(CONF_PANEL):
@@ -220,12 +207,14 @@ async def _async_ensure_panel(hass: HomeAssistant) -> None:
         sidebar_icon=PANEL_ICON,
         frontend_url_path=PANEL_URL_PATH,
         config={
+            # The panel shows this in its header: always the installed manifest.json version.
+            "version": version,
             "_panel_custom": {
                 "name": PANEL_ELEMENT,
                 "module_url": f"{STATIC_URL}/{PANEL_ELEMENT}.js?v={version}",
                 "embed_iframe": False,
                 "trust_external": False,
-            }
+            },
         },
         require_admin=True,
         update=True,

@@ -5,6 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 
+from custom_components.fdm_printer_manager import own_device
 from custom_components.fdm_printer_manager.const import DOMAIN
 from custom_components.fdm_printer_manager.firmware import (
     COSMOS_RELEASES_URL,
@@ -103,7 +104,7 @@ async def test_old_cosmos_gets_a_recommendation_cleared_after_the_update(
     attrs = hass.states.get(STATUS).attributes
     assert attrs["firmware_update"] is True
     assert attrs["firmware"] == f"OpenCentauri Cosmos {version} (wrynose)"
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    device = own_device(dr.async_get(hass), entry.entry_id)
     assert device.sw_version == f"OpenCentauri Cosmos {version} (wrynose)"
 
     # Updated to 26.10.1: the recommendation goes away
@@ -111,7 +112,7 @@ async def test_old_cosmos_gets_a_recommendation_cleared_after_the_update(
     await coordinator.async_check_klipper_identity()
     assert _issue(hass, entry) is None
     assert hass.states.get(STATUS).attributes["firmware_update"] is False
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    device = own_device(dr.async_get(hass), entry.entry_id)
     assert device.sw_version == "OpenCentauri Cosmos 26.10.1 (wrynose)"
 
 

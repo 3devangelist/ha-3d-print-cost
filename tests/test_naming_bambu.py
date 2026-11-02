@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.fdm_printer_manager import own_device
 from custom_components.fdm_printer_manager.adapters.moonraker import FileMetadata, KlipperStatus
 from custom_components.fdm_printer_manager.const import DOMAIN
 from custom_components.fdm_printer_manager.naming import bambu_model, bambu_name, is_generic
@@ -94,7 +95,7 @@ async def test_bambu_lan_micromachine_is_renamed_to_its_model(hass: HomeAssistan
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
     assert entry.title == "Bambu Lab A1 mini"
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    device = own_device(dr.async_get(hass), entry.entry_id)
     assert device.name == "Bambu Lab A1 mini"
 
 
@@ -106,7 +107,7 @@ async def test_name_given_by_the_user_is_kept(hass: HomeAssistant) -> None:
     )
     dr.async_get(hass).async_update_device(device.id, name_by_user="Centauri AFS")
     await _setup(hass, entry, add=False)
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "def")})
+    device = own_device(dr.async_get(hass), "def")
     assert device.name_by_user == "Centauri AFS"
 
 

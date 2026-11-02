@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.4]
+
+### Fixed
+
+- **The panel header always shows the installed version.** It said "v0.12.2" while 0.12.3 was
+  installed, because the number was written in the panel script. The integration now passes the
+  `manifest.json` version to the panel when it registers it, and the header shows that.
+- **Diagnostics of the "FDM Printers" entry no longer fail.** Downloading them gave an error
+  (`'ConfigEntry' object has no attribute 'runtime_data'`), because that entry only holds the
+  sidebar panel and has no printer behind it. It now returns the version, whether the panel and
+  the background services are running, and each printer's type and state (redacted: no names,
+  hosts or serials).
+- **No more "async_get_device is deprecated" warning.** Updating the firmware shown on a
+  printer's device used the old device registry lookup (it stops working in Home Assistant
+  2027.8). It now uses the same lookup as the rest of the integration, and a test fails if the
+  old call comes back anywhere in the package.
+- `pyproject.toml` had stayed at 0.12.2; it now follows `manifest.json` (checked by a test).
+
 ## [0.12.3]
 
 ### Changed

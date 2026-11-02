@@ -9,6 +9,7 @@ from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
+from custom_components.fdm_printer_manager import own_device
 from custom_components.fdm_printer_manager.adapters.moonraker import (
     FileMetadata,
     KlipperStatus,
@@ -90,7 +91,7 @@ async def test_klipper_print_end_to_end(hass: HomeAssistant, freezer: FrozenDate
     freezer.move_to("2026-10-28 10:00:00+00:00")
     entry = await setup_ender(hass)
 
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    device = own_device(dr.async_get(hass), entry.entry_id)
     assert device.name == "Ender 6"
     assert device.manufacturer == "Klipper"
     assert device.configuration_url == "http://192.168.1.89/"
