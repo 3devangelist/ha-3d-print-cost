@@ -87,9 +87,10 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
     (Moonraker, else SSH) and the plug is cut once the computer stops
     answering (phase ``shutting_down``; still answering after 5 minutes, the
     plug is left on); other printers are cut right away.
-    After a successful print, the same happens by itself ``auto_off_minutes``
-    later (phase ``waiting``); a failed, cancelled or unknown print leaves the
-    printer on so it can be looked at. Can be put on any dashboard and used in automations.
+    After a successful print, the same starts by itself right away when ``auto_off``
+    is on (it waits in phase ``cooling`` until the nozzle is below 80 °C); a failed,
+    cancelled or unknown print leaves the printer on so it can be looked at.
+    Can be put on any dashboard and used in automations.
     """
 
     def __init__(self, coordinator: PrintCostCoordinator) -> None:
@@ -138,12 +139,10 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
         """Shutdown progress, for the panel and dashboards."""
         coordinator = self.coordinator
         cut_at = coordinator.power_cut_at
-        auto_off_at = coordinator.auto_off_at
         return {
             "phase": coordinator.power_phase or ("on" if self.is_on else "off"),
             "cut_at": cut_at.isoformat() if cut_at else None,
-            "auto_off_at": auto_off_at.isoformat() if auto_off_at else None,
-            "auto_off_minutes": coordinator.auto_off_minutes,
+            "auto_off": coordinator.auto_off,
             "last_result": coordinator.power_result,
             "ssh": coordinator.ssh_login is not None,
             "cool_to": SAFE_POWER_COOL_TEMP,

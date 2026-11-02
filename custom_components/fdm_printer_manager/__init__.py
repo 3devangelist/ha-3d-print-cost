@@ -7,7 +7,9 @@ Optional: a smart plug with a meter + an electricity price for the cost of each 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import frontend, websocket_api
@@ -24,12 +26,14 @@ from homeassistant.helpers.typing import ConfigType
 from . import photo
 from .adapters.bambu_lan import BambuAnnouncement, async_listen_ssdp
 from .const import (
+    CONF_AUTO_OFF,
     CONF_HOST,
     CONF_PANEL,
     CONF_PRINTER_NAME,
     CONF_PRINTER_SERIAL,
     CONF_PRINTER_TYPE,
     DOMAIN,
+    LEGACY_AUTO_OFF_MINUTES,
     PANEL_ELEMENT,
     PANEL_ICON,
     PANEL_TITLE,
@@ -65,6 +69,31 @@ REMOVED_KEYS = ("print_history", "gcode_estimate", "gcode_file", "estimate_gcode
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the actions (they work for every printer entry)."""
     async_setup_services(hass)
+    return True
+
+
+def migrate_auto_off(conf: Mapping[str, Any]) -> dict[str, Any]:
+    """1.1 -> 1.2: ``auto_off_minutes`` (0 = never) becomes the on/off ``auto_off`` (more than 0 -> on)."""
+    new = dict(conf)
+    if LEGACY_AUTO_OFF_MINUTES in new:
+        minutes = new.pop(LEGACY_AUTO_OFF_MINUTES)
+        try:
+            enabled = float(minutes or 0) > 0
+        except (TypeError, ValueError):
+            enabled = True  # unreadable: keep the default
+        new.setdefault(CONF_AUTO_OFF, enabled)
+    return new
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: PrintCostConfigEntry) -> bool:
+    """Migrate an entry made by an older version."""
+    if entry.version > 1:
+        return False  # made by a newer version: do not touch it
+    if entry.minor_version < 2:
+        hass.config_entries.async_update_entry(
+            entry, data=migrate_auto_off(entry.data), options=migrate_auto_off(entry.options), minor_version=2
+        )
+        _LOGGER.info("%s: auto-off minutes turned into on/off (%s)", entry.title, entry.options.get(CONF_AUTO_OFF))
     return True
 
 

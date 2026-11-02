@@ -54,7 +54,10 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .state{font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:5px;background:var(--surface-2);color:var(--idle);white-space:nowrap}
 .state.run{color:var(--run);background:rgba(240,163,58,.15)} .state.ok{color:var(--ok);background:rgba(87,194,122,.15)} .state.off{color:var(--bad);background:rgba(239,106,90,.15)}
 .job{padding:0 14px;font-family:var(--mono);font-size:.78rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.markrow{display:flex;gap:6px;padding:6px 14px 0;flex-wrap:wrap}
+.markrow{padding:2px 14px 0;font-size:.78rem;color:var(--muted)}
+.fwnote{padding:2px 14px 0;font-size:.78rem;color:var(--muted)}
+.markrow .fix{all:unset;cursor:pointer;color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+.markrow .fix:hover,.markrow .fix:focus-visible{color:var(--fg)}
 .rmark{display:inline-flex;gap:6px;margin-left:6px}
 .stats{margin:-4px 0 8px}
 .alert{margin:0 14px 8px;padding:6px 10px;border-radius:8px;background:rgba(219,68,55,.12);color:var(--error-color,#db4437);font-size:.85rem;font-weight:600}
@@ -748,9 +751,12 @@ class FdmPrinterPanel extends HTMLElement {
     const hasLast = !!s("last_print_cost")?.attributes?.finished_at && !!lastResult && lastResult !== "unavailable";
     const markHtml =
       !active && hasLast
-        ? `<div class="markrow">${lastResult !== "success" ? `<button class="btn sm" data-act="mark" data-entry="${esc(eid)}" data-result="success" title="Mark the last print as a success">✓ OK</button>` : ""}${
-            lastResult !== "failed" ? `<button class="btn sm danger" data-act="mark" data-entry="${esc(eid)}" data-result="failed" title="Mark the last print as failed">✗ Failed</button>` : ""
-          }</div>`
+        ? // A correction of the "Last: …" line just above, not a status (0.12.3: a red "✗ Failed" button was read as
+          // the print's result): one small muted line, "Wrong? Mark as failed".
+          `<div class="markrow">Wrong? ${[
+            lastResult !== "success" ? `<button class="fix" data-act="mark" data-entry="${esc(eid)}" data-result="success" title="Mark the last print as a success">Mark as OK</button>` : "",
+            lastResult !== "failed" ? `<button class="fix" data-act="mark" data-entry="${esc(eid)}" data-result="failed" title="Mark the last print as failed">Mark as failed</button>` : "",
+          ].filter(Boolean).join(" · ")}</div>`
         : "";
 
     const foot = active
@@ -776,7 +782,8 @@ class FdmPrinterPanel extends HTMLElement {
       const waiting = phase === "shutting_down";
       // Cooling: the nozzle has to drop below cool_to before the plug is cut; a tap keeps the printer on.
       const cooling = phase === "cooling";
-      // Auto-off: the print ended, the printer turns itself off at auto_off_at; a tap keeps it on.
+      // Auto-off (0.12.3): starts as soon as a print ends well, so it shows as "cooling" (no timer any more).
+      // "waiting" is kept only for a Home Assistant still running an older version of the integration.
       const autoOff = phase === "waiting";
       const keepable = cooling || autoOff;
       // Asked: the "Turn off?" box is open under the card. Sent: "Turn off" tapped, the new phase not here yet
@@ -788,14 +795,14 @@ class FdmPrinterPanel extends HTMLElement {
       if (sentAt && !sent) delete this._offing[eid];
       const coolTo = power.attributes?.cool_to ?? 80;
       const label = cooling
-        ? `Cooling nozzle — ${nozzle != null ? `${Math.round(nozzle)}°` : "…"} → ${coolTo}°`
-        : autoOff ? `Auto off at ${hhmm(power.attributes?.auto_off_at)}`
+        ? `Cooling nozzle — ${nozzle != null ? `${Math.round(nozzle)}°` : "…"} → ${coolTo}°, then off`
+        : autoOff ? "Turning off after the print…"
         : waiting ? `Shutting down… waiting for it to go off (until ${hhmm(power.attributes?.cut_at)})`
         : sent ? "Turning off…"
         : asking ? "Turning off? Confirm below"
         : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
       const disabled = waiting || sent || power.state === "unavailable" || (on && active && !keepable);
-      const title = cooling ? "Waiting for the nozzle to cool. Tap to keep the printer on"
+      const title = cooling ? `Waiting for the nozzle to drop below ${coolTo} °C, then it turns off. Tap to keep the printer on`
         : autoOff ? "Turns off by itself after the print. Tap to keep the printer on"
         : asking ? "Tap to keep the printer on"
         : on && active ? "Not while printing" : "";
@@ -886,6 +893,7 @@ class FdmPrinterPanel extends HTMLElement {
         ${camHtml}
         <div class="job">${esc(active ? fileShown || "—" : lastLine || "—")}</div>
         ${markHtml}
+        ${attrs.firmware_update ? `<div class="fwnote" title="${esc(attrs.firmware || "")}">Firmware update recommended: Cosmos 26.10+ shuts down cleanly from the web UI.</div>` : ""}
         <div class="prog"><i style="width:${active && progress != null ? Math.min(100, progress) : 0}%"></i></div>
         <div class="meta"><span>${active && progress != null ? `${Math.round(progress)}%${paused ? " · paused" : ""}` : ""}</span><span>${active && left != null ? `${fmtMin(left)} left` : ""}</span></div>
         <div class="temps">${nozzle != null ? `▲ ${nozzle.toFixed(1)}°` : ""}</div>

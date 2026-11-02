@@ -3,6 +3,38 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.3]
+
+### Changed
+
+- **Auto-off without the 15 minutes.** After a successful print the printer is turned off as
+  soon as the nozzle is below 80 °C: the safe power off starts right away and waits for the
+  nozzle to cool, then shuts the computer down and cuts the plug. The option "Turn off after a
+  print (minutes)" is now an on/off switch, "Turn the printer off after a successful print"
+  (on by default). Existing printers are migrated: more than 0 minutes → on, 0 → off.
+  The safety rules of 0.12.2 stay: only after a successful print; no contact or another printer
+  → never cut; a new print, or the plug turned on or off by hand, cancels it.
+- The card shows "Cooling nozzle — 150° → 80°, then off" instead of "Auto off at …". The
+  `switch.<printer>_safe_power` attributes `auto_off_at` and `auto_off_minutes` are replaced by
+  `auto_off` (true / false); the phase `waiting` is no longer used.
+- **The "Mark as failed" correction no longer looks like a result.** Under "Last: ✅ success · …"
+  the card showed a red "✗ Failed" button, which read as "the print failed". It is now a small
+  muted line right under the result it corrects: "Wrong? Mark as failed" (or "Mark as OK").
+- **Google Sheets shows the corrected result.** Marking a print again now changes its row in the
+  sheet (the `result` and `result_by` cells, found by `job_id`, through the Google login of the
+  Google Sheets integration), every time it is pressed. A row still waiting in the queue is
+  changed there. Only when the row cannot be found or changed (no access, not there) is a
+  correction row added, as before, and it waits in the queue until it goes through.
+
+### Added
+
+- **Firmware of Klipper printers** from Moonraker (`machine.system_info` → `distribution`), shown
+  as the device's software version. **OpenCentauri Cosmos older than 26.10** (Elegoo Centauri
+  Carbon) gets a recommendation to update: a warning in Settings → Repairs with a link to the
+  Cosmos releases, and a line on the card ("Firmware update recommended: Cosmos 26.10+ shuts down
+  cleanly from the web UI."). It goes away once the printer runs 26.10 or later. Cosmos 26.10.1
+  shuts down from Moonraker (tested): SSH is only used when Moonraker refuses, as before.
+
 ## [0.12.2]
 
 ### Security

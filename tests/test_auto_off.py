@@ -1,4 +1,8 @@
-"""Auto-off after a print, the "is the computer off yet?" check, and the SSH fallback (0.8.0)."""
+"""Auto-off after a print, the "is the computer off yet?" check, and the SSH fallback (0.8.0).
+
+0.12.3: no 15-minute timer any more: the safe power off starts as soon as a print ends well and
+waits for the nozzle to drop below 80 °C.
+"""
 
 from unittest.mock import AsyncMock, patch
 
@@ -100,10 +104,12 @@ async def setup(hass: HomeAssistant, **options) -> MockConfigEntry:
     return entry
 
 
-async def finish_a_print(hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine, end: str) -> None:
+async def finish_a_print(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine, end: str, nozzle: float = 60.0
+) -> None:
     machine.reading = KlipperStatus(state="printing", filename="a.gcode", progress=50, nozzle_temp=210.0)
     await tick(hass, freezer, 5)
-    machine.reading = KlipperStatus(state=end, filename="a.gcode", progress=100, nozzle_temp=60.0)
+    machine.reading = KlipperStatus(state=end, filename="a.gcode", progress=100, nozzle_temp=nozzle)
     await tick(hass, freezer, 5)
 
 
@@ -118,22 +124,19 @@ async def computer_goes_off(hass: HomeAssistant, freezer: FrozenDateTimeFactory,
         await tick(hass, freezer, 5)
 
 
-async def test_turns_off_15_minutes_after_a_successful_print(
+async def test_turns_off_as_soon_as_a_successful_print_ends(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
 ) -> None:
+    """0.12.3: no 15-minute wait. The nozzle is already below 80 °C: the computer is shut down at once."""
     freezer.move_to("2026-11-01 10:00:00+00:00")
     await setup(hass)
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
     await finish_a_print(hass, freezer, machine, "complete")
-    assert phase(hass) == "waiting"
-    assert attrs(hass)["auto_off_at"].startswith("2026-11-01T10:15:10")
-    assert attrs(hass)["auto_off_minutes"] == 15
-
-    await tick(hass, freezer, 14 * 60)
-    assert machine.calls == []
-    await tick(hass, freezer, 60 + 5)
     assert machine.calls == ["shutdown"]
     assert phase(hass) == "shutting_down"
+    assert attrs(hass)["auto_off"] is True
+    assert "auto_off_at" not in attrs(hass)
+    assert "auto_off_minutes" not in attrs(hass)
     assert cut == []
 
     await computer_goes_off(hass, freezer, machine)
@@ -146,10 +149,9 @@ async def test_the_plug_is_not_cut_while_the_computer_still_answers(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
 ) -> None:
     freezer.move_to("2026-11-01 10:00:00+00:00")
-    await setup(hass, auto_off_minutes=1)
+    await setup(hass)
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
     await finish_a_print(hass, freezer, machine, "complete")
-    await tick(hass, freezer, 65)
     assert machine.calls == ["shutdown"]
 
     machine.reading = MoonrakerConnectionError("Moonraker stopped")  # Moonraker gone, the computer still up
@@ -167,10 +169,9 @@ async def test_a_short_dropout_does_not_count(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
 ) -> None:
     freezer.move_to("2026-11-01 10:00:00+00:00")
-    await setup(hass, auto_off_minutes=1)
+    await setup(hass)
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
     await finish_a_print(hass, freezer, machine, "complete")
-    await tick(hass, freezer, 65)
     machine.computer_on = False
     await tick(hass, freezer, 5)
     await tick(hass, freezer, 5)
@@ -185,13 +186,12 @@ async def test_a_short_dropout_does_not_count(
     assert len(cut) == 1
 
 
-async def test_zero_minutes_turns_auto_off_off(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
-) -> None:
+async def test_auto_off_switched_off(hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine) -> None:
     freezer.move_to("2026-11-01 10:00:00+00:00")
-    await setup(hass, auto_off_minutes=0)
+    await setup(hass, auto_off=False)
     await finish_a_print(hass, freezer, machine, "complete")
     assert phase(hass) == "on"
+    assert attrs(hass)["auto_off"] is False
     await tick(hass, freezer, 3600)
     assert machine.calls == []
 
@@ -201,15 +201,17 @@ async def test_a_new_print_cancels_the_auto_off(
 ) -> None:
     freezer.move_to("2026-11-01 10:00:00+00:00")
     await setup(hass)
-    await finish_a_print(hass, freezer, machine, "complete")
-    assert phase(hass) == "waiting"
+    cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
+    await finish_a_print(hass, freezer, machine, "complete", nozzle=200.0)
+    assert phase(hass) == "cooling"  # started at once, waiting for the nozzle
     machine.reading = KlipperStatus(state="printing", filename="b.gcode", progress=1, nozzle_temp=200.0)
-    await tick(hass, freezer, 5)
     await tick(hass, freezer, 5)
     assert phase(hass) == "on"
     assert attrs(hass)["last_result"] == "aborted"
+    machine.reading = KlipperStatus(state="standby", nozzle_temp=30.0)  # cool again: still cancelled
     await tick(hass, freezer, 3600)
     assert machine.calls == []
+    assert cut == []
 
 
 async def test_turning_on_cancels_the_auto_off(
@@ -218,11 +220,12 @@ async def test_turning_on_cancels_the_auto_off(
     freezer.move_to("2026-11-01 10:00:00+00:00")
     await setup(hass)
     async_mock_service(hass, "homeassistant", "turn_on")
-    await finish_a_print(hass, freezer, machine, "complete")
-    assert phase(hass) == "waiting"
+    await finish_a_print(hass, freezer, machine, "complete", nozzle=200.0)
+    assert phase(hass) == "cooling"
     await hass.services.async_call("switch", "turn_on", {"entity_id": SAFE}, blocking=True)
     await hass.async_block_till_done()
     assert phase(hass) == "on"
+    machine.reading = KlipperStatus(state="complete", nozzle_temp=30.0)
     await tick(hass, freezer, 3600)
     assert machine.calls == []
 
@@ -232,12 +235,16 @@ async def test_the_plug_turned_off_by_hand_ends_the_auto_off(
 ) -> None:
     freezer.move_to("2026-11-01 10:00:00+00:00")
     await setup(hass)
-    await finish_a_print(hass, freezer, machine, "complete")
+    await finish_a_print(hass, freezer, machine, "complete", nozzle=200.0)
+    assert phase(hass) == "cooling"
     hass.states.async_set(PLUG, "off")
     await tick(hass, freezer, 5)
+    assert phase(hass) == "off"
+    assert attrs(hass)["last_result"] == "aborted"
+    hass.states.async_set(PLUG, "on")
+    machine.reading = KlipperStatus(state="complete", nozzle_temp=30.0)
     await tick(hass, freezer, 3600)
     assert machine.calls == []
-    assert attrs(hass)["last_result"] == "aborted"
 
 
 async def test_no_auto_off_when_the_plug_is_already_off(
@@ -253,16 +260,20 @@ async def test_no_auto_off_when_the_plug_is_already_off(
 async def test_auto_off_waits_for_the_nozzle_to_cool(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
 ) -> None:
+    """Starts at once and waits for the nozzle (up to 30 min), never on a timer."""
     freezer.move_to("2026-11-01 10:00:00+00:00")
-    await setup(hass, auto_off_minutes=1)
-    await finish_a_print(hass, freezer, machine, "complete")
-    machine.reading = KlipperStatus(state="complete", nozzle_temp=120.0)  # reheated meanwhile
-    await tick(hass, freezer, 65)
+    await setup(hass)
+    await finish_a_print(hass, freezer, machine, "complete", nozzle=200.0)
+    assert phase(hass) == "cooling"
+    machine.reading = KlipperStatus(state="complete", nozzle_temp=120.0)
+    for _ in range(20 * 12):  # 20 minutes still hot: no shutdown, still cooling
+        await tick(hass, freezer, 5)
     assert phase(hass) == "cooling"
     assert machine.calls == []
-    machine.reading = KlipperStatus(state="complete", nozzle_temp=70.0)
+    machine.reading = KlipperStatus(state="complete", nozzle_temp=79.0)
     await tick(hass, freezer, 5)
     assert machine.calls == ["shutdown"]
+    assert phase(hass) == "shutting_down"
 
 
 # --------------------------------------------------------------------------- #
@@ -369,7 +380,6 @@ async def test_no_auto_off_after_a_failed_cancelled_or_unknown_print(
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
     await finish_a_print(hass, freezer, machine, end)
     assert phase(hass) == "on"
-    assert attrs(hass)["auto_off_at"] is None
     await tick(hass, freezer, 3600)
     assert machine.calls == []
     assert cut == []
@@ -392,15 +402,16 @@ async def test_print_interrupted_by_lost_contact_gets_no_auto_off(
     assert cut == []
 
 
-async def test_losing_contact_while_waiting_cancels_the_auto_off(
+async def test_losing_contact_while_cooling_after_a_print_cancels_the_auto_off(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine
 ) -> None:
     freezer.move_to("2026-11-01 10:00:00+00:00")
     await setup(hass)
     cut: list[ServiceCall] = async_mock_service(hass, "homeassistant", "turn_off")
-    await finish_a_print(hass, freezer, machine, "complete")
-    assert phase(hass) == "waiting"
+    await finish_a_print(hass, freezer, machine, "complete", nozzle=200.0)
+    assert phase(hass) == "cooling"
     machine.reading = MoonrakerConnectionError("gone")
+    await tick(hass, freezer, 5)
     await tick(hass, freezer, 5)
     assert phase(hass) == "on"
     assert attrs(hass)["last_result"] == "no_contact"
@@ -488,3 +499,37 @@ async def test_changed_ssh_host_key_blocks_the_power_off(
     assert (DOMAIN, f"identity_changed_{entry.entry_id}") in issues
     await computer_goes_off(hass, freezer, machine)
     assert cut == []
+
+
+# --------------------------------------------------------------------------- #
+# 0.12.3: auto_off_minutes (0 = never) becomes the on/off auto_off
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(("minutes", "expected"), [(15, True), (1, True), (0, False)])
+async def test_old_minutes_are_migrated_to_on_off(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, machine: Machine, minutes: int, expected: bool
+) -> None:
+    freezer.move_to("2026-11-01 10:00:00+00:00")
+    entry = await setup(hass, auto_off_minutes=minutes, update_interval=30)
+    assert entry.minor_version == 2
+    assert entry.options == {"auto_off": expected, "update_interval": 30}
+    assert attrs(hass)["auto_off"] is expected
+    await finish_a_print(hass, freezer, machine, "complete")
+    assert machine.calls == (["shutdown"] if expected else [])
+
+
+async def test_migration_keeps_entries_without_the_old_option(hass: HomeAssistant, machine: Machine) -> None:
+    entry = await setup(hass)
+    assert entry.minor_version == 2
+    assert "auto_off" not in entry.options  # the default applies: on
+    assert attrs(hass)["auto_off"] is True
+
+
+def test_migrate_auto_off_values() -> None:
+    from custom_components.fdm_printer_manager import migrate_auto_off  # noqa: PLC0415
+
+    assert migrate_auto_off({"auto_off_minutes": 15, "x": 1}) == {"auto_off": True, "x": 1}
+    assert migrate_auto_off({"auto_off_minutes": 0}) == {"auto_off": False}
+    assert migrate_auto_off({"auto_off_minutes": 0.0}) == {"auto_off": False}
+    assert migrate_auto_off({"auto_off_minutes": None}) == {"auto_off": False}
+    assert migrate_auto_off({"auto_off_minutes": 30, "auto_off": False}) == {"auto_off": False}  # new value wins
+    assert migrate_auto_off({"x": 1}) == {"x": 1}

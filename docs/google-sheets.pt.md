@@ -125,13 +125,13 @@ Para uma impressora escrever noutro separador: **Edit → When a print ends** ne
 | Limite | O que quer dizer |
 |---|---|
 | **Só a folha criada pela integração** | O Google Sheets do Home Assistant só escreve na folha que criou quando o ligaste. Não escreve numa folha feita por ti. Queres uma folha à parte? Usa **Add another spreadsheet**: junta outra entrada do Google Sheets, com uma folha nova. |
-| **Uma linha por impressão, nunca editada** | Se marcares depois uma impressão com ✓ OK / ✗ Failed e o resultado mudar, junta-se uma **linha de correção** com o mesmo `job_id`, `result_by` = `user` e uma nota. Ao contar, fica com a última linha de cada `job_id`. |
+| **Uma linha por impressão** | Se marcares depois uma impressão ("Wrong? Mark as failed / Mark as OK" no cartão) e o resultado mudar, a linha dessa impressão é **alterada no sítio**: `result` e `result_by` = `user`, encontrada pelo `job_id` (uma linha ainda à espera de ser enviada é alterada antes de ir). Só quando essa linha não se encontra ou não se pode alterar é que se junta uma **linha de correção**, com o mesmo `job_id` e uma nota; aí, ao contar, fica com a última linha de cada `job_id`. |
 | **Colunas pelo nome** | Cada valor vai para a coluna com o mesmo nome na linha 1. Uma coluna que falte é juntada no fim. |
 | **Sem rede** | A linha fica à espera (até 200 linhas) e é enviada antes da seguinte: na próxima impressão ou quando o Home Assistant arranca. Recebes uma notificação. |
 
 ## Quem pode configurar
 
-Só **administradores**. Configurar o registo muda as opções de todas as impressoras e cria um separador no Google. Por isso a ação `fdm_printer_manager.sheets_setup`, o botão "Google Sheets" e marcar uma impressão (`fdm_printer_manager.mark_print`, que junta linhas de correção) são recusados a outros utilizadores. Automações e scripts continuam a funcionar: correm sem utilizador.
+Só **administradores**. Configurar o registo muda as opções de todas as impressoras e cria um separador no Google. Por isso a ação `fdm_printer_manager.sheets_setup`, o botão "Google Sheets" e marcar uma impressão (`fdm_printer_manager.mark_print`, que altera linhas na folha) são recusados a outros utilizadores. Automações e scripts continuam a funcionar: correm sem utilizador.
 
 O Home Assistant não tem permissões por ação. Para deixar outra pessoa configurar o registo, torna-a administradora (Definições → Pessoas → a pessoa → **Administrador**).
 
