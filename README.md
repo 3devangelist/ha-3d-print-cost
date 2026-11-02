@@ -95,7 +95,7 @@ survives the reload.
 | Sampling interval        | 30 s                                 | Klipper is also polled every 5 s; Bambu updates on every change      |
 | Currency                 | HA currency                          | used for units only, no conversion                                   |
 | Power integration method | left                                 | `left` suits step-like plug sensors, `trapezoidal` smooth ones       |
-| Turn off after a print   | 15 min                               | needs a smart plug; 0 = never (see below)                            |
+| Turn off after a print   | on                                   | needs a smart plug; off when the nozzle is below 80 °C (see below)   |
 | SSH login (Klipper)      | empty                                | advanced: only for printers whose Moonraker cannot shut down         |
 
 ## Turning a printer off safely
@@ -115,15 +115,19 @@ The **Power** button on the card (`switch.<printer>_safe_power`) and the
    check): 3 checks in a row 5 s apart, then 10 s more. Still answering after
    5 minutes, the plug is left on and a notification says so.
 
-Auto-off starts only after a **successful** print and waits 15 minutes
-(Configure → Advanced). A failed, cancelled, interrupted or unknown print
+Auto-off starts only after a **successful** print, right away: there is no
+timer, it turns off as soon as the nozzle is below 80 °C (on/off in
+Configure → Advanced). A failed, cancelled, interrupted or unknown print
 leaves the printer on, so you can look at it. A new print, turning the plug
-off by hand, tapping Power on the card while it shows "Auto off at …", or
-losing contact with the printer cancels it. Losing contact while the nozzle
-cools also leaves the plug on.
+off by hand, or tapping Power on the card while it shows "Cooling nozzle …"
+cancels it. Losing contact with the printer while the nozzle cools leaves the
+plug on.
 
 **Elegoo Centauri Carbon**: its Moonraker cannot shut down (HTTP 500 "Error
-running shell command"). It is recognised (host name `cosmos`, or that error)
+running shell command"). **OpenCentauri Cosmos 26.10 and later** shut down cleanly from Moonraker, so
+no SSH is used; with an older Cosmos the card and Settings → Repairs recommend
+the update. Older Cosmos is recognised (host name `cosmos` or
+`centauri-carbon-N`, or that error)
 and shut down with a single `poweroff` over SSH as `root`, without a password,
 as the printer ships — nothing to set up. For any other printer that needs
 SSH, give a login under Configure → Advanced (user, optional password or
@@ -221,9 +225,11 @@ Columns: `created` (added by Google Sheets), `printer`, `file`, `result` (`succe
 (local time), `duration_min`, `energy_kwh`, `electricity_cost`, `currency`, `notes`, `job_id`.
 Missing headers are added by Google Sheets on the first row.
 
-- **One row per print.** If you later mark a print with ✓ OK / ✗ Failed and the result
-  changes, a *correction* row is added with the same `job_id`, `result_by` = `user` and a note:
-  rows cannot be edited. Keep the last row of each `job_id` when you count.
+- **One row per print.** If you later mark a print ("Wrong? Mark as failed / Mark as OK" on
+  the card) and the result changes, the print's row is changed in place: its `result` and
+  `result_by` (`user`) cells, found by `job_id`. A row still waiting to be sent is changed before
+  it goes. Only when the row cannot be found or changed is a *correction* row added instead,
+  with the same `job_id` and a note: then keep the last row of each `job_id` when you count.
 - **Nothing is lost when Google is unreachable**: the row waits in the integration's storage
   and is sent before the next one, at the next print or when Home Assistant starts. You get one
   notification until it goes through. Up to 200 rows wait.

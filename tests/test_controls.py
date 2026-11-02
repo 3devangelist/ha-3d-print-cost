@@ -294,6 +294,8 @@ async def test_history_websocket(hass: HomeAssistant, hass_ws_client, freezer, p
     # No fixed date here: the websocket access token is checked against the real clock.
     entry = await setup(hass)
     coordinator = entry.runtime_data
+    # Only the history here: since 0.12.3 the auto-off would start at the end of a.gcode (tested in test_auto_off).
+    coordinator.conf["auto_off"] = False
     for name, state in (("a.gcode", "complete"), ("b.gcode", "cancelled")):
         printer.reading = KlipperStatus(state="printing", filename=name, progress=1)
         await tick(hass, freezer, 5)

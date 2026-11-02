@@ -226,6 +226,8 @@ class MoonrakerClient:
         self.base_url = f"http://{host}:{int(port)}"
         self._headers = {"X-Api-Key": api_key} if api_key else {}
         self._timeout = aiohttp.ClientTimeout(total=timeout)
+        # Last ``machine.system_info`` read by machine_identity (firmware.py reads its distribution).
+        self.system_info: dict[str, Any] | None = None
 
     async def _get(self, path: str) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
@@ -331,6 +333,8 @@ class MoonrakerClient:
             info = (await self._get("/machine/system_info")).get("system_info")
         except MoonrakerConnectionError:
             info = None  # older or reduced Moonraker (Elegoo "cosmos"): the host name only
+        if isinstance(info, dict):
+            self.system_info = info
         return klipper_machine_id(info if isinstance(info, dict) else None, await self.hostname())
 
     async def webcams(self, web_url: str, hosts: frozenset[str] | None = None) -> list[Webcam]:

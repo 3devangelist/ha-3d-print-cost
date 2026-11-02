@@ -156,7 +156,7 @@
         "data": {
           "update_interval": "Sampling interval while printing",
           "currency": "Currency",
-          "auto_off_minutes": "Turn the printer off after a print (minutes)",
+          "auto_off": "Turn the printer off after a successful print",
           "babystep": "Z offset buttons while printing",
           "babystep_save": "Allow saving the Z offset",
           "ssh_username": "SSH user name",
@@ -165,7 +165,7 @@
           "ssh_command": "SSH shutdown command"
         },
         "data_description": {
-          "auto_off_minutes": "After a successful print and this long without a new one, the printer is turned off safely: nozzle below 80 °C, its computer shut down, the plug cut once it stops answering. A failed, cancelled or unknown print leaves it on so you can look at it, and so does losing contact with the printer. 0 = never. Needs a smart plug.",
+          "auto_off": "As soon as a print ends well, the printer is turned off safely: it waits for the nozzle to drop below 80 °C, shuts its computer down, and cuts the plug once it stops answering. A new print, or the plug turned on or off by hand, cancels it. A failed, cancelled or unknown print leaves it on so you can look at it, and so does losing contact with the printer. Needs a smart plug.",
           "babystep": "Baby steps: the card shows buttons that move the nozzle up or down while printing (SET_GCODE_OFFSET Z_ADJUST, like Mainsail and Fluidd), at most 1 mm from 0 when the current offset is known. Only when Klipper knows the command.",
           "babystep_save": "Adds a Save button that keeps the offset (Z_OFFSET_APPLY_PROBE or Z_OFFSET_APPLY_ENDSTOP). Run SAVE_CONFIG yourself when the printer is idle. Off by default.",
           "ssh_username": "Advanced: only for a printer whose Moonraker cannot shut its computer down. The Elegoo Centauri Carbon needs nothing here: it is recognised and shut down over SSH as root by itself. Leave empty to not use SSH.",
@@ -470,6 +470,10 @@
     "identity_changed": {
       "title": "{name} does not look like the same printer",
       "description": "Something at {name}'s address answers, but {what} changed. FDM Printer Manager stopped sending commands to it and will not cut its power.\n\nIf you reinstalled the printer's firmware or replaced its board, open Settings → Devices & services → FDM Printer Manager → {name} → Configure and accept its new identity. Otherwise check which device has that IP address."
+    },
+    "cosmos_update": {
+      "title": "{name}: firmware update recommended",
+      "description": "{name} runs OpenCentauri Cosmos {version}. Cosmos 26.10 and later shut the printer's computer down cleanly from the web interface, so turning the printer off no longer needs SSH. Until then FDM Printer Manager keeps using SSH as before.\n\nGet the latest version from [the Cosmos releases]({url})."
     }
   }
 }

@@ -377,6 +377,8 @@ class PrintCostSensor(PrintCostEntity, SensorEntity):
             "filaments": [slot.as_dict() for slot in self.coordinator.filament_slots],
             "babystep": self._babystep_attrs(),
             "alert": str(alert) if (alert := self.coordinator.watchdog.alert) else None,
+            "firmware": self.coordinator.firmware.label if self.coordinator.firmware else None,
+            "firmware_update": self.coordinator.firmware_update_recommended,
             "reachable": source.available
             if (source := self.coordinator.klipper or self.coordinator.bambu_lan)
             else None,

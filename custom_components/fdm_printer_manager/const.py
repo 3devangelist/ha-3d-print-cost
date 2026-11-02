@@ -95,10 +95,12 @@ CONF_INTEGRATION_METHOD: Final = "integration_method"
 # Behaviour
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_CURRENCY: Final = "currency"
-# Minutes after a print ends before the printer is turned off safely (0 = never).
-CONF_AUTO_OFF: Final = "auto_off_minutes"
-DEFAULT_AUTO_OFF: Final = 15
-MAX_AUTO_OFF: Final = 240
+# Turn the printer off safely as soon as a print ends well (it still waits for the nozzle to cool).
+CONF_AUTO_OFF: Final = "auto_off"
+DEFAULT_AUTO_OFF: Final = True
+# Before 0.12.3: minutes to wait after the print (0 = never). Config entry migration 1.1 -> 1.2 turns it into
+# CONF_AUTO_OFF (more than 0 -> on, 0 -> off).
+LEGACY_AUTO_OFF_MINUTES: Final = "auto_off_minutes"
 # Klipper: SSH login used to shut the computer down when Moonraker cannot (optional)
 CONF_SSH_USERNAME: Final = "ssh_username"
 CONF_SSH_PASSWORD: Final = "ssh_password"

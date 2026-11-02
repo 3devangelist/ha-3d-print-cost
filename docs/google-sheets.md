@@ -124,13 +124,13 @@ To log one printer to another tab: **Edit → When a print ends** on that printe
 | Limit | What it means |
 |---|---|
 | **Only the spreadsheet the integration created** | Google Sheets in Home Assistant can only write to the spreadsheet it created when you connected it. It cannot write to a spreadsheet you made yourself. Want a separate spreadsheet? Use **Add another spreadsheet**: it adds a second Google Sheets entry with a new spreadsheet. |
-| **One row per print, never edited** | If you later mark a print with ✓ OK / ✗ Failed and the result changes, a **correction row** is added with the same `job_id`, `result_by` = `user` and a note. When you count, keep the last row of each `job_id`. |
+| **One row per print** | If you later mark a print ("Wrong? Mark as failed / Mark as OK" on the card) and the result changes, the print's row is **changed in place**: `result` and `result_by` = `user`, found by `job_id` (a row still waiting to be sent is changed before it goes). Only when that row cannot be found or changed is a **correction row** added, with the same `job_id` and a note; then keep the last row of each `job_id` when you count. |
 | **Columns by header name** | Rows are matched to the header row by name. A missing column is added at the end of the header. |
 | **No network** | The row waits (up to 200 rows) and is sent before the next one, at the next print or when Home Assistant starts. You get one notification. |
 
 ## Who can set it up
 
-Only **administrators**. Setting up the log changes the options of every printer and creates a tab in Google, so the `fdm_printer_manager.sheets_setup` action, the "Google Sheets" button and marking a print (`fdm_printer_manager.mark_print`, which adds correction rows) are refused for other users. Automations and scripts still work: they run without a user.
+Only **administrators**. Setting up the log changes the options of every printer and creates a tab in Google, so the `fdm_printer_manager.sheets_setup` action, the "Google Sheets" button and marking a print (`fdm_printer_manager.mark_print`, which changes rows in the sheet) are refused for other users. Automations and scripts still work: they run without a user.
 
 Home Assistant has no per-action permissions. To let someone else set up the log, make that person an administrator (Settings → People → the person → **Administrator**).
 

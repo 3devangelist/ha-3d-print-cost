@@ -28,11 +28,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
-    async_track_point_in_utc_time,
     async_track_state_change_event,
     async_track_time_interval,
 )
@@ -135,10 +135,11 @@ from .const import (
 )
 from .filament import FilamentSlot, bambu_slots, klipper_slots
 from .finish import async_run_end_actions
+from .firmware import COSMOS_RELEASES_URL, Firmware, firmware_from_system_info
 from .identity import KIND_MACHINE, KIND_SSH, KIND_TLS, PrinterIdentity
 from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
 from .outcome import MARKABLE, mark_history
-from .sheets import SheetsLog, queue_row, sheet_row
+from .sheets import CORRECTION_KEY, SheetsLog, correction_note, mark_pending_row, queue_row, sheet_row
 from .storage import JobStore, StoredState
 from .tracker import (
     PrinterActivity,
@@ -270,15 +271,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._last_bambu_state: str | None = None
         self._polling = False
         self._last_snapshot: PrinterSnapshot | None = None
-        # Safe power: "on" / "off" follow the plug; "waiting" after a print (auto-off),
-        # "cooling" while the nozzle cools down, then "shutting_down" until the computer is off.
+        # Safe power: "on" / "off" follow the plug; "cooling" while the nozzle cools down (also right after a
+        # successful print, with auto-off on), then "shutting_down" until the computer is off.
         self.power_phase: str | None = None
         self.power_cut_at: datetime | None = None
-        self.auto_off_at: datetime | None = None
         # How the last power off ended: power_off, aborted, hot (nozzle stayed hot), still_on (computer kept running)
         self.power_result: str | None = None
         self._power_task: asyncio.Task | None = None
-        self._auto_off_unsub: CALLBACK_TYPE | None = None
+        # Firmware reported by Moonraker (Klipper only; None until read).
+        self.firmware: Firmware | None = None
         # Klipper camera found through Moonraker (None: no camera, or not checked yet).
         self.webcam: Webcam | None = None
         self._webcam_checked = False
@@ -427,8 +428,6 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         """Turn the plug on (cancels a pending auto-off or safe shutdown)."""
         if not self.switch_entity:
             raise HomeAssistantError(f"{self.printer_name} has no smart plug")
-        if self.power_phase == "waiting":
-            self._cancel_auto_off("turned on by hand")
         if self._power_task is not None:
             self._power_task.cancel()
         self.power_result = None  # a new power action: the last "not turned off" no longer applies
@@ -437,9 +436,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         )
 
     @property
-    def auto_off_minutes(self) -> int:
-        """Minutes after a print ends before the printer is turned off (0 = never)."""
-        return int(self.conf.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF) or 0)
+    def auto_off(self) -> bool:
+        """Turn the printer off safely as soon as a print ends well (0.12.3: no timer, it waits for the nozzle)."""
+        return bool(self.conf.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF))
 
     @property
     def plug_is_on(self) -> bool:
@@ -449,7 +448,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
 
     @callback
     def _start_auto_off(self, job: PrintJob) -> None:
-        """A print ended well: turn the printer off safely after ``auto_off_minutes`` (a timer, no task while waiting).
+        """A print ended well: start the safe power off now (it waits for the nozzle to drop below 80 °C).
 
         Only after a successful print. Failed, cancelled, interrupted or unknown:
         the printer stays on so it can be looked at.
@@ -457,42 +456,35 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         if job.result is not PrintResult.SUCCESS:
             _LOGGER.info("%s: print ended as %s, no auto-off", self.printer_name, job.result)
             return
-        if self.auto_off_minutes <= 0 or self.power_phase is not None or not self.plug_is_on:
+        if not self.auto_off or self.power_phase is not None or self._power_task is not None or not self.plug_is_on:
             return
-        self.power_phase = "waiting"
-        self.auto_off_at = dt_util.utcnow() + timedelta(minutes=self.auto_off_minutes)
+        _LOGGER.info("%s: print ended well, turning the printer off once the nozzle is cool", self.printer_name)
         self.power_result = None
-        self._auto_off_unsub = async_track_point_in_utc_time(self.hass, self._on_auto_off_due, self.auto_off_at)
+        task = self.config_entry.async_create_background_task(self.hass, self._async_auto_off(), f"{DOMAIN}_auto_off")
+        # Tasks start eagerly: by now the power off may already have stored its own cooling task. Never
+        # overwrite it, or "turned on by hand" / "a new print" would cancel the wrong task.
+        if self._power_task is None and not task.done():
+            self._power_task = task
 
     @callback
     def _check_auto_off(self) -> None:
-        """While waiting: a new print, the plug turned off by hand, or losing the printer cancels the auto-off."""
-        if self.power_phase != "waiting":
+        """While the nozzle cools: a new print or the plug turned off by hand cancels the power off.
+
+        Losing contact or another printer answering are handled by the cooling loop and
+        ``_on_identity_changed``: the plug is left on.
+        """
+        if self.power_phase != "cooling" or self._power_task is None:
             return
         if self.is_printing:
-            self._cancel_auto_off("a new print started")
+            self._cancel_cooling("a new print started")
         elif not self.plug_is_on:
-            self._cancel_auto_off("the plug was turned off")
-        elif self.identity.changed:
-            self._cancel_auto_off("it does not look like the same printer", "identity")
-        elif not self.reachable:
-            self._cancel_auto_off("lost contact with the printer", "no_contact")
+            self._cancel_cooling("the plug was turned off")
 
     @callback
-    def _cancel_auto_off(self, why: str, result: str = "aborted") -> None:
-        if self._auto_off_unsub is not None:
-            self._auto_off_unsub()
-            self._auto_off_unsub = None
+    def _cancel_cooling(self, why: str, result: str = "aborted") -> None:
+        if self._power_task is not None:
+            self._power_task.cancel()
         self._end_power_off(result, why)
-
-    @callback
-    def _on_auto_off_due(self, now: datetime) -> None:
-        self._auto_off_unsub = None
-        self.power_phase = None
-        self.auto_off_at = None
-        self._power_task = self.config_entry.async_create_background_task(
-            self.hass, self._async_auto_off(), f"{DOMAIN}_auto_off"
-        )
 
     async def _async_auto_off(self) -> None:
         """The usual safe power off (cool, shut the computer down, cut once it is off)."""
@@ -510,7 +502,6 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.power_result = result
         self.power_phase = None
         self.power_cut_at = None
-        self.auto_off_at = None
         self._power_task = None
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
 
@@ -765,9 +756,6 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        if self._auto_off_unsub is not None:
-            self._auto_off_unsub()
-            self._auto_off_unsub = None
         for task in list(self._tasks):
             task.cancel()
         if self.bambu_lan is not None:
@@ -821,16 +809,20 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             found = True
         if not found:
             raise HomeAssistantError(f"{self.printer_name}: print {job_id} not found")
-        # Google Sheets rows cannot be changed: a changed result is added as a correction row (same job_id).
-        if self.sheets.enabled and before != result:
+        # Google Sheets: a row still in the queue is changed there; else the row already in the sheet is changed
+        # in place when it is sent (found by job_id), or a correction row is added when it cannot be (0.12.3).
+        if self.sheets.enabled and before != result and not mark_pending_row(self.state.sheets_pending, job_id, result):
             summary = row or (last.summary() if last else {})
             queue_row(
                 self.state.sheets_pending,
-                sheet_row(
-                    {"printer": self.printer_name, "currency": self.currency, **summary, "result_by": "user"},
-                    dt_util.get_default_time_zone(),
-                    correction=f"Correction: marked as {result} by hand (was {before or 'unknown'})",
-                ),
+                {
+                    **sheet_row(
+                        {"printer": self.printer_name, "currency": self.currency, **summary, "result_by": "user"},
+                        dt_util.get_default_time_zone(),
+                        correction=correction_note(result, before),
+                    ),
+                    CORRECTION_KEY: True,
+                },
             )
         await self.store.async_save(self.state)
         self.hass.bus.async_fire(
@@ -918,7 +910,55 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         except Exception as err:  # noqa: BLE001 - no reading is no verdict
             _LOGGER.debug("%s: machine identity not readable: %s", self.printer_name, err)
             return
-        self._learn_identity(KIND_MACHINE, seen if isinstance(seen, str) else None)
+        if self._learn_identity(KIND_MACHINE, seen if isinstance(seen, str) else None):
+            self.async_firmware_seen(getattr(self.klipper.client, "system_info", None))
+
+    # ------------------------------------------------------------------ #
+    # Firmware (firmware.py): Cosmos before 26.10 cannot shut down from Moonraker
+    # ------------------------------------------------------------------ #
+    @property
+    def firmware_issue_id(self) -> str:
+        """Repair issue recommending a firmware update."""
+        return f"firmware_update_{self.config_entry.entry_id}"
+
+    @property
+    def firmware_update_recommended(self) -> bool:
+        """The card shows "Firmware update recommended"."""
+        return self.firmware is not None and self.firmware.update_recommended
+
+    @callback
+    def async_firmware_seen(self, system_info: dict[str, Any] | None) -> None:
+        """Remember the firmware; recommend an update for Cosmos before 26.10, withdraw it once updated."""
+        firmware = firmware_from_system_info(system_info)
+        if firmware is None:
+            return  # Moonraker did not say: no verdict, change nothing
+        changed = firmware != self.firmware
+        self.firmware = firmware
+        if firmware.update_recommended:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                self.firmware_issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                learn_more_url=COSMOS_RELEASES_URL,
+                translation_key="cosmos_update",
+                translation_placeholders={
+                    "name": self.printer_name,
+                    "version": firmware.version or "?",
+                    "url": COSMOS_RELEASES_URL,
+                },
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, self.firmware_issue_id)
+        if not changed:
+            return
+        _LOGGER.info("%s: firmware %s", self.printer_name, firmware.label)
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(identifiers={(DOMAIN, self.config_entry.entry_id)})
+        if device is not None and device.sw_version != firmware.label:
+            registry.async_update_device(device.id, sw_version=firmware.label)
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
 
     @callback
     def _check_bambu_identity(self, fingerprint: str | None) -> bool:
@@ -955,11 +995,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self.printer_name,
             self.identity.describe(),
         )
-        if self.power_phase == "waiting":
-            self._cancel_auto_off("it does not look like the same printer", "identity")
-        elif self.power_phase == "cooling" and self._power_task is not None:
-            self._power_task.cancel()
-            self._end_power_off("identity", "it does not look like the same printer")
+        if self.power_phase == "cooling" and self._power_task is not None:
+            self._cancel_cooling("it does not look like the same printer", "identity")
         ir.async_create_issue(
             self.hass,
             DOMAIN,

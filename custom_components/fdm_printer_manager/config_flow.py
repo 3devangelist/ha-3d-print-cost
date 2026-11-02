@@ -77,7 +77,6 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     HTTP_TIMEOUT,
-    MAX_AUTO_OFF,
     MAX_UPDATE_INTERVAL,
     MIN_UPDATE_INTERVAL,
     PROBE_TIMEOUT,
@@ -264,11 +263,9 @@ def behaviour_schema(defaults: dict[str, Any], hass_currency: str, *, with_ssh: 
             )
         ),
         vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or hass_currency): selector.TextSelector(),
-        vol.Required(CONF_AUTO_OFF, default=defaults.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF)): selector.NumberSelector(
-            selector.NumberSelectorConfig(
-                min=0, max=MAX_AUTO_OFF, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX
-            )
-        ),
+        vol.Required(
+            CONF_AUTO_OFF, default=bool(defaults.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF))
+        ): selector.BooleanSelector(),
     }
     if with_ssh:
         fields[vol.Optional(CONF_BABYSTEP, default=bool(defaults.get(CONF_BABYSTEP, True)))] = (
@@ -362,6 +359,7 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
     """type → connection (Klipper) or device + entities (Bambu) → plug."""
 
     VERSION = 1
+    MINOR_VERSION = 2  # 1.2 (0.12.3): auto_off_minutes became the on/off auto_off
 
     def __init__(self) -> None:
         """Init."""
@@ -752,7 +750,7 @@ class PrintCostOptionsFlow(OptionsFlow):
                 {
                     CONF_UPDATE_INTERVAL: int(user_input[CONF_UPDATE_INTERVAL]),
                     CONF_CURRENCY: str(user_input[CONF_CURRENCY]).strip().upper(),
-                    CONF_AUTO_OFF: int(user_input[CONF_AUTO_OFF]),
+                    CONF_AUTO_OFF: bool(user_input[CONF_AUTO_OFF]),
                 }
             )
             if self._is_klipper:

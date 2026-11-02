@@ -357,9 +357,7 @@ async def test_bambu_options_keep_the_code_when_left_empty(hass: HomeAssistant) 
     for _ in range(4):
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
-            {"update_interval": 30, "currency": "EUR", "auto_off_minutes": 15}
-            if result["step_id"] == "behaviour"
-            else {},
+            {"update_interval": 30, "currency": "EUR", "auto_off": True} if result["step_id"] == "behaviour" else {},
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert {**entry.data, **entry.options}["access_code"] == "oldcode1"
