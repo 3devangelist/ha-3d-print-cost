@@ -2194,7 +2194,7 @@ wheels = [
 
 [[package]]
 name = "ha-3d-print-cost"
-version = "0.12.4"
+version = "0.12.5"
 source = { virtual = "." }
 
 [package.dev-dependencies]

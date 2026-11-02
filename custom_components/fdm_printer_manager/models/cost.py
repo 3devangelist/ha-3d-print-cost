@@ -20,6 +20,11 @@ Rules
 * An interval with an unknown price adds energy but no cost; that energy is
   tracked in ``uncosted_energy_kwh`` and ``cost_complete`` becomes ``False``.
   Unknown is never silently turned into zero.
+* The power estimate is only provisional: when the meter steps, its exact
+  delta replaces the estimate, which can be a little smaller (a plug that
+  counts in 0.2 Wh steps every one or two minutes). ``reported_energy_kwh`` /
+  ``reported_cost`` are the values to show on a ``total_increasing`` sensor:
+  they never go down; the booked values catch up with them, then go on.
 
 No Home Assistant import: fully unit-testable.
 """
@@ -79,6 +84,9 @@ class ElectricityAccumulator:
     pending_cost: Decimal = ZERO
     pending_uncosted_kwh: float = 0.0
     _pending_price_hint: Decimal | None = None
+    # Highest totals shown so far (never decrease): see reported_energy_kwh.
+    shown_energy_kwh: float = 0.0
+    shown_cost: Decimal = ZERO
     _notes: list[str] = field(default_factory=list)
 
     # ------------------------------------------------------------------ #
@@ -91,6 +99,27 @@ class ElectricityAccumulator:
     def total_cost(self) -> Decimal:
         """Booked cost plus the cost of the pending estimate."""
         return self.cost + self.pending_cost
+
+    @property
+    def reported_energy_kwh(self) -> float:
+        """Energy for a ``total_increasing`` sensor: the total, but never below a value already shown."""
+        return max(self.shown_energy_kwh, self.total_energy_kwh)
+
+    @property
+    def reported_cost(self) -> Decimal:
+        """Cost that never goes below a value already shown (same rule as the energy)."""
+        return max(self.shown_cost, self.total_cost)
+
+    def raise_floor(self, energy_kwh: float | None = None, cost: Decimal | None = None) -> None:
+        """Never report less than these values again (last values shown before a restart)."""
+        if energy_kwh is not None:
+            self.shown_energy_kwh = max(self.shown_energy_kwh, energy_kwh)
+        if cost is not None:
+            self.shown_cost = max(self.shown_cost, cost)
+
+    def _remember_shown(self) -> None:
+        self.shown_energy_kwh = self.reported_energy_kwh
+        self.shown_cost = self.reported_cost
 
     @property
     def total_uncosted_energy_kwh(self) -> float:
@@ -114,6 +143,10 @@ class ElectricityAccumulator:
     # ------------------------------------------------------------------ #
     def add_sample(self, sample: ElectricitySample) -> None:
         """Integrate the interval since the previous sample, then store it."""
+        self._add_sample(sample)
+        self._remember_shown()
+
+    def _add_sample(self, sample: ElectricitySample) -> None:
         if self.last_timestamp is None:
             self._store(sample)
             return
@@ -164,10 +197,18 @@ class ElectricityAccumulator:
             # pending, the next step of the meter replaces it.
             pass
         else:
-            # Meter reset (plug rebooted, daily counter...): use power.
+            # Meter reset (plug rebooted, daily counter...): it counts again
+            # from zero. Book what it counted since (its new value), or the
+            # power estimate of the interval when that is larger (the part
+            # before the reset is not in the meter any more).
             self.meter_resets += 1
-            self._note("energy meter decreased during the print, power used for that interval")
-            self._commit_pending()
+            since_reset = max(meter_now, 0.0)
+            if since_reset > self.pending_kwh:
+                self._note("energy meter restarted from zero, its new count used for that interval")
+                self._commit_meter(since_reset)
+            else:
+                self._note("energy meter decreased during the print, power used for that interval")
+                self._commit_pending()
 
         self._store(sample)
 
@@ -176,6 +217,7 @@ class ElectricityAccumulator:
         if self.pending_kwh or self.pending_uncosted_kwh:
             self._note("energy meter did not report the last part of the print, power estimate used")
             self._commit_pending()
+        self._remember_shown()
 
     # ------------------------------------------------------------------ #
     def _commit_pending(self) -> None:
@@ -268,6 +310,8 @@ class ElectricityAccumulator:
             "pending_cost": str(self.pending_cost),
             "pending_uncosted_kwh": self.pending_uncosted_kwh,
             "meter_hole": self.meter_hole,
+            "shown_energy_kwh": self.shown_energy_kwh,
+            "shown_cost": str(self.shown_cost),
             "notes": list(self._notes),
         }
 
@@ -297,4 +341,8 @@ class ElectricityAccumulator:
             meter_hole=bool(data.get("meter_hole", False)),
         )
         acc._notes = list(data.get("notes", []))
+        # Saved before 0.12.5: start from the total itself.
+        acc.shown_energy_kwh = float(data.get("shown_energy_kwh", acc.total_energy_kwh))
+        acc.shown_cost = to_decimal(data.get("shown_cost")) or acc.total_cost
+        acc._remember_shown()
         return acc

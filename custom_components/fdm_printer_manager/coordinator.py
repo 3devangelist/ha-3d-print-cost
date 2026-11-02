@@ -17,7 +17,7 @@ import asyncio
 import logging
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final
@@ -1372,12 +1372,57 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 filename=snap.job_name if snap else None,
                 remaining_min=snap.remaining_min if snap else None,
                 nozzle_temp=self._nozzle_temp(),
-                energy_total_kwh=self.state.total.total_energy_kwh if self.state.total else None,
-                cost_total=self._counter_cost(self.state.total),
-                energy_today_kwh=self.state.today.total_energy_kwh if self.state.today else None,
-                cost_today=self._counter_cost(self.state.today),
+                **self._counter_values(),
             )
         )
+
+    def _counter_values(self) -> dict[str, Any]:
+        """The printer's counters as shown: they never go down (see ElectricityAccumulator.reported_energy_kwh)."""
+        total, today = self.state.total, self.state.today
+        return {
+            "energy_total_kwh": total.reported_energy_kwh if total else None,
+            "cost_total": self._counter_cost(total),
+            "energy_today_kwh": today.reported_energy_kwh if today else None,
+            "cost_today": self._counter_cost(today),
+        }
+
+    @callback
+    def restore_counter(self, key: str, value: Any, shown_at: datetime) -> None:
+        """A counter sensor's last value before the restart: never show less than it.
+
+        Covers a stored file older than what the sensor last showed (HA stopped
+        without its final save). "Today" values only count for the same day:
+        after midnight the day counter starts again from zero.
+        """
+        if not self.reader.sources.measures_energy:
+            return
+        try:
+            number = Decimal(str(value))
+        except (ArithmeticError, ValueError):
+            return
+        if not number.is_finite() or number < 0:
+            return
+        state = self.state
+        if key.endswith("_today"):
+            day = dt_util.as_local(shown_at).date().isoformat()
+            if day != dt_util.as_local(dt_util.utcnow()).date().isoformat():
+                return
+            if state.today is None or state.today_date != day:
+                state.today = self._new_counter()
+                state.today_date = day
+            acc = state.today
+        else:
+            if state.total is None:
+                state.total = self._new_counter()
+            acc = state.total
+        if key.startswith("energy"):
+            acc.raise_floor(energy_kwh=float(number))
+        else:
+            acc.raise_floor(cost=number)
+        if self.data is not None:
+            self.data = replace(self.data, **self._counter_values())
+            self.async_update_listeners()
+        self.store.async_delay_save(self.state)
 
     def _nozzle_temp(self) -> float | None:
         if self.klipper is not None:
@@ -1391,9 +1436,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         """Cost of a counter; unknown only when no kWh at all could be priced."""
         if acc is None:
             return None
-        if acc.total_cost == 0 and acc.total_uncosted_energy_kwh > 0:
+        if acc.reported_cost == 0 and acc.total_uncosted_energy_kwh > 0:
             return None
-        return acc.total_cost
+        return acc.reported_cost
 
     # ------------------------------------------------------------------ #
     # End of a print

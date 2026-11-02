@@ -246,10 +246,11 @@ class MoonrakerClient:
             raise MoonrakerConnectionError(f"{url}: not a Moonraker response")
         return data["result"]
 
-    async def _post(self, path: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _post(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        # Not "json": that name would hide the json module used to read the reply below.
         url = f"{self.base_url}{path}"
         try:
-            async with self._session.post(url, headers=self._headers, json=json, timeout=self._timeout) as resp:
+            async with self._session.post(url, headers=self._headers, json=payload, timeout=self._timeout) as resp:
                 if resp.status in (401, 403):
                     raise MoonrakerAuthError(f"HTTP {resp.status} from {url}")
                 if resp.status >= 400:

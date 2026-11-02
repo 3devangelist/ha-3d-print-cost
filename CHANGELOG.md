@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.5]
+
+### Fixed
+
+- **The energy and cost counters never go down any more.** `energy_total` and `energy_today`
+  (`total_increasing`) sometimes fell by a few hundredths of a Wh, and the recorder warned that
+  they were "not strictly increasing". Between two steps of the plug's energy meter the counter
+  showed a power estimate; the meter then booked its exact step, which can be a little smaller
+  (the Centauri Carbon's plug counts in 0.2 Wh steps every one or two minutes, while 7.4 W for
+  2 minutes is 0.25 Wh). The counters now show the highest value reached: the meter catches up
+  with it and the counting goes on from there, so nothing is lost or counted twice. The same
+  rule applies to `cost_total` and `cost_today`.
+- **The first value after a restart is not lower.** The four counters restore their last value;
+  if Home Assistant stopped without saving the latest count, they go on from that value.
+  "Today" only restores a value from the same day.
+- **A plug that restarts its energy counter from zero.** The counter now adds what the plug
+  counted since the restart (or the power estimate, if larger). Before, a plug without a power
+  sensor lost that energy.
+- **Klipper commands no longer end in an error.** Since 0.12.2 every request sent to Moonraker
+  (lights, pause, resume, cancel, Z offset, shutting the computer down) raised
+  `'NoneType' object has no attribute 'loads'` after it had run: a parameter named `json` hid the
+  `json` module used to read the reply. The Spoolman active spool request really failed. As a
+  result, a successful Moonraker shutdown was taken as refused: the integration then tried SSH
+  and, without an SSH login, left the plug on with a "could not be shut down" notification. A test
+  now fails if anything in the package is named `json` again.
+
 ## [0.12.4]
 
 ### Fixed
