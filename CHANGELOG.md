@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.2]
+
+### Fixed
+
+- **No more deprecation warning from Home Assistant 2026.10.** Renaming a printer added under a
+  shared hostname looked up its device with `device_registry.async_get_device`, which HA
+  2026.10 deprecated and which stops working in HA 2027.8. It now uses
+  `async_get_device_by_identifier` (identifier plus this config entry), and falls back to the
+  old call only on HA versions that do not have the new one. Behaviour is unchanged.
+
 ## [0.12.1]
 
 ### Fixed

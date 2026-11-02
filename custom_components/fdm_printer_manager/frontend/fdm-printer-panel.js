@@ -663,7 +663,7 @@ class FdmPrinterPanel extends HTMLElement {
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
         <span class="mark">FDM</span>
-        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.12.1</div></div>
+        <div><div class="title">FDM Printers</div><div class="ver">FDM Printer Manager · v0.12.2</div></div>
         <span class="spacer"></span>
       </div>`;
     let body;
