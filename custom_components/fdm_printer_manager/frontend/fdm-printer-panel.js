@@ -58,7 +58,8 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .fwnote{padding:2px 14px 0;font-size:.78rem;color:var(--muted)}
 .markrow .fix{all:unset;cursor:pointer;color:var(--muted);text-decoration:underline;text-underline-offset:2px}
 .markrow .fix:hover,.markrow .fix:focus-visible{color:var(--fg)}
-.rmark{display:inline-flex;gap:6px;margin-left:6px}
+.rmark{display:inline-flex;flex-wrap:wrap;gap:6px}
+td.fix,th.fix{white-space:normal;width:1%;padding-left:4px}
 .stats{margin:-4px 0 8px}
 .alert{margin:0 14px 8px;padding:6px 10px;border-radius:8px;background:rgba(219,68,55,.12);color:var(--error-color,#db4437);font-size:.85rem;font-weight:600}
 .prog{margin:8px 14px 0;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
@@ -948,10 +949,10 @@ class FdmPrinterPanel extends HTMLElement {
         : "";
     const rows = h.rows
       .map(
-        (r) => `<tr><td>${RESULT_ICON[r.result] || "❔"} ${esc(r.result || "")}${r.result_by === "user" ? ` <span class="sub" title="Marked by hand">✎</span>` : ""}
-          <span class="rmark">${markBtn(r, "success", "✓", "Mark as a success")}${markBtn(r, "failed", "✗", "Mark as failed")}</span></td><td>${esc(r.printer)}</td><td class="m">${esc(r.name || "—")}</td>
+        (r) => `<tr><td>${RESULT_ICON[r.result] || "❔"} ${esc(r.result || "")}${r.result_by === "user" ? ` <span class="sub" title="Marked by hand">✎</span>` : ""}</td><td>${esc(r.printer)}</td><td class="m">${esc(r.name || "—")}</td>
           <td>${fmtWhen(r.finished_at)}</td><td class="n">${fmtMin((r.duration_s || 0) / 60)}</td>
-          <td class="n">${kwh(r.energy_kwh)}</td><td class="n">${money(r.electricity_cost, r.currency)}</td></tr>`,
+          <td class="n">${kwh(r.energy_kwh)}</td><td class="n">${money(r.electricity_cost, r.currency)}</td>
+          <td class="fix"><span class="rmark">${markBtn(r, "success", "✓", "Mark as a success")}${markBtn(r, "failed", "✗", "Mark as failed")}</span></td></tr>`,
       )
       .join("");
     const st = h.stats;
@@ -965,7 +966,7 @@ class FdmPrinterPanel extends HTMLElement {
     const more = h.total > h.rows.length ? `<div class="more"><button class="btn sm" data-act="more">Show more (${h.total - h.rows.length})</button></div>` : "";
     return `<h2>Recent prints <span class="filters"><select id="hfilter" aria-label="Filter by printer">${opts}</select></span></h2>${statsHtml}${
       h.rows.length
-        ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
+        ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Cost</th><th class="fix" aria-label="Correct the result"></th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
         : `<p class="empty" style="padding:4px 0">No finished prints yet. They appear here as soon as a print ends.</p>`
     }`;
   }

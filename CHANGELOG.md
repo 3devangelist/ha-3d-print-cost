@@ -29,6 +29,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   and, without an SSH login, left the plug on with a "could not be shut down" notification. A test
   now fails if anything in the package is named `json` again.
 
+### Changed
+
+- **"Recent prints": the ✓ / ✗ correction moved to the last column**, after the cost. The result
+  cell now shows only the result. Same buttons, same rows and same tooltips; on a narrow screen
+  they wrap inside their own cell. The "Wrong? Mark as failed" line on the printer card is
+  unchanged.
+
 ## [0.12.4]
 
 ### Fixed
