@@ -13,6 +13,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from ..materials import SOURCE_SLICER, normalize_material, total_cost
 from .cost import ElectricityAccumulator
 
 ZERO = Decimal(0)
@@ -63,8 +64,11 @@ class PrintJob:
     filament_seen_mm: float | None = None  # largest length of the printer's current counter
     filament_banked_mm: float = 0.0  # used before the printer's counter started again
     filament_g_per_mm: float | None = None  # from the slicer: weight / length of the whole file
-    filament_type: str | None = None
-    filament_price_per_kg: Decimal | None = None  # option of the printer, set when the print ends
+    filament_type: str | None = None  # the material (PLA, PETG…), or what the slicer wrote when it is not one
+    filament_price_per_kg: Decimal | None = None  # set when the print ends (printer option or generic price)
+    # 0.15.0: where the material came from (slicer, spool, file_name, user) and the price (printer, generic).
+    filament_type_source: str | None = None
+    filament_price_source: str | None = None
 
     # ------------------------------------------------------------------ #
     # Filament
@@ -104,8 +108,16 @@ class PrintJob:
         """What the slicer wrote for the file: grams per mm and filament type (unknown values are skipped)."""
         if g_per_mm is not None and math.isfinite(g_per_mm) and g_per_mm > 0:
             self.filament_g_per_mm = g_per_mm
-        if filament_type:
-            self.filament_type = filament_type
+        if filament_type and str(filament_type).strip():
+            # "Generic PETG" / "ASA;ASA" → PETG / ASA; a name that is no known material is kept as written.
+            self.filament_type = normalize_material(filament_type) or str(filament_type).strip()
+            self.filament_type_source = SOURCE_SLICER
+
+    def set_material_seen(self, material: str | None, source: str) -> None:
+        """A material seen elsewhere (loaded spool, file name): only when the slicer did not say."""
+        if material and self.filament_type is None:
+            self.filament_type = material
+            self.filament_type_source = source
 
     @property
     def filament_g(self) -> float | None:
@@ -188,9 +200,14 @@ class PrintJob:
             "electricity_cost": _round(self.electricity_cost, 4),
             "electricity_cost_complete": self.electricity_cost_complete,
             "filament_mm": _round_float(self.filament_mm, 1),
+            "filament_m": _round_float(self.filament_mm / 1000, 2) if self.filament_mm is not None else None,
             "filament_g": _round_float(self.filament_g, 2),
             "filament_type": self.filament_type,
             "filament_cost": _round(self.filament_cost, 4),
+            "filament_type_source": self.filament_type_source,
+            "filament_price_per_kg": _round(self.filament_price_per_kg, 4),
+            "filament_price_source": self.filament_price_source,
+            "print_cost": total_cost(self.electricity_cost, self.filament_cost),
             "notes": self.notes(),
         }
 
@@ -229,6 +246,8 @@ class PrintJob:
             "filament_g_per_mm": self.filament_g_per_mm,
             "filament_type": self.filament_type,
             "filament_price_per_kg": _text(self.filament_price_per_kg),
+            "filament_type_source": self.filament_type_source,
+            "filament_price_source": self.filament_price_source,
             "electricity": self.electricity.as_dict(),
         }
 
@@ -255,6 +274,8 @@ class PrintJob:
             filament_g_per_mm=_float_or_none(data.get("filament_g_per_mm")),
             filament_type=data.get("filament_type") or None,
             filament_price_per_kg=_decimal_or_none(data.get("filament_price_per_kg")),
+            filament_type_source=data.get("filament_type_source") or None,
+            filament_price_source=data.get("filament_price_source") or None,
             electricity=ElectricityAccumulator.from_dict(data.get("electricity") or {}),
         )
 

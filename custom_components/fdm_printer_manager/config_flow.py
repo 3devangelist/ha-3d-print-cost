@@ -36,6 +36,7 @@ from .const import (
     CONF_ALERTS,
     CONF_API_KEY,
     CONF_AUTO_OFF,
+    CONF_AUTO_OFF_DELAY,
     CONF_BABYSTEP,
     CONF_BABYSTEP_SAVE,
     CONF_CLOSE_MINUTES,
@@ -45,6 +46,8 @@ from .const import (
     CONF_END_SCRIPT,
     CONF_ENERGY_ENTITY,
     CONF_FILAMENT_PRICE,
+    CONF_FINISH_NOTIFY,
+    CONF_FINISH_NOTIFY_SERVICES,
     CONF_HOST,
     CONF_JOB_NAME_ENTITY,
     CONF_NOTIFY,
@@ -72,17 +75,20 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
     DEFAULT_AUTO_OFF,
+    DEFAULT_AUTO_OFF_DELAY,
     DEFAULT_CLOSE_MINUTES,
     DEFAULT_DOWN_MINUTES,
     DEFAULT_STALL_MINUTES,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     HTTP_TIMEOUT,
+    MAX_AUTO_OFF_DELAY,
     MAX_UPDATE_INTERVAL,
     MIN_UPDATE_INTERVAL,
     PROBE_TIMEOUT,
     PrinterType,
 )
+from .materials import DEFAULT_PRICES, MATERIALS, price_key
 from .naming import bambu_name, friendly_name, is_generic
 
 _LOGGER = logging.getLogger(__name__)
@@ -270,6 +276,9 @@ def behaviour_schema(defaults: dict[str, Any], hass_currency: str, *, with_ssh: 
         vol.Required(
             CONF_AUTO_OFF, default=bool(defaults.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF))
         ): selector.BooleanSelector(),
+        vol.Required(
+            CONF_AUTO_OFF_DELAY, default=int(defaults.get(CONF_AUTO_OFF_DELAY) or DEFAULT_AUTO_OFF_DELAY)
+        ): _minutes(0, MAX_AUTO_OFF_DELAY),
     }
     if with_ssh:
         fields[vol.Optional(CONF_BABYSTEP, default=bool(defaults.get(CONF_BABYSTEP, True)))] = (
@@ -321,6 +330,10 @@ def finish_schema(defaults: dict[str, Any]) -> vol.Schema:
     """When a print ends."""
     return vol.Schema(
         {
+            vol.Required(
+                CONF_FINISH_NOTIFY, default=bool(defaults.get(CONF_FINISH_NOTIFY, True))
+            ): selector.BooleanSelector(),
+            _opt(CONF_FINISH_NOTIFY_SERVICES, defaults): selector.TextSelector(),
             _opt(CONF_TODO_ENTITY, defaults): _entity("todo"),
             _opt(CONF_END_SCRIPT, defaults): _entity("script"),
             _opt(CONF_SHEETS_ENTRY, defaults): selector.ConfigEntrySelector(
@@ -329,6 +342,22 @@ def finish_schema(defaults: dict[str, Any]) -> vol.Schema:
             _opt(CONF_SHEETS_WORKSHEET, defaults): selector.TextSelector(),
         }
     )
+
+
+def panel_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Options of "FDM Printers", shared by every printer: who gets the end of a print, generic filament prices."""
+    fields: dict[Any, Any] = {_opt(CONF_FINISH_NOTIFY_SERVICES, defaults): selector.TextSelector()}
+    for material in MATERIALS:
+        key = price_key(material)
+        value = defaults[key] if key in defaults else float(DEFAULT_PRICES[material])
+        # Suggested, not a default: a price cleared in the form stays cleared (no generic price for it).
+        option = (
+            vol.Optional(key, description={"suggested_value": value}) if value not in (None, "") else vol.Optional(key)
+        )
+        fields[option] = selector.NumberSelector(
+            selector.NumberSelectorConfig(min=0, max=1000, step="any", mode=selector.NumberSelectorMode.BOX)
+        )
+    return vol.Schema(fields)
 
 
 # --------------------------------------------------------------------------- #
@@ -381,8 +410,8 @@ class PrintCostConfigFlow(ConfigFlow, domain=DOMAIN):
     @classmethod
     @callback
     def async_supports_options_flow(cls, config_entry: ConfigEntry) -> bool:
-        """The panel-only entry has nothing to configure."""
-        return not config_entry.data.get(CONF_PANEL)
+        """Printers, and (0.15.0) the FDM Printers entry: notifications and generic filament prices."""
+        return True
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """First time: add the sidebar page in one click. Afterwards: what kind of printer."""
@@ -664,6 +693,8 @@ class PrintCostOptionsFlow(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Printer connection (Klipper) or entities (Bambu)."""
+        if self.config_entry.data.get(CONF_PANEL):
+            return await self.async_step_panel()
         coordinator = self._coordinator
         if not self._identity_asked and coordinator is not None and coordinator.identity.changed:
             return await self.async_step_identity()
@@ -755,6 +786,7 @@ class PrintCostOptionsFlow(OptionsFlow):
                     CONF_UPDATE_INTERVAL: int(user_input[CONF_UPDATE_INTERVAL]),
                     CONF_CURRENCY: str(user_input[CONF_CURRENCY]).strip().upper(),
                     CONF_AUTO_OFF: bool(user_input[CONF_AUTO_OFF]),
+                    CONF_AUTO_OFF_DELAY: int(user_input.get(CONF_AUTO_OFF_DELAY) or 0),
                     # Cleared: no price, the filament cost stays empty.
                     CONF_FILAMENT_PRICE: user_input.get(CONF_FILAMENT_PRICE),
                 }
@@ -787,9 +819,23 @@ class PrintCostOptionsFlow(OptionsFlow):
     async def async_step_finish(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """When a print ends: a to-do item, a script and / or a Google Sheets row."""
         if user_input is not None:
-            self._options.update(_with_cleared(user_input, finish_schema({})))
+            cleaned = _with_cleared(user_input, finish_schema({}))
+            cleaned[CONF_FINISH_NOTIFY] = bool(user_input.get(CONF_FINISH_NOTIFY, True))
+            if cleaned.get(CONF_FINISH_NOTIFY_SERVICES):
+                cleaned[CONF_FINISH_NOTIFY_SERVICES] = str(cleaned[CONF_FINISH_NOTIFY_SERVICES]).strip() or None
+            self._options.update(cleaned)
             return self.async_create_entry(data=self._options)
         return self.async_show_form(step_id="finish", data_schema=finish_schema(self._current))
+
+    async def async_step_panel(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """FDM Printers: who gets the end of a print (when a printer has nobody), generic prices per kg."""
+        if user_input is not None:
+            # A cleared price is kept as None: that material has no generic price.
+            options = _with_cleared(user_input, panel_schema({}))
+            if options.get(CONF_FINISH_NOTIFY_SERVICES):
+                options[CONF_FINISH_NOTIFY_SERVICES] = str(options[CONF_FINISH_NOTIFY_SERVICES]).strip() or None
+            return self.async_create_entry(data=options)
+        return self.async_show_form(step_id="panel", data_schema=panel_schema(dict(self.config_entry.options)))
 
     def _ssh_options(self, user_input: dict[str, Any]) -> dict[str, Any]:
         """SSH login: an empty password or key keeps the stored one; no user name forgets them all."""

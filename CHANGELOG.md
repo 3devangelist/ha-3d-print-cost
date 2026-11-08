@@ -3,6 +3,53 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.15.0]
+
+### Added
+
+- **Notification when a print ends**, finished, cancelled or failed: printer, file, result,
+  duration, and when the printer turns itself off (or why it stays on). Sent to the notify
+  actions chosen under **Edit → When a print ends** ("Notify my phone", "Send to"), or, for a
+  printer without its own, those of **FDM Printers → Configure** (new options page). None
+  chosen: nothing is sent.
+- **Keep on.** The notification has a **Keep on** button (Home Assistant mobile app,
+  `mobile_app_notification_action`); the card has a **Keep on** button; and there is
+  `button.<printer>_keep_on` and the action `fdm_printer_manager.keep_on`. While the auto-off
+  waits or the nozzle cools, it cancels it; pressed during a print, that print does not turn
+  the printer off. The next print turns it off as usual.
+- **Wait before turning off** (Edit → Advanced, minutes, default 0 = right away as in
+  0.12.3–0.14.0). With a wait, the card shows "Auto off at HH:MM" (phase `waiting`, attributes
+  `auto_off_delay` and `waiting_until` on `switch.<printer>_safe_power`), so a part can be taken
+  off and another print started. A new print, the plug switched by hand or Keep on cancel it.
+- **⚡ Power off now**: cuts the plug at once, without cooling the nozzle or shutting the
+  computer down, for a printer or Moonraker that hangs. On the card it takes **3 taps**, each
+  within 5 s of the last ("Are you sure? (2 of 3)", "Last confirmation (3 of 3)"), and warns
+  when a print is running. `button.<printer>_power_off_now` also needs 3 presses (count in its
+  attributes) and the action `fdm_printer_manager.force_power_off` needs `confirm: true`.
+  A running print is closed as **failed by the user** with the note "Stopped by the user: the
+  plug was cut with Power off now", the auto-off is cancelled, and a printer still reporting
+  "printing" for a moment is not taken for a new print. Every printer with a smart plug has it:
+  Klipper and Bambu Lab (OctoPrint is not supported by the integration yet).
+- **Metres of filament** before the cost: "Recent prints" (new Filament and Material columns)
+  and the card's last line show e.g. "112,2 m · 281 g · ASA"; the cost shows electricity +
+  filament. New `sensor.<printer>_last_print_filament` (m; grams, material, costs in the
+  attributes). Summary, event and history get `filament_m`, `filament_type_source`,
+  `filament_price_per_kg`, `filament_price_source` and `print_cost` (electricity + filament).
+- **Material of every print**: the slicer's `filament_type`, else the spool loaded while printing
+  (AFC / CANVAS lane, Happy Hare gate, Spoolman's active spool, Bambu AMS tray), else the file
+  name. Names are made the same ("Generic PETG", "PETG HF", "PLA+", "PA6-CF" → PETG, PETG, PLA,
+  PA). Unknown or ambiguous stays unknown ("?"), never guessed.
+- **Choose the material by hand** in "Recent prints" (a list on each row, also to correct a
+  wrong one) or with `fdm_printer_manager.set_material`: the filament cost is worked out again,
+  and the Google Sheets row is changed in place (material and cost cells), like a result.
+  Materials: PLA, PLA-CF, PETG, PETG-CF, PET, PET-CF, ABS, ASA, TPU, PC, PA (Nylon), PP, PPA, PPS.
+- **Generic price per material** (FDM Printers → Configure), €/kg to start with: PLA 20,
+  PLA-CF 35, PETG 20, PETG-CF 35, PET 25, PET-CF 50, ABS 20, ASA 25, TPU 30, PC 35, PA 40, PP 35,
+  PPA 60, PPS 80. Order: the printer's own price → the material's generic price → no cost (with
+  a note). A cost at a generic price says so in the notes and has a `*` in "Recent prints".
+- Google Sheets: four new columns **at the end** (`filament_m`, `filament_price_per_kg`,
+  `filament_price_source`, `print_cost`); the columns already there do not move.
+
 ## [0.14.0]
 
 ### Added

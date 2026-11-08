@@ -69,3 +69,51 @@ sheets_setup:
       selector:
         config_entry:
           integration: fdm_printer_manager
+keep_on:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: fdm_printer_manager
+force_power_off:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: fdm_printer_manager
+    confirm:
+      required: true
+      selector:
+        boolean:
+set_material:
+  fields:
+    entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: fdm_printer_manager
+    job_id:
+      required: true
+      selector:
+        text:
+    material:
+      required: true
+      selector:
+        select:
+          options:
+            - "PLA"
+            - "PLA-CF"
+            - "PETG"
+            - "PETG-CF"
+            - "PET"
+            - "PET-CF"
+            - "ABS"
+            - "ASA"
+            - "TPU"
+            - "PC"
+            - "PA"
+            - "PP"
+            - "PPA"
+            - "PPS"

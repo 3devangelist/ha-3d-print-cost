@@ -70,6 +70,10 @@ def test_sheet_row_columns_and_values() -> None:
         "filament_g": "",
         "filament_type": "",
         "filament_cost": "",
+        "filament_m": "",  # 0.15.0
+        "filament_price_per_kg": "",
+        "filament_price_source": "",
+        "print_cost": "",
     }
 
 

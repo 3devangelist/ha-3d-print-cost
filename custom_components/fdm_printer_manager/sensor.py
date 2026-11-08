@@ -96,6 +96,24 @@ def _last_attrs(data: PrintCostData) -> dict[str, Any] | None:
     return {k: v for k, v in summary.items() if k != "job_id"}
 
 
+def _last_filament_attrs(data: PrintCostData) -> dict[str, Any] | None:
+    job = data.last_job
+    if job is None:
+        return None
+    summary = job.summary()
+    keys = (
+        "filament_g",
+        "filament_type",
+        "filament_type_source",
+        "filament_cost",
+        "filament_price_per_kg",
+        "filament_price_source",
+        "electricity_cost",
+        "print_cost",
+    )
+    return {key: summary[key] for key in keys}
+
+
 SENSORS: tuple[PrintCostSensorDescription, ...] = (
     # ---------------- live printer ----------------
     PrintCostSensorDescription(
@@ -225,6 +243,17 @@ SENSORS: tuple[PrintCostSensorDescription, ...] = (
         suggested_unit_of_measurement=UnitOfTime.HOURS,
         suggested_display_precision=2,
         value_fn=lambda d: round(d.last_job.duration_s()) if d.last_job else None,
+    ),
+    PrintCostSensorDescription(
+        # 0.15.0: metres of filament of the last print; grams, material and costs in the attributes.
+        key="last_print_filament",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.METERS,
+        suggested_display_precision=1,
+        value_fn=lambda d: (
+            round(d.last_job.filament_mm / 1000, 3) if d.last_job and d.last_job.filament_mm is not None else None
+        ),
+        attrs_fn=_last_filament_attrs,
     ),
     PrintCostSensorDescription(
         key="last_print_result",

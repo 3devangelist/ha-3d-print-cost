@@ -10,7 +10,15 @@ printer prints (live Z offset), reset that offset, or keep it.
 ``fdm_printer_manager.sheets_setup``: log every printer (or one) to a tab of a
 Google Sheets integration entry; the tab is created when it is missing.
 
-``mark_print`` and ``sheets_setup`` change the print log and the options of
+``fdm_printer_manager.keep_on`` (0.15.0): keep the printer on, no auto-off this time.
+
+``fdm_printer_manager.force_power_off`` (0.15.0): cut the plug now, without cooling
+the nozzle or shutting the computer down. Only with ``confirm: true``.
+
+``fdm_printer_manager.set_material`` (0.15.0): the material of a finished print, chosen
+by hand; its filament cost is worked out again.
+
+``mark_print``, ``force_power_off``, ``set_material`` and ``sheets_setup`` change the print log and the options of
 every printer, so only administrators may call them (automations and scripts
 still can: they run without a user). Home Assistant has no per-action
 permission: "users the admin allows" means users the admin makes admin.
@@ -26,7 +34,17 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_register_admin_service
 
 from .adapters.klipper_extras import BABYSTEP_STEPS
-from .const import CONF_PANEL, DOMAIN, SERVICE_BABYSTEP, SERVICE_MARK_PRINT, SERVICE_SHEETS_SETUP
+from .const import (
+    CONF_PANEL,
+    DOMAIN,
+    SERVICE_BABYSTEP,
+    SERVICE_FORCE_POWER_OFF,
+    SERVICE_KEEP_ON,
+    SERVICE_MARK_PRINT,
+    SERVICE_SET_MATERIAL,
+    SERVICE_SHEETS_SETUP,
+)
+from .materials import MATERIALS
 from .outcome import MARKABLE
 from .sheets import async_setup_log
 
@@ -53,6 +71,27 @@ BABYSTEP_SCHEMA = vol.Schema(
         vol.Optional(ATTR_STEP, default=0.01): vol.All(vol.Coerce(float), vol.In(BABYSTEP_STEPS)),
         vol.Optional(ATTR_RESET, default=False): cv.boolean,
         vol.Optional(ATTR_SAVE, default=False): cv.boolean,
+    }
+)
+
+ATTR_CONFIRM = "confirm"
+ATTR_MATERIAL = "material"
+
+ENTRY_SCHEMA = vol.Schema({vol.Required(ATTR_ENTRY_ID): cv.string})
+
+# confirm must be given and true: the plug is cut without cooling the nozzle or shutting the computer down.
+FORCE_POWER_OFF_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_CONFIRM): vol.All(cv.boolean, vol.IsTrue("confirm must be true")),
+    }
+)
+
+SET_MATERIAL_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ENTRY_ID): cv.string,
+        vol.Required(ATTR_JOB_ID): cv.string,
+        vol.Required(ATTR_MATERIAL): vol.In(MATERIALS),
     }
 )
 
@@ -111,6 +150,24 @@ def async_setup_services(hass: HomeAssistant) -> None:
         )
 
     hass.services.async_register(DOMAIN, SERVICE_BABYSTEP, _babystep, schema=BABYSTEP_SCHEMA)
+
+    async def _keep_on(call: ServiceCall) -> ServiceResponse:
+        done = await _printer(hass, call.data[ATTR_ENTRY_ID]).async_keep_on()
+        return {"done": done}
+
+    async def _force_power_off(call: ServiceCall) -> None:
+        await _printer(hass, call.data[ATTR_ENTRY_ID]).async_force_power_off(confirm=call.data[ATTR_CONFIRM])
+
+    async def _set_material(call: ServiceCall) -> None:
+        await _printer(hass, call.data[ATTR_ENTRY_ID]).async_set_material(
+            call.data[ATTR_JOB_ID], call.data[ATTR_MATERIAL]
+        )
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_KEEP_ON, _keep_on, schema=ENTRY_SCHEMA, supports_response=SupportsResponse.OPTIONAL
+    )
+    async_register_admin_service(hass, DOMAIN, SERVICE_FORCE_POWER_OFF, _force_power_off, schema=FORCE_POWER_OFF_SCHEMA)
+    async_register_admin_service(hass, DOMAIN, SERVICE_SET_MATERIAL, _set_material, schema=SET_MATERIAL_SCHEMA)
     async_register_admin_service(
         hass,
         DOMAIN,

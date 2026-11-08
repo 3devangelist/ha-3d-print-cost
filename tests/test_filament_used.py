@@ -244,7 +244,9 @@ def test_new_sheet_columns_are_at_the_end() -> None:
         "notes",
         "job_id",
     )
-    assert COLUMNS[12:] == ("filament_mm", "filament_g", "filament_type", "filament_cost")
+    assert COLUMNS[12:16] == ("filament_mm", "filament_g", "filament_type", "filament_cost")
+    # 0.15.0: only added after them, never in between.
+    assert COLUMNS[16:] == ("filament_m", "filament_price_per_kg", "filament_price_source", "print_cost")
     row = sheet_row(
         {"filament_mm": 9343.1, "filament_g": 23.37, "filament_type": "ASA", "filament_cost": 0.5843},
         ZoneInfo("Europe/Lisbon"),
@@ -359,7 +361,7 @@ async def test_cancelled_print_takes_the_final_length_from_the_history(
 ) -> None:
     freezer.move_to("2026-11-08 10:00:00+00:00")
     events = _events(hass)
-    await _setup(hass)  # no filament price: cost stays empty
+    await _setup(hass)  # no filament price on the printer: the generic price of ASA (0.15.0)
     start = datetime.fromisoformat("2026-11-08 10:00:00+00:00").timestamp()
 
     moonraker.reading = KlipperStatus(state="printing", filename=VESPA, filament_mm=10.0)
@@ -374,8 +376,9 @@ async def test_cancelled_print_takes_the_final_length_from_the_history(
     assert data["result"] == "cancelled"
     assert data["filament_mm"] == pytest.approx(526.1)
     assert data["filament_g"] == pytest.approx(round(526.1473 * VESPA_G_PER_MM, 2))
-    assert data["filament_cost"] is None
-    assert not any("Filament" in note for note in data["notes"])
+    assert data["filament_cost"] == pytest.approx(round(526.1473 * VESPA_G_PER_MM * 25 / 1000, 4))
+    assert data["filament_price_source"] == "generic"
+    assert "Filament cost at the generic price for ASA (25 EUR/kg)" in data["notes"]
 
 
 async def test_unknown_filament_gets_a_note(hass: HomeAssistant, freezer: FrozenDateTimeFactory, moonraker) -> None:

@@ -67,14 +67,42 @@ COLUMNS: tuple[str, ...] = (
     "filament_g",
     "filament_type",
     "filament_cost",
+    # 0.15.0: metres, the price per kg used and where it came from (printer / generic), electricity + filament.
+    "filament_m",
+    "filament_price_per_kg",
+    "filament_price_source",
+    "print_cost",
 )
 # Header row written in a new tab ("created" first, as google_sheets fills it in).
 HEADER: tuple[str, ...] = ("created", *COLUMNS)
 NEW_TAB_ROWS = 1000
 # Marks a queued row that corrects a row already sent: change that row in place, else append this one.
 CORRECTION_KEY = "_correction"
-# The cells a correction changes.
+# The cells of a print's material and filament cost (0.15.0: the material can be chosen by hand).
+MATERIAL_CELLS: tuple[str, ...] = (
+    "filament_type",
+    "filament_cost",
+    "filament_price_per_kg",
+    "filament_price_source",
+    "print_cost",
+)
+# The cells a result correction changes. A correction row says which cells it changes in CORRECTION_KEY:
+# ``True`` (rows queued before 0.15.0) = these, else the list of cells (only those in the header row are changed).
 CORRECTED: tuple[str, ...] = ("result", "result_by")
+CORRECTABLE: tuple[str, ...] = (*CORRECTED, *MATERIAL_CELLS)
+
+
+def correction_cells(row: dict[str, Any]) -> tuple[str, ...]:
+    """The cells a queued correction row changes in the sheet."""
+    cells = row.get(CORRECTION_KEY)
+    return tuple(str(c) for c in cells) if isinstance(cells, (list, tuple)) else CORRECTED
+
+
+def _add_cells(row: dict[str, Any], cells: tuple[str, ...]) -> None:
+    if row.get(CORRECTION_KEY):
+        row[CORRECTION_KEY] = list(dict.fromkeys((*correction_cells(row), *cells)))
+
+
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/{}"
 
 
@@ -125,6 +153,10 @@ def sheet_row(payload: dict[str, Any], tz: tzinfo, *, correction: str | None = N
         "filament_g": _blank(payload.get("filament_g")),
         "filament_type": _blank(payload.get("filament_type")),
         "filament_cost": _blank(payload.get("filament_cost")),
+        "filament_m": _blank(payload.get("filament_m")),
+        "filament_price_per_kg": _blank(payload.get("filament_price_per_kg")),
+        "filament_price_source": _blank(payload.get("filament_price_source")),
+        "print_cost": _blank(payload.get("print_cost")),
     }
 
 
@@ -151,11 +183,22 @@ def mark_pending_row(pending: list[dict[str, Any]], job_id: str, result: str) ->
         row["result"] = result
         row["result_by"] = "user"
         if row.get(CORRECTION_KEY):
+            _add_cells(row, CORRECTED)
             notes = str(row.get("notes") or "")
             was = notes.split("(was ", 1)[1].split(")", 1)[0] if "(was " in notes else before
             rest = notes.split(")", 1)[1].lstrip("; ") if notes.startswith("Correction:") and ")" in notes else ""
             row["notes"] = "; ".join(n for n in (correction_note(result, was), rest) if n)
         return True
+    return False
+
+
+def correct_pending_row(pending: list[dict[str, Any]], job_id: str, values: dict[str, Any]) -> bool:
+    """A row of this print still waits in the queue: change these cells there. ``False``: none waits."""
+    for row in reversed(pending):
+        if str(row.get("job_id") or "") == str(job_id):
+            row.update({key: _blank(value) for key, value in values.items()})
+            _add_cells(row, tuple(values))
+            return True
     return False
 
 
@@ -239,10 +282,11 @@ class SheetsLog:
                 except Exception as err:  # noqa: BLE001 - the row waits in the queue
                     self._failed(err, len(pending))
                     break
-                if any(row.get(key) != data.get(key) for key in CORRECTED):
-                    # Marked by hand while it was being sent: the sheet has the old result, correct it next.
-                    row[CORRECTION_KEY] = True
-                    row["notes"] = correction_note(str(row.get("result")), str(data.get("result")))
+                if changed := [key for key in CORRECTABLE if row.get(key) != data.get(key)]:
+                    # Marked (or its material chosen) by hand while it was being sent: correct it next.
+                    row[CORRECTION_KEY] = changed if any(key not in CORRECTED for key in changed) else True
+                    if any(key in CORRECTED for key in changed):
+                        row["notes"] = correction_note(str(row.get("result")), str(data.get("result")))
                     continue
                 pending.pop(0)
                 sent += 1
@@ -262,7 +306,7 @@ class SheetsLog:
         entry = self._hass.config_entries.async_get_entry(self.config_entry) if self.config_entry else None
         if not job_id or entry is None or entry.domain != SHEETS_DOMAIN or entry.state is not ConfigEntryState.LOADED:
             return False
-        values = {key: row.get(key) for key in CORRECTED}
+        values = {key: row.get(key) for key in correction_cells(row) if key in row}
         try:
             async with asyncio.timeout(SEND_TIMEOUT):
                 await entry.runtime_data.async_ensure_token_valid()
