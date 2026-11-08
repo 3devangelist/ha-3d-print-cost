@@ -177,7 +177,11 @@ class PrintTracker:
         return job
 
     def _end(self, job: PrintJob, snap: PrinterSnapshot, result: PrintResult) -> PrintJob:
-        job.electricity.flush()
+        # With an energy meter that has not stepped since its last reading, the
+        # end of the print is not measured yet: the coordinator waits for the
+        # next meter step before flushing (see ElectricityAccumulator.awaiting_meter).
+        if not job.electricity.awaiting_meter:
+            job.electricity.flush()
         job.finished_at = snap.timestamp
         job.result = result
         job.phase = JobPhase.FINALIZING

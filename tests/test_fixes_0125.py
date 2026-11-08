@@ -116,7 +116,7 @@ def test_plug_counter_reset_with_power_never_goes_down():
     acc.add_sample(ElectricitySample(T0 + timedelta(minutes=20), power_w=600, energy_kwh=0.01, price_per_kwh=PRICE))
     shown.append(acc.reported_energy_kwh)
     assert shown == sorted(shown)
-    assert acc.energy_kwh == pytest.approx(0.2)  # 0.1 from the meter, 0.1 estimated across the reboot
+    assert acc.energy_kwh == pytest.approx(0.11)  # 0.1 then 0.01 from the meter: nothing estimated (0.12.6)
 
 
 def test_restart_keeps_the_highest_value_shown():

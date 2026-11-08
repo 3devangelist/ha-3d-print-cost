@@ -161,8 +161,12 @@ async def test_alerts_can_be_turned_off(
     assert hass.states.get("sensor.ender_6_current_print_phase").state == "active"
 
 
-async def test_bambu_power_cut_ends_as_failed(hass: HomeAssistant, freezer: FrozenDateTimeFactory, alerts) -> None:
+async def test_bambu_power_cut_ends_as_failed(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, alerts, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """ha-bambulab: the status goes unavailable, then the printer comes back "idle"."""
+    # The plug's meter never steps after the cut: do not wait the real 5 min for it (0.12.6).
+    monkeypatch.setattr("custom_components.fdm_printer_manager.coordinator.METER_SETTLE_TIMEOUT", 0)
     freezer.move_to("2026-10-23 14:00:00+00:00")
     set_states(hass, status="idle", energy="100000")
     entry = make_entry(hass)

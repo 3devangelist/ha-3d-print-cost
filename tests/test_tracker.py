@@ -172,3 +172,27 @@ def test_restore_ignores_completed_job():
     tracker2 = PrintTracker("p1")
     tracker2.restore(job)
     assert tracker2.active_job is None
+
+
+def test_end_with_meter_not_stepped_leaves_the_account_open():
+    """0.12.6: the printer says finished before the plug's meter steps; nothing is estimated yet."""
+    tracker = PrintTracker("p1")
+    tracker.process(snap(0, "running", meter=10.0))
+    tracker.process(snap(30, "running", meter=10.25))
+    job = tracker.process(snap(31, "finish", meter=10.25))[0].job
+    assert job.result is PrintResult.SUCCESS
+    assert job.electricity.awaiting_meter  # the coordinator waits for the next step
+    assert job.electricity.energy_kwh == pytest.approx(0.25)  # booked: only what the meter counted so far
+    job.electricity.add_sample(ElectricitySample(T0 + timedelta(minutes=32), power_w=50, energy_kwh=10.26))
+    job.electricity.flush()
+    assert job.energy_kwh == pytest.approx(0.26)
+    assert job.electricity.unmetered_kwh == 0
+    assert not any("not measured" in note for note in job.notes())
+
+
+def test_end_with_meter_just_stepped_closes_at_once():
+    tracker = PrintTracker("p1")
+    tracker.process(snap(0, "running", meter=10.0))
+    job = tracker.process(snap(30, "finish", meter=10.25))[0].job
+    assert not job.electricity.awaiting_meter
+    assert job.energy_kwh == pytest.approx(0.25)

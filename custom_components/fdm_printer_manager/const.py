@@ -122,6 +122,11 @@ PROBE_TIMEOUT: Final = 3  # seconds per port when looking for Moonraker (7125, t
 # is still integrated but reported as a gap in the job attributes.
 MAX_SAMPLE_GAP: Final = 300  # seconds
 
+# End of a print with an energy meter: wait this long for the meter's next
+# step, so the last minutes are measured by the plug and never estimated.
+METER_SETTLE_TIMEOUT: Final = 300  # seconds
+METER_SETTLE_POLL: Final = 5  # seconds between meter reads while waiting
+
 EVENT_PRINT_FINISHED: Final = f"{DOMAIN}_print_finished"
 EVENT_TYPE_PRINT_FINISHED: Final = "print_finished"
 EVENT_PRINT_MARKED: Final = f"{DOMAIN}_print_marked"  # a finished print was marked success / failed by hand
