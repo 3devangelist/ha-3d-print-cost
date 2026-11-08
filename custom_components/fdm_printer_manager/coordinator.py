@@ -55,6 +55,7 @@ from .adapters.klipper_extras import (
 )
 from .adapters.moonraker import (
     DEFAULT_PORT,
+    HISTORY_END_TOLERANCE_S,
     FileMetadata,
     KlipperSource,
     MoonrakerClient,
@@ -62,6 +63,7 @@ from .adapters.moonraker import (
     Webcam,
     default_web_url,
     history_filament,
+    history_match,
     url_host,
 )
 from .adapters.reach import host_is_up
@@ -154,10 +156,15 @@ from .materials import (
     SOURCE_FILE_NAME,
     SOURCE_SPOOL,
     generic_prices,
+    grams_note,
+    is_grams_note,
+    is_price_note,
     material_from_file_name,
     normalize_material,
     price_note,
+    refresh_row_filament,
     resolve_price,
+    set_row_length,
     set_row_material,
 )
 from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult, filament_price
@@ -165,6 +172,8 @@ from .naming import bambu_model
 from .outcome import MARKABLE, mark_history
 from .sheets import (
     CORRECTION_KEY,
+    IN_PLACE_ONLY_KEY,
+    LENGTH_CELLS,
     MATERIAL_CELLS,
     SheetsLog,
     correct_pending_row,
@@ -200,10 +209,20 @@ FORCE_OFF_QUIET: Final = timedelta(seconds=90)
 FILAMENT_READ_TIMEOUT: Final = 15
 
 
+# 0.15.2: old prints without their length (Klipper) are looked up in this many of Moonraker's last prints.
+MOONRAKER_HISTORY_LOOKUP: Final = 200
+LENGTH_FROM_HISTORY_NOTE: Final = "Filament used read later from Moonraker's history"
+
+
 def _remark(job: PrintJob, text: str) -> None:
     """Add a note to the print once."""
     if text not in job.remarks:
         job.remarks.append(text)
+
+
+def _filament_note(note: str) -> bool:
+    """A note about the filament of a print (length, weight, price), replaced when it is worked out again."""
+    return note.startswith("Filament used") or is_grams_note(note) or is_price_note(note)
 
 
 class PowerRefused(HomeAssistantError):
@@ -381,6 +400,11 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         # Who the printer is, learnt at first contact (identity.py); loaded from storage at start.
         self.identity = PrinterIdentity()
         self._identity_due = True  # Klipper: read the machine identity at the next good poll
+        # 0.15.2: old prints without their length are looked up in Moonraker's history once while HA runs.
+        self._length_looked: set[str] = set()
+        self._weight_looked: set[str | None] = set()  # prints with a length but no grams, weighed once
+        self._length_lock = asyncio.Lock()
+        self._length_due = True
 
         self.errors: deque[str] = deque(maxlen=20)
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -1116,6 +1140,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 self._spawn(self.async_check_klipper_identity())
             if not self._webcam_checked:
                 self._spawn(self.async_check_webcam())
+            if self._length_due:
+                self._length_due = False
+                self._spawn(self.async_fill_filament_lengths())
         self._process(dt_util.utcnow())
 
     async def _async_webcam_tick(self, now: datetime) -> None:
@@ -1458,24 +1485,156 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             last.filament_price_source = summary["filament_price_source"]
             last.remarks = summary["notes"]
         row = rows[0] if rows else last.summary()
-        # Google Sheets: a row still in the queue is changed there; else the row in the sheet is changed in place.
-        values = {key: row.get(key) for key in MATERIAL_CELLS}
-        if self.sheets.enabled and not correct_pending_row(self.state.sheets_pending, job_id, values):
-            queue_row(
-                self.state.sheets_pending,
-                {
-                    **sheet_row(
-                        {"printer": self.printer_name, "currency": self.currency, **row},
-                        dt_util.get_default_time_zone(),
-                        correction=f"Correction: material set to {material} by hand",
-                    ),
-                    CORRECTION_KEY: list(MATERIAL_CELLS),
-                },
-            )
+        self._correct_sheet_row(row, MATERIAL_CELLS, f"Correction: material set to {material} by hand")
         await self.store.async_save(self.state)
         _LOGGER.info("%s: print %s set to %s", self.printer_name, job_id, material)
         self._send_sheet_rows()
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    def _correct_sheet_row(
+        self, row: dict[str, Any], cells: tuple[str, ...], correction: str, *, in_place_only: bool = False
+    ) -> None:
+        """Google Sheets: a row still in the queue is changed there; else the row in the sheet is changed in place.
+
+        ``in_place_only``: when the print is not in the sheet, nothing is added (old prints filled in later).
+        """
+        if not self.sheets.enabled or not row.get("job_id"):
+            return
+        tz = dt_util.get_default_time_zone()
+        payload = {"printer": self.printer_name, "currency": self.currency, **row}
+        plain = sheet_row(payload, tz)
+        if correct_pending_row(self.state.sheets_pending, row["job_id"], {key: plain[key] for key in cells}):
+            return
+        queued = {**sheet_row(payload, tz, correction=correction), CORRECTION_KEY: list(cells)}
+        if in_place_only:
+            queued[IN_PLACE_ONLY_KEY] = True
+        queue_row(self.state.sheets_pending, queued)
+
+    @property
+    def filament_lengths_wanted(self) -> bool:
+        """Old prints :meth:`async_fill_filament_lengths` could fill in now."""
+        klipper = self.klipper is not None and self.klipper.available
+        for row in self.state.history:
+            if row.get("filament_mm") is not None:
+                if row.get("filament_g") is None and row.get("job_id") not in self._weight_looked:
+                    return True
+            elif klipper and row.get("job_id") and row["job_id"] not in self._length_looked and row.get("name"):
+                return True
+        return False
+
+    async def async_fill_filament_lengths(self) -> int:
+        """Old prints: the filament they used and its cost, worked out again (0.15.2). Returns the prints changed.
+
+        * A print with its length but no grams (the slicer gave no weight) is weighed with
+          the density of its material (also the one in its file name).
+        * Klipper: a print without its length gets the one in Moonraker's history (same
+          file, end within a few minutes). Moonraker's 0 (Klipper restarted) or no match
+          leaves it unknown, never estimated. Each print is looked up once while Home
+          Assistant runs. Bambu Lab prints stay unknown (no length reported).
+
+        The history is saved and the rows in Google Sheets are changed in place when possible.
+        """
+        async with self._length_lock:
+            table = self.material_prices
+            printer_price = filament_price(self.conf.get(CONF_FILAMENT_PRICE))
+            changed: list[dict[str, Any]] = []
+            for row in self.state.history:
+                if row.get("filament_mm") is None or row.get("filament_g") is not None:
+                    continue
+                if row.get("job_id") in self._weight_looked:
+                    continue
+                self._weight_looked.add(row.get("job_id"))
+                trial = {**row, "notes": list(row.get("notes") or [])}
+                if not trial.get("filament_type") and (material := material_from_file_name(trial.get("name"))):
+                    trial["filament_type"] = material
+                    trial["filament_type_source"] = SOURCE_FILE_NAME
+                refresh_row_filament(trial, printer_price, table, self.currency)
+                if trial.get("filament_g") is None:
+                    continue  # still unknown (material unknown): left as it was
+                row.update(trial)
+                self._correct_sheet_row(
+                    row, (*MATERIAL_CELLS, "notes"), "Correction: filament weighed from its length", in_place_only=True
+                )
+                changed.append(row)
+            changed.extend(await self._async_lengths_from_moonraker(printer_price, table))
+            if not changed:
+                return 0
+            for row in changed:
+                self._sync_last_job(row)
+            await self.store.async_save(self.state)
+        _LOGGER.info("%s: filament of %s old print(s) filled in", self.printer_name, len(changed))
+        self._send_sheet_rows()
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+        return len(changed)
+
+    async def _async_lengths_from_moonraker(
+        self, printer_price: Decimal | None, table: dict[str, Decimal]
+    ) -> list[dict[str, Any]]:
+        """Klipper prints of the history without their length: read it from Moonraker's history."""
+        if self.klipper is None or not self.klipper.available:
+            return []
+        wanted: list[tuple[dict[str, Any], float]] = []
+        for row in self.state.history:
+            job_id = row.get("job_id")
+            if row.get("filament_mm") is not None or not job_id or job_id in self._length_looked:
+                continue
+            try:
+                finished = datetime.fromisoformat(str(row.get("finished_at"))).timestamp()
+            except ValueError:
+                continue
+            if row.get("name"):
+                wanted.append((row, finished))
+        if not wanted:
+            return []
+        since = min(finished for _, finished in wanted) - HISTORY_END_TOLERANCE_S - 86400
+        try:
+            async with asyncio.timeout(FILAMENT_READ_TIMEOUT):
+                jobs = await self.klipper.client.history(MOONRAKER_HISTORY_LOOKUP, since=since)
+        except Exception as err:  # noqa: BLE001 - tried again the next time the panel asks
+            _LOGGER.debug("%s: Moonraker history not readable: %s", self.printer_name, err)
+            return []
+        changed: list[dict[str, Any]] = []
+        for row, finished in wanted:
+            self._length_looked.add(row["job_id"])
+            found = history_match(jobs, row.get("name"), finished)
+            if found is None:
+                continue
+            meta = found.meta
+            set_row_length(
+                row,
+                found.filament_mm,
+                g_per_mm=meta.filament_g_per_mm,
+                file_type=meta.filament_type,
+                density=meta.filament_density,
+                diameter_mm=meta.filament_diameter_mm,
+            )
+            if not row.get("filament_type") and (material := material_from_file_name(row.get("name"))):
+                row["filament_type"] = material
+                row["filament_type_source"] = SOURCE_FILE_NAME
+            row["notes"] = [*(row.get("notes") or []), LENGTH_FROM_HISTORY_NOTE]
+            refresh_row_filament(row, printer_price, table, self.currency)
+            self._correct_sheet_row(
+                row, LENGTH_CELLS, "Correction: filament used read from Moonraker's history", in_place_only=True
+            )
+            changed.append(row)
+        return changed
+
+    def _sync_last_job(self, row: dict[str, Any]) -> None:
+        """The last print (sensors) follows a print of the history filled in later."""
+        last = self.state.last_job
+        if last is None or last.job_id != row.get("job_id"):
+            return
+        last.record_final_filament(row.get("filament_mm"))
+        last.set_filament_file(
+            row.get("filament_g_per_mm"), None, row.get("filament_density"), row.get("filament_diameter_mm")
+        )
+        last.filament_file_type = row.get("filament_file_type") or last.filament_file_type
+        last.filament_type = row.get("filament_type") or None
+        last.filament_type_source = row.get("filament_type_source") or None
+        last.filament_price_per_kg = filament_price(row.get("filament_price_per_kg"))
+        last.filament_price_source = row.get("filament_price_source") or None
+        kept = [r for r in last.remarks if not _filament_note(r)]
+        last.remarks = kept + [str(n) for n in row.get("notes") or [] if _filament_note(str(n))]
 
     @property
     def filament_slots(self) -> list[FilamentSlot]:
@@ -1547,6 +1706,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 filament_mm=reading.filament_mm,
                 filament_g_per_mm=meta.filament_g_per_mm if meta else None,
                 filament_type=meta.filament_type if meta else None,
+                filament_density=meta.filament_density if meta else None,
+                filament_diameter_mm=meta.filament_diameter_mm if meta else None,
             )
         hass = self.hass
         return PrinterSnapshot(
@@ -1772,6 +1933,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.last_image = image
         summary = job.summary()
         self.state.history.insert(0, {"printer": self.printer_name, **summary})
+        # Its length and grams were just read: nothing to fill in later while Home Assistant runs.
+        self._length_looked.add(job.job_id)
+        self._weight_looked.add(job.job_id)
         del self.state.history[HISTORY_LIMIT:]
         payload = {"printer": self.printer_name, "currency": self.currency, **summary}
         # Queued with the same save as the history: exactly one row per print, kept if Sheets cannot be reached.
@@ -1807,8 +1971,6 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         )
         job.filament_price_per_kg = price
         job.filament_price_source = source
-        if job.filament_g is not None and (note := price_note(job.filament_type, price, source, self.currency)):
-            _remark(job, note)
         if job.filament_mm is None:
             _remark(
                 job,
@@ -1816,8 +1978,11 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 if self.klipper is not None
                 else "Filament used unknown: Bambu Lab printers do not report the filament a print used",
             )
-        elif job.filament_g_per_mm is None:
-            _remark(job, "Filament weight unknown: the slicer did not write the filament weight in the file")
+        elif note := grams_note(job.filament_type, job.filament_weight):
+            # 0.15.2: the grams come from the slicer's weight, else from the length and the material's density.
+            _remark(job, note)
+        if job.filament_g is not None and (note := price_note(job.filament_type, price, source, self.currency)):
+            _remark(job, note)
 
     async def _async_klipper_filament_end(self, job: PrintJob) -> None:
         """Klipper: the final length from Moonraker's history, and the file's grams per mm if still missing.
@@ -1850,7 +2015,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 _LOGGER.debug("%s: no metadata for %s: %s", self.printer_name, job.name, err)
                 meta = None
             if isinstance(meta, FileMetadata):
-                job.set_filament_file(meta.filament_g_per_mm, meta.filament_type)
+                job.set_filament_file(
+                    meta.filament_g_per_mm, meta.filament_type, meta.filament_density, meta.filament_diameter_mm
+                )
 
     async def _async_wait_meter_step(self, job: PrintJob) -> None:
         """Wait for the plug's energy meter to step, so the end of the print is measured, not estimated.

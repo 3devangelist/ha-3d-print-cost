@@ -1007,9 +1007,12 @@ class FdmPrinterPanel extends HTMLElement {
     // electricity + filament, each part under the total. "generic" marks a filament cost at a generic price.
     const lang = this._hass?.locale?.language;
     const mats = h.materials || [];
+    // 0.15.2: grams weighed with the density of the material (no slicer weight) are marked "≈".
     const filament = (r) => {
       const text = filamentText(r.filament_mm, r.filament_g, null, lang) || "—";
-      return `<td class="n">${text}</td>`;
+      const byDensity = r.filament_g_source === "density" && r.filament_g != null;
+      const tip = byDensity ? ` title="≈ grams from the length and the density of ${esc(r.filament_type || "")}"` : "";
+      return `<td class="n"${tip}>${byDensity ? "≈ " : ""}${text}</td>`;
     };
     const material = (r) => {
       const cur = r.filament_type || "";

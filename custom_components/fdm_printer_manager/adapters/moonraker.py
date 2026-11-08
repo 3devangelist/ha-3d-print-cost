@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -73,6 +74,9 @@ class FileMetadata:
     filament_total_mm: float | None = None  # length of the whole file
     filament_weight_g: float | None = None  # weight of the whole file
     filament_type: str | None = None
+    # 0.15.2: only when the slicer / Moonraker wrote them (not in Moonraker's usual metadata).
+    filament_density: float | None = None  # g/cm³
+    filament_diameter_mm: float | None = None
 
     @property
     def filament_g_per_mm(self) -> float | None:
@@ -196,7 +200,21 @@ def parse_metadata(meta: dict[str, Any]) -> FileMetadata:
         filament_total_mm=_num(meta.get("filament_total")),
         filament_weight_g=_num(meta.get("filament_weight_total")),
         filament_type=kind or None,
+        filament_density=_one_value(meta.get("filament_density")),
+        filament_diameter_mm=_one_value(meta.get("filament_diameter")),
     )
+
+
+def _one_value(value: Any) -> float | None:
+    """A number written once per filament ("1.75", [1.75, 1.75], "1.24;1.24"): the value when they all agree."""
+    if isinstance(value, str):
+        value = [part for part in value.replace(",", ";").split(";") if part.strip()]
+    values = value if isinstance(value, list) else [value]
+    numbers = {_num(v) for v in values}
+    if len(numbers) != 1:
+        return None
+    number = numbers.pop()
+    return number if number is not None and math.isfinite(number) and number > 0 else None
 
 
 # A print in Moonraker's history belongs to a job when it started this long before
@@ -233,6 +251,47 @@ def history_filament(
     if best is None or best[1] <= 0:
         return None
     return best[1]
+
+
+# 0.15.2: a print of the FDM history and an entry of Moonraker's history are the same print when they have
+# the same file and ended within this many seconds of each other.
+HISTORY_END_TOLERANCE_S = 5 * 60
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryFilament:
+    """The filament of an old print, read later from Moonraker's history."""
+
+    filament_mm: float
+    meta: FileMetadata  # what the slicer wrote in the file, as Moonraker kept it with the entry
+
+
+def history_match(jobs: Any, filename: str | None, finished_ts: float | None) -> HistoryFilament | None:
+    """``server.history.list`` → the filament of the print of ``filename`` that ended at ``finished_ts``.
+
+    The entry with the same file whose end is the closest, within
+    ``HISTORY_END_TOLERANCE_S``. ``None`` when none matches, and when it says 0
+    (Klipper restarted or disconnected: 0 is not a measurement). Never estimated.
+    """
+    if not filename or finished_ts is None or not isinstance(jobs, list):
+        return None
+    best: tuple[float, dict[str, Any]] | None = None
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("filename") != filename:
+            continue
+        end = _num(job.get("end_time"))
+        if end is None:
+            continue
+        gap = abs(end - finished_ts)
+        if gap <= HISTORY_END_TOLERANCE_S and (best is None or gap < best[0]):
+            best = (gap, job)
+    if best is None:
+        return None
+    used = _num(best[1].get("filament_used"))
+    if used is None or not math.isfinite(used) or used <= 0:
+        return None
+    meta = best[1].get("metadata")
+    return HistoryFilament(used, parse_metadata(meta if isinstance(meta, dict) else {}))
 
 
 def remaining_minutes(reading: KlipperStatus, meta: FileMetadata | None) -> float | None:
@@ -385,9 +444,12 @@ class MoonrakerClient:
         result = await self._get(f"/server/files/metadata?filename={quote(filename)}")
         return parse_metadata(result)
 
-    async def history(self, limit: int = 10) -> list[dict[str, Any]]:
-        """The last prints in Moonraker's history, newest first (read only)."""
-        jobs = (await self._get(f"/server/history/list?limit={int(limit)}&order=desc")).get("jobs")
+    async def history(self, limit: int = 10, since: float | None = None) -> list[dict[str, Any]]:
+        """The last prints in Moonraker's history, newest first (read only); ``since``: started after (epoch s)."""
+        path = f"/server/history/list?limit={int(limit)}&order=desc"
+        if since is not None:
+            path += f"&since={max(0.0, float(since)):.0f}"
+        jobs = (await self._get(path)).get("jobs")
         return jobs if isinstance(jobs, list) else []
 
     async def machine_identity(self) -> str | None:

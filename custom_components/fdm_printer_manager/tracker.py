@@ -78,6 +78,8 @@ class PrinterSnapshot:
     filament_mm: float | None = None
     filament_g_per_mm: float | None = None
     filament_type: str | None = None
+    filament_density: float | None = None  # g/cm³, when the slicer wrote it (0.15.2)
+    filament_diameter_mm: float | None = None
 
 
 class TransitionKind(StrEnum):
@@ -205,7 +207,9 @@ class PrintTracker:
         if filament:
             # The largest length seen is kept (a restarted Klipper reads 0 again).
             job.record_filament(snap.filament_mm)
-            job.set_filament_file(snap.filament_g_per_mm, snap.filament_type)
+            job.set_filament_file(
+                snap.filament_g_per_mm, snap.filament_type, snap.filament_density, snap.filament_diameter_mm
+            )
 
 
 def _is_different_job(current: str | None, new: str | None) -> bool:

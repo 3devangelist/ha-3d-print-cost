@@ -3,6 +3,34 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.15.2]
+
+### Changed
+
+- **The filament cost always comes from the metres used and the material.** The grams are the
+  length really used times the slicer's weight of the file when it wrote one for that material.
+  Otherwise (no weight in the file, or the material was chosen by hand and differs from the
+  slicer's) the length is weighed: length × section of the filament × density. The diameter is
+  the slicer's when written, else 1.75 mm; the density is the slicer's when written, else the
+  typical density of the material (PLA 1.24, PLA-CF 1.29, PETG 1.27, PETG-CF 1.30, PET 1.38,
+  PET-CF 1.30, ABS 1.04, ASA 1.07, TPU 1.21, PC 1.20, PA 1.14, PP 0.90, PPA 1.20, PPS 1.35 g/cm³).
+  Cost = grams × price per kg (the printer's price, else the material's generic price). A note
+  says where the grams came from ("from the slicer", "from the length used and the typical
+  density of ASA…"); Recent prints marks grams weighed by density with "≈".
+- **Choosing the material by hand weighs the print again** when its grams came from a density
+  (or from the slicer for another material), and the Google Sheets row gets the new grams too.
+
+### Added
+
+- **Old Klipper prints get their metres from Moonraker's history.** A print of the history
+  without its length is looked up once (when the printer is first reached, or when the panel
+  shows Recent prints): same file, ended within 5 minutes. The length, grams and cost are saved
+  and the row in Google Sheets is changed in place (never added when the print is not in the
+  sheet). Moonraker's 0 (Klipper restarted) or no match leaves it unknown: never estimated from
+  the time. Bambu Lab prints stay unknown (the printer does not report the length).
+- Prints that have their length but no grams (no weight from the slicer) are weighed with the
+  density of their material (also the one in the file name).
+
 ## [0.15.1]
 
 ### Fixed
