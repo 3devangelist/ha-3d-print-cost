@@ -20,6 +20,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **A plug that restarts its energy counter from zero** now books only what it counted since
   the restart, never a power estimate.
 - Setups with a power sensor only (no energy meter) are unchanged: the power integral is the value.
+- **A plug back from "unavailable" no longer adds its whole counter to a print.** A Centauri
+  Carbon print (07-11) was booked at 38.05 kWh instead of 1.12 kWh: the plug came back with
+  36.931 kWh, rounded just below its last value 36.931773, and that tiny drop was taken as the
+  counter restarting from zero. A drop of up to 5 Wh is now rounding, not a reset. This also
+  protects the `energy_total` / `energy_today` counters.
 
 ## [0.12.5]
 

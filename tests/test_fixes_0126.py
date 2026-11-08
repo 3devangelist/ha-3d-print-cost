@@ -78,3 +78,32 @@ async def test_plug_never_steps_nothing_is_estimated() -> None:
     assert job.electricity.unmetered_kwh > 0
     assert any("not measured and not counted" in note for note in job.notes())
     assert clock.now - T0 >= timedelta(seconds=300)
+
+
+def test_meter_back_from_unavailable_rounded_down_is_not_a_reset() -> None:
+    """Real case (job 7c576ea4, 07-11): 36.931773 -> unavailable -> 36.931 booked the whole meter (36.93 kWh)."""
+    acc = ElectricityAccumulator()
+    t = T0
+    acc.add_sample(ElectricitySample(t, power_w=110, energy_kwh=36.492, price_per_kwh=PRICE))
+    acc.add_sample(ElectricitySample(t + timedelta(hours=4), power_w=110, energy_kwh=36.931773, price_per_kwh=PRICE))
+    acc.add_sample(
+        ElectricitySample(t + timedelta(hours=4, minutes=1), power_w=None, energy_kwh=None, price_per_kwh=PRICE)
+    )
+    acc.add_sample(
+        ElectricitySample(t + timedelta(hours=4, minutes=2), power_w=110, energy_kwh=36.931, price_per_kwh=PRICE)
+    )
+    assert acc.meter_resets == 0
+    assert not acc.meter_stepped(36.931)
+    acc.add_sample(ElectricitySample(t + timedelta(hours=10), power_w=110, energy_kwh=37.612, price_per_kwh=PRICE))
+    acc.flush()
+    assert acc.energy_kwh == pytest.approx(1.12)
+    assert acc.meter_resets == 0
+
+
+def test_real_reset_is_still_a_reset() -> None:
+    acc = ElectricityAccumulator()
+    acc.add_sample(ElectricitySample(T0, power_w=100, energy_kwh=36.9, price_per_kwh=PRICE))
+    assert acc.meter_stepped(0.01)
+    acc.add_sample(ElectricitySample(T0 + timedelta(minutes=10), power_w=100, energy_kwh=0.01, price_per_kwh=PRICE))
+    assert acc.meter_resets == 1
+    assert acc.energy_kwh == pytest.approx(0.01)

@@ -46,6 +46,10 @@ from ..units import to_decimal
 
 ZERO = Decimal(0)
 UNCOSTED_TOLERANCE_KWH = 0.001
+# A meter that comes back from "unavailable" can report a value rounded a
+# little below the last one (36.931773 -> 36.931). A drop this small is
+# rounding, not a counter restarting from zero.
+METER_JITTER_KWH = 0.005
 
 
 @dataclass(slots=True)
@@ -139,8 +143,10 @@ class ElectricityAccumulator:
         return self.has_meter and (self.pending_kwh > 0 or self.pending_uncosted_kwh > 0 or self.meter_hole)
 
     def meter_stepped(self, energy_kwh: float | None) -> bool:
-        """``energy_kwh`` is a new meter value (a step up, or a reset) compared with the last one."""
-        return energy_kwh is not None and self.last_energy_kwh is not None and energy_kwh != self.last_energy_kwh
+        """``energy_kwh`` is a new meter value (a step up, or a real reset) compared with the last one."""
+        if energy_kwh is None or self.last_energy_kwh is None:
+            return False
+        return energy_kwh > self.last_energy_kwh or self.last_energy_kwh - energy_kwh > METER_JITTER_KWH
 
     @property
     def total_uncosted_energy_kwh(self) -> float:
@@ -212,11 +218,13 @@ class ElectricityAccumulator:
             if self.meter_hole:
                 self._note("energy meter was briefly unavailable, its next reading covered the gap")
             self._commit_meter(meter_now - meter_prev)
-        elif meter_now == meter_prev:
+        elif meter_prev - meter_now <= METER_JITTER_KWH:
             # Meter not advanced yet (coarse resolution, or a plug that only
             # refreshes its counter every few minutes): keep the estimate
-            # pending, the next step of the meter replaces it.
-            pass
+            # pending, the next step of the meter replaces it. A tiny drop is
+            # rounding (a meter back from "unavailable" with fewer decimals),
+            # not a reset: keep the higher last value, so it is not counted twice.
+            sample = ElectricitySample(sample.timestamp, sample.power_w, meter_prev, sample.price_per_kwh)
         else:
             # Meter reset (plug rebooted, daily counter...): it counts again
             # from zero. Book what it counted since (its new value): the part
