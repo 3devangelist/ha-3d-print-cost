@@ -119,6 +119,10 @@ Para uma impressora escrever noutro separador: **Edit → When a print ends** ne
 | `electricity_cost`, `currency` | Custo da eletricidade |
 | `notes` | Notas (por exemplo, uma correção) |
 | `job_id` | Identificador da impressão |
+| `filament_mm` | Filamento gasto de verdade, em mm (desde a 0.14.0; também nas impressões canceladas e falhadas). Vazio quando a impressora não o diz (Bambu Lab) |
+| `filament_g` | O mesmo em gramas: `filament_mm` x o peso por mm do ficheiro, dado pelo slicer. Vazio sem esse peso |
+| `filament_type` | Tipo de filamento escrito pelo slicer (por exemplo `ASA`) |
+| `filament_cost` | `filament_g` x o **Filament price per kg** da impressora (Edit → Advanced). Vazio sem preço |
 
 ## Limites
 

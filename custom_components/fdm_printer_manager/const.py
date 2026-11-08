@@ -95,6 +95,8 @@ CONF_INTEGRATION_METHOD: Final = "integration_method"
 # Behaviour
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_CURRENCY: Final = "currency"
+# Price of the filament (currency per kg, optional): gives each print its filament cost.
+CONF_FILAMENT_PRICE: Final = "filament_price_per_kg"
 # Turn the printer off safely as soon as a print ends well (it still waits for the nozzle to cool).
 CONF_AUTO_OFF: Final = "auto_off"
 DEFAULT_AUTO_OFF: Final = True

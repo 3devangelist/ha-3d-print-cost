@@ -156,6 +156,7 @@
         "data": {
           "update_interval": "Sampling interval while printing",
           "currency": "Currency",
+          "filament_price_per_kg": "Filament price per kg",
           "auto_off": "Turn the printer off after a successful print",
           "babystep": "Z offset buttons while printing",
           "babystep_save": "Allow saving the Z offset",
@@ -165,6 +166,7 @@
           "ssh_command": "SSH shutdown command"
         },
         "data_description": {
+          "filament_price_per_kg": "Optional, in the currency above. Gives each print its filament cost (filament used x this price). Leave empty for no filament cost.",
           "auto_off": "As soon as a print ends well, the printer is turned off safely: it waits for the nozzle to drop below 80 °C, shuts its computer down, and cuts the plug once it stops answering. A new print, or the plug turned on or off by hand, cancels it. A failed, cancelled or unknown print leaves it on so you can look at it, and so does losing contact with the printer. Needs a smart plug.",
           "babystep": "Baby steps: the card shows buttons that move the nozzle up or down while printing (SET_GCODE_OFFSET Z_ADJUST, like Mainsail and Fluidd), at most 1 mm from 0 when the current offset is known. Only when Klipper knows the command.",
           "babystep_save": "Adds a Save button that keeps the offset (Z_OFFSET_APPLY_PROBE or Z_OFFSET_APPLY_ENDSTOP). Run SAVE_CONFIG yourself when the printer is idle. Off by default.",

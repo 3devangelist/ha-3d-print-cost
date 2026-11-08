@@ -1,7 +1,7 @@
 """Business models. No Home Assistant imports in this package."""
 
 from .cost import ElectricityAccumulator, ElectricitySample
-from .print_job import JobPhase, PrintJob, PrintResult
+from .print_job import JobPhase, PrintJob, PrintResult, filament_price
 
 __all__ = [
     "ElectricityAccumulator",
@@ -9,4 +9,5 @@ __all__ = [
     "JobPhase",
     "PrintJob",
     "PrintResult",
+    "filament_price",
 ]

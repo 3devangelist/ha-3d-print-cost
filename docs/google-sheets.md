@@ -118,6 +118,10 @@ To log one printer to another tab: **Edit → When a print ends** on that printe
 | `electricity_cost`, `currency` | Cost of the electricity |
 | `notes` | Notes (e.g. a correction) |
 | `job_id` | The print's ID |
+| `filament_mm` | Filament really used, in mm (since 0.14.0; also for cancelled and failed prints). Empty when the printer does not report it (Bambu Lab) |
+| `filament_g` | The same in grams: `filament_mm` x the slicer's weight per mm of the file. Empty without that weight |
+| `filament_type` | Filament type written by the slicer (e.g. `ASA`) |
+| `filament_cost` | `filament_g` x the printer's **Filament price per kg** (Edit → Advanced). Empty without a price |
 
 ## Limits
 

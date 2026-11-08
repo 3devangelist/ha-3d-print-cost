@@ -947,11 +947,17 @@ class FdmPrinterPanel extends HTMLElement {
       r.result !== result && r.job_id
         ? `<button class="linkbtn" data-act="mark" data-entry="${esc(r.entry_id)}" data-job="${esc(r.job_id)}" data-result="${result}" title="${title}">${label}</button>`
         : "";
+    // Filament really used: grams when the slicer gave the weight, else metres; type and cost in the tooltip.
+    const filament = (r) => {
+      const text = r.filament_g != null ? `${Number(r.filament_g).toFixed(1)} g` : r.filament_mm != null ? `${(Number(r.filament_mm) / 1000).toFixed(2)} m` : "—";
+      const tip = [r.filament_type, r.filament_cost != null ? `${Number(r.filament_cost).toFixed(2)} ${r.currency || ""}`.trim() : null].filter(Boolean).join(" · ");
+      return `<td class="n"${tip ? ` title="${esc(tip)}"` : ""}>${text}</td>`;
+    };
     const rows = h.rows
       .map(
         (r) => `<tr><td>${RESULT_ICON[r.result] || "❔"} ${esc(r.result || "")}${r.result_by === "user" ? ` <span class="sub" title="Marked by hand">✎</span>` : ""}</td><td>${esc(r.printer)}</td><td class="m">${esc(r.name || "—")}</td>
           <td>${fmtWhen(r.finished_at)}</td><td class="n">${fmtMin((r.duration_s || 0) / 60)}</td>
-          <td class="n">${kwh(r.energy_kwh)}</td><td class="n">${money(r.electricity_cost, r.currency)}</td>
+          <td class="n">${kwh(r.energy_kwh)}</td><td class="n">${money(r.electricity_cost, r.currency)}</td>${filament(r)}
           <td class="fix"><span class="rmark">${markBtn(r, "success", "✓", "Mark as a success")}${markBtn(r, "failed", "✗", "Mark as failed")}</span></td></tr>`,
       )
       .join("");
@@ -966,7 +972,7 @@ class FdmPrinterPanel extends HTMLElement {
     const more = h.total > h.rows.length ? `<div class="more"><button class="btn sm" data-act="more">Show more (${h.total - h.rows.length})</button></div>` : "";
     return `<h2>Recent prints <span class="filters"><select id="hfilter" aria-label="Filter by printer">${opts}</select></span></h2>${statsHtml}${
       h.rows.length
-        ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Cost</th><th class="fix" aria-label="Correct the result"></th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
+        ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Cost</th><th>Filament</th><th class="fix" aria-label="Correct the result"></th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
         : `<p class="empty" style="padding:4px 0">No finished prints yet. They appear here as soon as a print ends.</p>`
     }`;
   }

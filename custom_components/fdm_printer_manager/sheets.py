@@ -8,7 +8,8 @@ starts. Sending never delays nor breaks the end of a print.
 
 Limits of the ``google_sheets`` integration: it can only write to spreadsheets it
 created itself, and the worksheet (tab) must already exist. It adds the time it
-writes the row in a ``created`` column, and any column missing from the header row.
+writes the row in a ``created`` column, and any column missing from the header row
+(at the end of it: the filament columns of 0.14.0 are added after ``job_id``).
 
 Marking a print again by hand (0.12.3): the row already in the sheet is changed in
 place (its ``result`` and ``result_by`` cells, found by ``job_id``), through the
@@ -61,6 +62,11 @@ COLUMNS: tuple[str, ...] = (
     "currency",
     "notes",
     "job_id",
+    # 0.14.0: filament really used. New columns only ever go at the end, so rows already in a sheet stay right.
+    "filament_mm",
+    "filament_g",
+    "filament_type",
+    "filament_cost",
 )
 # Header row written in a new tab ("created" first, as google_sheets fills it in).
 HEADER: tuple[str, ...] = ("created", *COLUMNS)
@@ -115,6 +121,10 @@ def sheet_row(payload: dict[str, Any], tz: tzinfo, *, correction: str | None = N
         "currency": _blank(payload.get("currency")),
         "notes": "; ".join(notes),
         "job_id": _blank(payload.get("job_id")),
+        "filament_mm": _blank(payload.get("filament_mm")),
+        "filament_g": _blank(payload.get("filament_g")),
+        "filament_type": _blank(payload.get("filament_type")),
+        "filament_cost": _blank(payload.get("filament_cost")),
     }
 
 

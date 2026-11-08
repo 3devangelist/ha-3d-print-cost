@@ -74,6 +74,10 @@ class PrinterSnapshot:
     job_name: str | None = None
     progress: float | None = None
     remaining_min: float | None = None
+    # Filament (Klipper): length used so far (mm), and what the slicer wrote for this file.
+    filament_mm: float | None = None
+    filament_g_per_mm: float | None = None
+    filament_type: str | None = None
 
 
 class TransitionKind(StrEnum):
@@ -134,10 +138,12 @@ class PrintTracker:
         # The interval since the previous sample belongs to the running job,
         # whatever the new state is.
         job.electricity.add_sample(snap.electricity)
-        self._update_metadata(job, snap)
+        other_print = activity is PrinterActivity.ACTIVE and _is_different_job(job.name, snap.job_name)
+        # The filament of another print never goes to this one.
+        self._update_metadata(job, snap, filament=not other_print)
 
         if activity is PrinterActivity.ACTIVE:
-            if _is_different_job(job.name, snap.job_name):
+            if other_print:
                 # A new print started without us seeing the end of the
                 # previous one (HA was down, or the printer skipped states).
                 _LOGGER.info("Job changed from '%s' to '%s' without terminal state", job.name, snap.job_name)
@@ -190,12 +196,16 @@ class PrintTracker:
         return job
 
     @staticmethod
-    def _update_metadata(job: PrintJob, snap: PrinterSnapshot) -> None:
+    def _update_metadata(job: PrintJob, snap: PrinterSnapshot, *, filament: bool = True) -> None:
         job.printer_state = snap.status
         if snap.progress is not None:
             job.progress = snap.progress
         if snap.remaining_min is not None:
             job.remaining_min = snap.remaining_min
+        if filament:
+            # The largest length seen is kept (a restarted Klipper reads 0 again).
+            job.record_filament(snap.filament_mm)
+            job.set_filament_file(snap.filament_g_per_mm, snap.filament_type)
 
 
 def _is_different_job(current: str | None, new: str | None) -> bool:

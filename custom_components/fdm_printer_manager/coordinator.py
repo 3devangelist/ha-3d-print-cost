@@ -55,11 +55,13 @@ from .adapters.klipper_extras import (
 )
 from .adapters.moonraker import (
     DEFAULT_PORT,
+    FileMetadata,
     KlipperSource,
     MoonrakerClient,
     MoonrakerError,
     Webcam,
     default_web_url,
+    history_filament,
     url_host,
 )
 from .adapters.reach import host_is_up
@@ -87,6 +89,7 @@ from .const import (
     CONF_CURRENCY,
     CONF_DOWN_MINUTES,
     CONF_ENERGY_ENTITY,
+    CONF_FILAMENT_PRICE,
     CONF_HOST,
     CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
@@ -140,7 +143,7 @@ from .filament import FilamentSlot, bambu_slots, klipper_slots
 from .finish import async_run_end_actions
 from .firmware import COSMOS_RELEASES_URL, Firmware, firmware_from_system_info
 from .identity import KIND_CAMERA_TLS, KIND_MACHINE, KIND_SSH, KIND_TLS, PrinterIdentity
-from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
+from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult, filament_price
 from .naming import bambu_model
 from .outcome import MARKABLE, mark_history
 from .sheets import CORRECTION_KEY, SheetsLog, correction_note, mark_pending_row, queue_row, sheet_row
@@ -161,6 +164,14 @@ _LOGGER = logging.getLogger(__name__)
 # no_contact: the printer did not answer; identity: it does not look like the same printer;
 # print_open: a print is still open (never finished).
 LEFT_ON_RESULTS: Final = frozenset({"hot", "still_on", "no_shutdown", "no_contact", "identity", "print_open"})
+# Seconds to read Moonraker's history or a file's metadata when a print ends.
+FILAMENT_READ_TIMEOUT: Final = 15
+
+
+def _remark(job: PrintJob, text: str) -> None:
+    """Add a note to the print once."""
+    if text not in job.remarks:
+        job.remarks.append(text)
 
 
 class PowerRefused(HomeAssistantError):
@@ -1258,6 +1269,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             )
         if self.klipper is not None:
             reading = self.klipper.reading
+            meta = self.klipper.file_meta
             return PrinterSnapshot(
                 timestamp=now,
                 status=reading.state,
@@ -1265,6 +1277,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 job_name=reading.filename,
                 progress=reading.progress,
                 remaining_min=self.klipper.remaining_min,
+                filament_mm=reading.filament_mm,
+                filament_g_per_mm=meta.filament_g_per_mm if meta else None,
+                filament_type=meta.filament_type if meta else None,
             )
         hass = self.hass
         return PrinterSnapshot(
@@ -1475,6 +1490,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         if job.electricity.awaiting_meter:
             await self._async_wait_meter_step(job)
             job.electricity.flush()
+        await self._async_filament_end(job)
         job.phase = JobPhase.COMPLETED
         if job in self.state.finalizing:
             self.state.finalizing.remove(job)
@@ -1504,6 +1520,56 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self.currency,
         )
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    async def _async_filament_end(self, job: PrintJob) -> None:
+        """The filament of the finished print, whatever its result: final value, price, and what is unknown."""
+        if self.klipper is not None and job.name:
+            await self._async_klipper_filament_end(job)
+        price = filament_price(self.conf.get(CONF_FILAMENT_PRICE))
+        if price is not None:
+            job.filament_price_per_kg = price
+        if job.filament_mm is None:
+            _remark(
+                job,
+                "Filament used unknown: the printer did not report it"
+                if self.klipper is not None
+                else "Filament used unknown: Bambu Lab printers do not report the filament a print used",
+            )
+        elif job.filament_g_per_mm is None:
+            _remark(job, "Filament weight unknown: the slicer did not write the filament weight in the file")
+
+    async def _async_klipper_filament_end(self, job: PrintJob) -> None:
+        """Klipper: the final length from Moonraker's history, and the file's grams per mm if still missing.
+
+        The history only ever raises what was seen during the print: after a
+        Klipper restart or disconnection it says 0 mm, and the length seen is kept.
+        """
+        client = self.klipper.client
+        seen = job.filament_seen_mm
+        try:
+            async with asyncio.timeout(FILAMENT_READ_TIMEOUT):
+                jobs = await client.history()
+        except Exception as err:  # noqa: BLE001 - the history only completes what was seen
+            _LOGGER.debug("%s: Moonraker history not readable: %s", self.printer_name, err)
+            jobs = None
+        final = history_filament(
+            jobs,
+            job.name,
+            job.started_at.timestamp(),
+            job.finished_at.timestamp() if job.finished_at else None,
+        )
+        job.record_final_filament(final)
+        if seen is not None and seen > 0 and final is None and isinstance(jobs, list) and jobs:
+            _remark(job, "Filament used as seen during the print: Moonraker's history has no length for it")
+        if job.filament_g_per_mm is None:
+            try:
+                async with asyncio.timeout(FILAMENT_READ_TIMEOUT):
+                    meta = await client.metadata(job.name)
+            except Exception as err:  # noqa: BLE001 - the weight stays unknown, with a note
+                _LOGGER.debug("%s: no metadata for %s: %s", self.printer_name, job.name, err)
+                meta = None
+            if isinstance(meta, FileMetadata):
+                job.set_filament_file(meta.filament_g_per_mm, meta.filament_type)
 
     async def _async_wait_meter_step(self, job: PrintJob) -> None:
         """Wait for the plug's energy meter to step, so the end of the print is measured, not estimated.

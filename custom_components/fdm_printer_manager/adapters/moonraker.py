@@ -59,6 +59,8 @@ class KlipperStatus:
     print_duration_s: float | None = None
     nozzle_temp: float | None = None
     klippy_state: str | None = None
+    # Filament pushed by the extruder since the file started (print_stats.filament_used, mm).
+    filament_mm: float | None = None
     # Raw status of the extra objects (lights, gcode_move, AFC, mmu), read by klipper_extras / filament.
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -68,6 +70,17 @@ class FileMetadata:
     """What the slicer wrote in the G-code header."""
 
     estimated_time_s: float | None = None
+    filament_total_mm: float | None = None  # length of the whole file
+    filament_weight_g: float | None = None  # weight of the whole file
+    filament_type: str | None = None
+
+    @property
+    def filament_g_per_mm(self) -> float | None:
+        """Grams per mm of this file's filament (weight / length), ``None`` when the slicer did not write both."""
+        length, weight = self.filament_total_mm, self.filament_weight_g
+        if not length or not weight or length <= 0 or weight <= 0:
+            return None
+        return weight / length
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,12 +183,56 @@ def parse_status(status: dict[str, Any], klippy_state: str | None = None) -> Kli
         print_duration_s=_num(stats.get("print_duration")),
         nozzle_temp=_num((status.get("extruder") or {}).get("temperature")),
         klippy_state=klippy_state,
+        filament_mm=_num(stats.get("filament_used")),
     )
 
 
 def parse_metadata(meta: dict[str, Any]) -> FileMetadata:
-    """``server.files.metadata`` → the slicer's estimated print time."""
-    return FileMetadata(estimated_time_s=_num(meta.get("estimated_time")))
+    """``server.files.metadata`` → the slicer's estimated print time and filament of the whole file."""
+    kind = meta.get("filament_type")
+    kind = str(kind).strip() if kind is not None else ""
+    return FileMetadata(
+        estimated_time_s=_num(meta.get("estimated_time")),
+        filament_total_mm=_num(meta.get("filament_total")),
+        filament_weight_g=_num(meta.get("filament_weight_total")),
+        filament_type=kind or None,
+    )
+
+
+# A print in Moonraker's history belongs to a job when it started this long before
+# the integration saw it start, at the most (preparing, heating, Home Assistant late).
+HISTORY_EARLY_S = 15 * 60
+
+
+def history_filament(
+    jobs: Any, filename: str | None, started_ts: float, finished_ts: float | None = None
+) -> float | None:
+    """``server.history.list`` → filament used (mm) by the print of ``filename`` started near ``started_ts``.
+
+    The latest matching entry is the last attempt, the one the printer's counter
+    shows at the end. ``None`` when no entry matches, and when it says 0: a
+    Klipper that restarted or disconnected during the print leaves
+    ``filament_used`` at 0 there, so 0 is not a measurement (the caller keeps
+    the largest length it saw itself).
+    """
+    if not filename or not isinstance(jobs, list):
+        return None
+    latest = finished_ts + 60 if finished_ts is not None else None
+    best: tuple[float, float] | None = None
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("filename") != filename:
+            continue
+        start = _num(job.get("start_time"))
+        used = _num(job.get("filament_used"))
+        if start is None or used is None or start < started_ts - HISTORY_EARLY_S:
+            continue
+        if latest is not None and start > latest:
+            continue
+        if best is None or start > best[0]:
+            best = (start, used)
+    if best is None or best[1] <= 0:
+        return None
+    return best[1]
 
 
 def remaining_minutes(reading: KlipperStatus, meta: FileMetadata | None) -> float | None:
@@ -328,6 +385,11 @@ class MoonrakerClient:
         result = await self._get(f"/server/files/metadata?filename={quote(filename)}")
         return parse_metadata(result)
 
+    async def history(self, limit: int = 10) -> list[dict[str, Any]]:
+        """The last prints in Moonraker's history, newest first (read only)."""
+        jobs = (await self._get(f"/server/history/list?limit={int(limit)}&order=desc")).get("jobs")
+        return jobs if isinstance(jobs, list) else []
+
     async def machine_identity(self) -> str | None:
         """Who this computer is (identity.py): CPU serial, else MAC addresses, else host name."""
         try:
@@ -421,6 +483,13 @@ class KlipperSource:
         except MoonrakerError as err:
             _LOGGER.debug("No active spool: %s", err)
             self.spool = None
+
+    @property
+    def file_meta(self) -> FileMetadata | None:
+        """Slicer metadata of the file being printed (``None`` when not read, or read for another file)."""
+        if self.reading.filename and self._meta_for == self.reading.filename:
+            return self.meta
+        return None
 
     @property
     def remaining_min(self) -> float | None:

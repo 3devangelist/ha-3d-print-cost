@@ -44,6 +44,7 @@ from .const import (
     CONF_DOWN_MINUTES,
     CONF_END_SCRIPT,
     CONF_ENERGY_ENTITY,
+    CONF_FILAMENT_PRICE,
     CONF_HOST,
     CONF_JOB_NAME_ENTITY,
     CONF_NOTIFY,
@@ -263,6 +264,9 @@ def behaviour_schema(defaults: dict[str, Any], hass_currency: str, *, with_ssh: 
             )
         ),
         vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or hass_currency): selector.TextSelector(),
+        _opt(CONF_FILAMENT_PRICE, defaults): selector.NumberSelector(
+            selector.NumberSelectorConfig(min=0, max=1000, step="any", mode=selector.NumberSelectorMode.BOX)
+        ),
         vol.Required(
             CONF_AUTO_OFF, default=bool(defaults.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF))
         ): selector.BooleanSelector(),
@@ -751,6 +755,8 @@ class PrintCostOptionsFlow(OptionsFlow):
                     CONF_UPDATE_INTERVAL: int(user_input[CONF_UPDATE_INTERVAL]),
                     CONF_CURRENCY: str(user_input[CONF_CURRENCY]).strip().upper(),
                     CONF_AUTO_OFF: bool(user_input[CONF_AUTO_OFF]),
+                    # Cleared: no price, the filament cost stays empty.
+                    CONF_FILAMENT_PRICE: user_input.get(CONF_FILAMENT_PRICE),
                 }
             )
             if self._is_klipper:

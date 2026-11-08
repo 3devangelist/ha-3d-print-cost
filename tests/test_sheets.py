@@ -66,6 +66,10 @@ def test_sheet_row_columns_and_values() -> None:
         "currency": "EUR",
         "notes": "12 s of the print had no fresh sample; Interrupted",
         "job_id": "abc",
+        "filament_mm": "",  # unknown: empty, never 0
+        "filament_g": "",
+        "filament_type": "",
+        "filament_cost": "",
     }
 
 
@@ -441,7 +445,7 @@ def test_update_rows_changes_every_row_of_the_print() -> None:
             return ["created", *COLUMNS]
 
         def col_values(self, column: int) -> list[str]:
-            assert column == len(COLUMNS) + 1  # job_id, last
+            assert column == COLUMNS.index("job_id") + 2  # "created" is column 1
             return ["job_id", "j0", "j1", "j2", "j1"]
 
         def batch_update(self, data, value_input_option=None) -> None:

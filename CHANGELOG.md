@@ -3,6 +3,30 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.14.0]
+
+### Added
+
+- **The filament really used by every print**, also cancelled and failed ones. Each print gets
+  `filament_mm`, `filament_g`, `filament_type` and `filament_cost`: in the `print_finished`
+  event, the last print sensor, the panel's Recent prints (new Filament column) and the
+  Google Sheet (four new columns **at the end**, after `job_id`, so rows already in a sheet
+  stay right).
+- **Klipper and Elegoo Centauri Carbon (Moonraker):** the length is `print_stats.filament_used`,
+  read every 5 s. The largest length seen is saved with the print, so it survives a restart of
+  Home Assistant. When Klipper restarts or disconnects during a print, Moonraker's history says
+  0 mm: the print keeps what was seen. When the print ends, the history only ever raises it
+  (the last seconds between two reads). If Klipper restarted and the same file was started
+  again within the same print, both attempts are counted.
+- Grams are the real length times the slicer's weight per mm of the file (Moonraker metadata
+  `filament_weight_total` / `filament_total`). Example: ASA, 280.68 g / 112204 mm = 2.5015 g/m.
+  Never estimated from time or progress.
+- **Filament price per kg** (optional), per printer under Edit → Advanced. With it, each print
+  gets `filament_cost` (Decimal, in the printer's currency). Without it the cost stays empty.
+- **Bambu Lab:** the printers do not report the filament a print used (neither over MQTT nor
+  through ha-bambulab), so the values stay empty with the note "Filament used unknown".
+- Unknown is never zero: an unknown length, weight or cost is left empty with a note.
+
 ## [0.13.0]
 
 ### Added

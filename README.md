@@ -222,7 +222,8 @@ One printer on its own tab: **Edit → When a print ends** (**Google Sheets log*
 
 Columns: `created` (added by Google Sheets), `printer`, `file`, `result` (`success`, `failed`,
 `cancelled`, `unknown`), `result_by` (`printer`, `watchdog` or `user`), `started`, `finished`
-(local time), `duration_min`, `energy_kwh`, `electricity_cost`, `currency`, `notes`, `job_id`.
+(local time), `duration_min`, `energy_kwh`, `electricity_cost`, `currency`, `notes`, `job_id`,
+then (0.14.0) `filament_mm`, `filament_g`, `filament_type`, `filament_cost`: the filament really used.
 Missing headers are added by Google Sheets on the first row.
 
 - **One row per print.** If you later mark a print ("Wrong? Mark as failed / Mark as OK" on
