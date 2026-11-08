@@ -3,6 +3,22 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.13.0]
+
+### Added
+
+- **Camera of Bambu Lab printers connected directly (LAN mode).** A1, A1 mini, P1P and P1S
+  get `camera.<printer>_camera`, shown on the printer's card like the Klipper camera: live
+  while printing, a still image every minute otherwise, full size on a click. No other
+  integration is needed. The printer sends one JPEG every second or two over TLS on port
+  6000; the connection is opened only when someone is watching and closed 30 seconds after
+  the last image was asked for.
+- The camera's TLS certificate is remembered on first contact and checked before the access
+  code is sent, like the MQTT connection. The camera is only tried while the printer answers
+  over MQTT and is still the known printer. The access code is never logged.
+- X1, H2 and P2S (RTSP on port 322) are **not supported yet**: no camera entity is created
+  for them.
+
 ## [0.12.6]
 
 ### Fixed

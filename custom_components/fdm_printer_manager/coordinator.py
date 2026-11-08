@@ -41,6 +41,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .adapters import bambu
+from .adapters.bambu_camera import BambuCamera, has_jpeg_camera
 from .adapters.bambu_lan import BambuCommandRefused, BambuError, BambuLanClient, light_on
 from .adapters.electricity import ElectricityReader, ElectricitySources
 from .adapters.klipper_extras import (
@@ -138,8 +139,9 @@ from .const import (
 from .filament import FilamentSlot, bambu_slots, klipper_slots
 from .finish import async_run_end_actions
 from .firmware import COSMOS_RELEASES_URL, Firmware, firmware_from_system_info
-from .identity import KIND_MACHINE, KIND_SSH, KIND_TLS, PrinterIdentity
+from .identity import KIND_CAMERA_TLS, KIND_MACHINE, KIND_SSH, KIND_TLS, PrinterIdentity
 from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
+from .naming import bambu_model
 from .outcome import MARKABLE, mark_history
 from .sheets import CORRECTION_KEY, SheetsLog, correction_note, mark_pending_row, queue_row, sheet_row
 from .storage import JobStore, StoredState
@@ -281,6 +283,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 self._on_bambu_update,
                 on_auth_failed=self._on_bambu_auth_failed,
                 check_identity=self._check_bambu_identity,
+            )
+        # Bambu LAN camera: A1 / P1 send JPEGs on port 6000 (X1 / H2 use RTSP: not supported yet).
+        self.bambu_camera: BambuCamera | None = None
+        if self.bambu_lan is not None and has_jpeg_camera(bambu_model(self.conf.get(CONF_PRINTER_SERIAL))):
+            self.bambu_camera = BambuCamera(
+                self.conf[CONF_HOST],
+                self.conf[CONF_ACCESS_CODE],
+                lambda coro: entry.async_create_background_task(hass, coro, f"{DOMAIN}_bambu_camera"),
+                check_identity=self._check_bambu_camera_identity,
             )
         self._last_bambu_process: float = 0.0
         self._last_bambu_state: str | None = None
@@ -775,6 +786,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             task.cancel()
         if self.bambu_lan is not None:
             await self.bambu_lan.stop()
+        if self.bambu_camera is not None:
+            await self.bambu_camera.stop()
         self._sync_state()
         await self.store.async_save(self.state)
 
@@ -981,6 +994,11 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         return self._learn_identity(KIND_TLS, fingerprint)
 
     @callback
+    def _check_bambu_camera_identity(self, fingerprint: str | None) -> bool:
+        """Bambu LAN camera, before logging in: its own certificate (port 6000), and the printer still the known one."""
+        return self._learn_identity(KIND_CAMERA_TLS, fingerprint) and not self.identity.changed
+
+    @callback
     def _learn_identity(self, kind: str, seen: str | None) -> bool:
         """Compare (or remember at first contact) one identity value. False: not the same printer."""
         was_changed = self.identity.changed
@@ -1034,13 +1052,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
 
     @property
     def camera_entity(self) -> str | None:
-        """Camera the panel shows: ours for Klipper, ha-bambulab's own for Bambu (never a second one)."""
+        """Camera the panel shows: ours for Klipper and Bambu LAN, ha-bambulab's own for Bambu (never a second one)."""
         if self.klipper is not None:
             if self.webcam is None:
                 return None
             return er.async_get(self.hass).async_get_entity_id("camera", DOMAIN, f"{self.config_entry.entry_id}_camera")
         if self.printer_type is PrinterType.BAMBU:
             return self._bambu_entity("camera", _BAMBU_CAMERA_KEYS) or self._bambu_entity("image", _BAMBU_CAMERA_KEYS)
+        if self.bambu_camera is not None:
+            return er.async_get(self.hass).async_get_entity_id("camera", DOMAIN, f"{self.config_entry.entry_id}_camera")
         return None
 
     # ------------------------------------------------------------------ #

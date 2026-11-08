@@ -2,9 +2,14 @@
 
 Klipper: the first enabled webcam Moonraker lists (crowsnest, mjpg-streamer...).
 Nothing to configure: the entity is created the first time a camera is found
-and goes unavailable if the camera disappears. Bambu Lab printers set up
-through ha-bambulab already have a camera entity; the panel shows that one
-instead of creating a second.
+and goes unavailable if the camera disappears.
+
+Bambu Lab in LAN mode (no other integration): A1, A1 mini, P1P and P1S send
+JPEGs on port 6000 (adapters/bambu_camera.py); the connection is open only
+while someone is watching. X1 / H2 (RTSP on port 322) are not supported yet.
+
+Bambu Lab printers set up through ha-bambulab already have a camera entity;
+the panel shows that one instead of creating a second.
 """
 
 from __future__ import annotations
@@ -37,8 +42,11 @@ async def async_setup_entry(
     entry: PrintCostConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Add the camera once Moonraker reports one (right away if it was there before)."""
+    """Add the camera once Moonraker reports one (right away if it was there before); Bambu LAN: right away."""
     coordinator = entry.runtime_data
+    if coordinator.bambu_camera is not None:
+        async_add_entities([BambuLanCamera(coordinator)])
+        return
     if coordinator.klipper is None:
         return
     known = er.async_get(hass).async_get_entity_id("camera", DOMAIN, f"{entry.entry_id}_camera")
@@ -103,3 +111,38 @@ class PrinterCamera(PrintCostEntity, Camera):
             allow_redirects=False,
         )
         return await async_aiohttp_proxy_web(self.hass, request, stream)
+
+
+class BambuLanCamera(PrintCostEntity, Camera):
+    """Images of a Bambu Lab A1 / P1 in LAN mode (port 6000), live as a stream of stills."""
+
+    # The printer sends one JPEG every 1-2 seconds: asking more often only repeats the same one.
+    _attr_frame_interval = 1.0
+
+    def __init__(self, coordinator: PrintCostCoordinator) -> None:
+        PrintCostEntity.__init__(self, coordinator, "camera", "camera")
+        Camera.__init__(self)
+
+    async def async_added_to_hass(self) -> None:
+        """Let the printer status sensor name this camera right away (the panel reads it there)."""
+        await super().async_added_to_hass()
+        self.coordinator.async_update_listeners()
+
+    @property
+    def available(self) -> bool:
+        """Only while the printer answers over MQTT and is still the known printer."""
+        bambu_lan = self.coordinator.bambu_lan
+        return bambu_lan is not None and bambu_lan.available and not self.coordinator.identity.changed
+
+    @property
+    def is_streaming(self) -> bool:
+        """The connection to the camera is open."""
+        camera = self.coordinator.bambu_camera
+        return camera is not None and camera.connected
+
+    async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
+        """The latest JPEG from the printer (``None`` when it is off, refuses or sends nothing)."""
+        camera = self.coordinator.bambu_camera
+        if camera is None or not self.available:
+            return None
+        return await camera.async_image()

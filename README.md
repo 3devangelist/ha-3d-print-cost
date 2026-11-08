@@ -405,6 +405,8 @@ restart recovery, last print, `print_finished` event.
 - ✅ **0.11.0** — one row per print in a Google Sheet (Google Sheets integration)
 - ✅ **0.12.0** — "Google Sheets" button in the FDM Printers page: connect, create the tab and
   log every printer in one click; guide in English and Portuguese
+- ✅ **0.13.0** — camera of Bambu Lab A1, A1 mini, P1P and P1S in LAN mode (no other
+  integration needed) on the printer's card; X1 / H2 / P2S (RTSP) not supported yet
 
 ## License
 
