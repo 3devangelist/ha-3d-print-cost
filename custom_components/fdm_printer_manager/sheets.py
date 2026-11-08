@@ -78,6 +78,8 @@ HEADER: tuple[str, ...] = ("created", *COLUMNS)
 NEW_TAB_ROWS = 1000
 # Marks a queued row that corrects a row already sent: change that row in place, else append this one.
 CORRECTION_KEY = "_correction"
+# 0.15.2: a correction of an old print filled in later: changed in place when the print is in the sheet, never added.
+IN_PLACE_ONLY_KEY = "_in_place_only"
 # The cells of a print's material and filament cost (0.15.0: the material can be chosen by hand).
 MATERIAL_CELLS: tuple[str, ...] = (
     "filament_type",
@@ -85,11 +87,15 @@ MATERIAL_CELLS: tuple[str, ...] = (
     "filament_price_per_kg",
     "filament_price_source",
     "print_cost",
+    # 0.15.2: grams weighed with the material's density change with the material.
+    "filament_g",
 )
+# 0.15.2: the cells of an old print whose length was read later from the printer's history (notes say so).
+LENGTH_CELLS: tuple[str, ...] = ("filament_mm", "filament_m", *MATERIAL_CELLS, "notes")
 # The cells a result correction changes. A correction row says which cells it changes in CORRECTION_KEY:
 # ``True`` (rows queued before 0.15.0) = these, else the list of cells (only those in the header row are changed).
 CORRECTED: tuple[str, ...] = ("result", "result_by")
-CORRECTABLE: tuple[str, ...] = (*CORRECTED, *MATERIAL_CELLS)
+CORRECTABLE: tuple[str, ...] = (*CORRECTED, *MATERIAL_CELLS, "filament_mm", "filament_m")
 
 
 def correction_cells(row: dict[str, Any]) -> tuple[str, ...]:
@@ -270,7 +276,12 @@ class SheetsLog:
                     pending.pop(0)
                     sent += 1
                     continue
-                data = {key: value for key, value in row.items() if key != CORRECTION_KEY}
+                if row.get(IN_PLACE_ONLY_KEY):
+                    # An old print filled in later that is not in the sheet (or cannot be changed): nothing added.
+                    pending.pop(0)
+                    sent += 1
+                    continue
+                data = {key: value for key, value in row.items() if key not in (CORRECTION_KEY, IN_PLACE_ONLY_KEY)}
                 try:
                     async with asyncio.timeout(SEND_TIMEOUT):
                         await self._hass.services.async_call(

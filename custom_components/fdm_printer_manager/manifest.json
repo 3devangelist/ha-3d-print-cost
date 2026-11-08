@@ -24,7 +24,7 @@
   "requirements": [
     "asyncssh>=2.24.0"
   ],
-  "version": "0.15.1",
+  "version": "0.15.2",
   "zeroconf": [
     "_moonraker._tcp.local."
   ]

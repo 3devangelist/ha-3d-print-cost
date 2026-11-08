@@ -6,6 +6,7 @@ Optional: a smart plug with a meter + an electricity price for the cost of each 
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from pathlib import Path
@@ -296,11 +297,22 @@ def _with_material(row: dict) -> dict:
 async def ws_history(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
     """Finished prints of every printer (or one), newest first."""
     rows: list[dict] = []
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.data.get(CONF_PANEL) or entry.state is not ConfigEntryState.LOADED:
-            continue
-        if msg.get("entry_id") and entry.entry_id != msg["entry_id"]:
-            continue
+    entries = [
+        entry
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if not entry.data.get(CONF_PANEL)
+        and entry.state is ConfigEntryState.LOADED
+        and (not msg.get("entry_id") or entry.entry_id == msg["entry_id"])
+    ]
+    # 0.15.2: old prints without their filament are filled in first (Moonraker's history, density of the material).
+    if wanted := [entry for entry in entries if entry.runtime_data.filament_lengths_wanted]:
+        results = await asyncio.gather(
+            *(entry.runtime_data.async_fill_filament_lengths() for entry in wanted), return_exceptions=True
+        )
+        for entry, result in zip(wanted, results, strict=True):
+            if isinstance(result, Exception):
+                _LOGGER.warning("%s: old prints not filled in: %s", entry.title, result)
+    for entry in entries:
         coordinator: PrintCostCoordinator = entry.runtime_data
         currency = coordinator.currency
         rows.extend(
