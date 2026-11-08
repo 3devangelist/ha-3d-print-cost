@@ -44,8 +44,14 @@ h2{font-size:1.2rem;margin:28px 0 10px;font-weight:700;display:flex;align-items:
 .btn.danger{color:var(--bad)}
 .btn.sm{padding:5px 10px;font-size:.82rem}
 .btn[disabled]{opacity:.45;pointer-events:none}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),1fr));gap:14px}
-.pc{background:var(--surface);border:1px solid var(--line);border-radius:11px;overflow:hidden;display:flex;flex-direction:column}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),1fr));column-gap:14px;row-gap:0}
+/* Each card spans 4 rows of the grid (subgrid): top (up to the progress bar), controls, figures and actions.
+   Every block takes the height of the tallest card in that row, so the blocks line up across cards. */
+.pc{background:var(--surface);border:1px solid var(--line);border-radius:11px;overflow:hidden;display:grid;grid-row:span 4;grid-template-rows:subgrid;row-gap:0;margin-bottom:14px}
+.sec{min-width:0}
+.sec.s-top{display:flex;flex-direction:column}
+.sec.s-top>.job{margin-top:auto}
+.sec.s-mid{padding-bottom:2px}
 .stripe{height:3px;background:var(--idle)}
 .pc.run .stripe{background:var(--run)} .pc.ok .stripe{background:var(--ok)} .pc.off .stripe{background:var(--bad)}
 .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:12px 14px 6px}
@@ -701,6 +707,13 @@ class FdmPrinterPanel extends HTMLElement {
 
   _render() {
     if (!this.shadowRoot) return;
+    // 0.15.1: never redraw the list under an open drop-down (material, printer filter): it closed before the
+    // choice was made, because the printers update the page every second. Try again when it closes.
+    const open = this.shadowRoot.activeElement;
+    if (this._view === "list" && open?.tagName === "SELECT" && open.classList.contains("keep")) {
+      this._scheduleRender();
+      return;
+    }
     const top = `
       <div class="top">
         <button class="menu ${this._narrow ? "show" : ""}" id="menu" aria-label="Menu">☰</button>
@@ -931,6 +944,7 @@ class FdmPrinterPanel extends HTMLElement {
 
     return `
       <article class="pc ${cls}">
+        <div class="sec s-top">
         <div class="stripe"></div>
         <div class="hd"><div><div class="nm">${esc(p.entry.title)}</div><div class="ty">${type}${where}</div></div><span class="state ${cls}">${esc(shown)}</span></div>
         ${attrs.alert === "down" ? `<div class="alert">⚠️ Not answering during the print</div>` : attrs.alert === "stalled" ? `<div class="alert">⏳ No progress for a long time</div>` : ""}
@@ -941,10 +955,14 @@ class FdmPrinterPanel extends HTMLElement {
         <div class="prog"><i style="width:${active && progress != null ? Math.min(100, progress) : 0}%"></i></div>
         <div class="meta"><span>${active && progress != null ? `${Math.round(progress)}%${paused ? " · paused" : ""}` : ""}</span><span>${active && left != null ? `${fmtMin(left)} left` : ""}</span></div>
         <div class="temps">${nozzle != null ? `▲ ${nozzle.toFixed(1)}°` : ""}</div>
+        </div>
+        <div class="sec s-mid">
         ${filHtml}
         ${ctl.length || lightHtml ? `<div class="ctrl">${ctl.join("")}${lightHtml}</div>` : ""}
         ${zHtml}
+        </div>
         <div class="ft">${foot}</div>
+        <div class="sec s-end">
         ${ask}
         <div class="act">
           ${powerHtml}
@@ -952,6 +970,7 @@ class FdmPrinterPanel extends HTMLElement {
             ${safeUrl(attrs.web_url) ? `<a class="link" href="${esc(safeUrl(attrs.web_url))}" target="_blank" rel="noopener">Open web UI ↗</a>` : ""}
             <button class="linkbtn" data-act="edit" data-entry="${esc(eid)}">Edit</button>
           </span>
+        </div>
         </div>
       </article>`;
   }
@@ -1001,7 +1020,7 @@ class FdmPrinterPanel extends HTMLElement {
         .join("");
       const how = { slicer: "from the slicer", spool: "from the loaded spool", file_name: "from the file name", user: "chosen by hand" }[r.filament_type_source] || "unknown";
       return r.job_id
-        ? `<td><select class="matsel ${cur ? "" : "unknown"}" data-entry="${esc(r.entry_id)}" data-job="${esc(r.job_id)}" aria-label="Material" title="Material ${esc(how)}">${opts}</select></td>`
+        ? `<td><select class="matsel keep ${cur ? "" : "unknown"}" data-entry="${esc(r.entry_id)}" data-job="${esc(r.job_id)}" aria-label="Material" title="Material ${esc(how)}">${opts}</select></td>`
         : `<td>${esc(cur || "?")}</td>`;
     };
     const cost = (r) => {
@@ -1030,7 +1049,7 @@ class FdmPrinterPanel extends HTMLElement {
           } · failed and cancelled prints cost ${money(st.wasted_cost, cur)}${st.wasted_filament_cost ? ` + ${money(st.wasted_filament_cost, cur)} of filament` : ""}</div>`
         : "";
     const more = h.total > h.rows.length ? `<div class="more"><button class="btn sm" data-act="more">Show more (${h.total - h.rows.length})</button></div>` : "";
-    return `<h2>Recent prints <span class="filters"><select id="hfilter" aria-label="Filter by printer">${opts}</select></span></h2>${statsHtml}${
+    return `<h2>Recent prints <span class="filters"><select id="hfilter" class="keep" aria-label="Filter by printer">${opts}</select></span></h2>${statsHtml}${
       h.rows.length
         ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Filament</th><th>Material</th><th>Cost</th><th class="fix" aria-label="Correct the result"></th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
         : `<p class="empty" style="padding:4px 0">No finished prints yet. They appear here as soon as a print ends.</p>`
@@ -1624,12 +1643,16 @@ class FdmPrinterPanel extends HTMLElement {
       }),
     );
     root.getElementById("hfilter")?.addEventListener("change", (ev) => {
+      ev.target.blur();
       this._history.filter = ev.target.value;
       this._history.limit = 10;
       this._loadHistory();
     });
     root.querySelectorAll("select.matsel").forEach((el) =>
-      el.addEventListener("change", () => el.value && this._setMaterial(el.dataset.entry, el.dataset.job, el.value)),
+      el.addEventListener("change", () => {
+        el.blur(); // the list is "keep" while focused (no redraw under it): let the panel redraw now
+        if (el.value) this._setMaterial(el.dataset.entry, el.dataset.job, el.value);
+      }),
     );
     root.getElementById("sheetsentry")?.addEventListener("change", (ev) => (this._sheets.entry = ev.target.value));
     root.getElementById("sheetsws")?.addEventListener("input", (ev) => (this._sheets.worksheet = ev.target.value));

@@ -43,7 +43,7 @@ from .const import (
 )
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator, own_device
 from .finish_notify import panel_options
-from .materials import LABELS, MATERIALS, generic_prices
+from .materials import LABELS, MATERIALS, SOURCE_FILE_NAME, generic_prices, material_from_file_name
 from .naming import bambu_model, bambu_name, friendly_name, is_generic
 from .outcome import history_stats
 from .scanner import async_scan_network, async_start_scanning
@@ -269,6 +269,20 @@ def _manifest_version() -> str:
     return str(manifest.get("version", "0"))
 
 
+def _with_material(row: dict) -> dict:
+    """A print saved without a material (before 0.15.0) shows the one written in its file name, if any.
+
+    Only for the answer to the panel: the saved history is not changed. Choosing a material in the panel
+    saves it as usual.
+    """
+    if not row.get("filament_type"):
+        material = material_from_file_name(row.get("name"))
+        if material:
+            row["filament_type"] = material
+            row["filament_type_source"] = SOURCE_FILE_NAME
+    return row
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): f"{DOMAIN}/history",
@@ -289,7 +303,9 @@ async def ws_history(hass: HomeAssistant, connection: websocket_api.ActiveConnec
             continue
         coordinator: PrintCostCoordinator = entry.runtime_data
         currency = coordinator.currency
-        rows.extend({"entry_id": entry.entry_id, "currency": currency, **h} for h in coordinator.state.history)
+        rows.extend(
+            _with_material({"entry_id": entry.entry_id, "currency": currency, **h}) for h in coordinator.state.history
+        )
     rows.sort(key=lambda r: r.get("finished_at") or "", reverse=True)
     start = msg["offset"]
     prices = generic_prices(panel_options(hass))

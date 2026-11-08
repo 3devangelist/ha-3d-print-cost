@@ -3,6 +3,23 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.15.1]
+
+### Fixed
+
+- **The printer cards line up.** Each card is now split into four blocks (top down to the
+  progress bar and temperature, controls, energy/cost/time, power and links) laid on the rows of
+  the page grid (CSS subgrid). Every block takes the height of the tallest card in that row, so
+  the progress bars, the buttons, the figures and the Power / Keep on / Power off now row are at
+  the same height on every card, whatever each printer shows (a title on two lines, filament
+  slots, Z offset).
+- **The material list in Recent prints no longer closes before you choose.** The panel redraws
+  every second while printers work, which closed the open drop-down. It now waits until the list
+  is closed (also for the printer filter).
+- **Prints saved before 0.15.0 show the material written in their file name**
+  ("…_ASA_14h37m.gcode" → ASA, marked "from the file name") instead of "?". The saved history is
+  not changed; choosing a material in the list saves it as before.
+
 ## [0.15.0]
 
 ### Added
