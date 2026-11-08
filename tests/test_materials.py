@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
-from custom_components.fdm_printer_manager import ws_history
+from custom_components.fdm_printer_manager import _with_material, ws_history
 from custom_components.fdm_printer_manager.adapters.moonraker import KlipperStatus, parse_metadata
 from custom_components.fdm_printer_manager.const import DOMAIN
 from custom_components.fdm_printer_manager.coordinator import PrintCostCoordinator
@@ -397,3 +397,15 @@ async def test_fdm_printers_options_hold_the_prices(hass: HomeAssistant) -> None
     table = generic_prices(dict(panel.options))
     assert table["ASA"] == Decimal("27.5")
     assert "PPS" not in table
+
+
+def test_history_shows_the_material_of_the_file_name_for_old_prints() -> None:
+    """0.15.1: prints saved before 0.15.0 (no material) show the one written in the file name, if any."""
+    old = _with_material({"name": "Vespa_tampao_V0_v1 (1)_ASA_14h37m.gcode"})
+    assert old["filament_type"] == "ASA"
+    assert old["filament_type_source"] == "file_name"
+    none = _with_material({"name": "00 Caixa PVC Final_ELEGOO.gcode.3mf"})
+    assert not none.get("filament_type")
+    kept = _with_material({"name": "x_ASA.gcode", "filament_type": "PETG", "filament_type_source": "user"})
+    assert kept["filament_type"] == "PETG"
+    assert kept["filament_type_source"] == "user"
