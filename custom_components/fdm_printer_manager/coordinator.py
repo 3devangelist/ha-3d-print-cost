@@ -41,6 +41,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .adapters import bambu
+from .adapters.bambu_camera import BambuCamera, has_jpeg_camera
 from .adapters.bambu_lan import BambuCommandRefused, BambuError, BambuLanClient, light_on
 from .adapters.electricity import ElectricityReader, ElectricitySources
 from .adapters.klipper_extras import (
@@ -54,11 +55,13 @@ from .adapters.klipper_extras import (
 )
 from .adapters.moonraker import (
     DEFAULT_PORT,
+    FileMetadata,
     KlipperSource,
     MoonrakerClient,
     MoonrakerError,
     Webcam,
     default_web_url,
+    history_filament,
     url_host,
 )
 from .adapters.reach import host_is_up
@@ -79,6 +82,7 @@ from .const import (
     CONF_ALERTS,
     CONF_API_KEY,
     CONF_AUTO_OFF,
+    CONF_AUTO_OFF_DELAY,
     CONF_BABYSTEP,
     CONF_BABYSTEP_SAVE,
     CONF_CLOSE_MINUTES,
@@ -86,6 +90,7 @@ from .const import (
     CONF_CURRENCY,
     CONF_DOWN_MINUTES,
     CONF_ENERGY_ENTITY,
+    CONF_FILAMENT_PRICE,
     CONF_HOST,
     CONF_INTEGRATION_METHOD,
     CONF_JOB_NAME_ENTITY,
@@ -110,6 +115,7 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     CONF_WEB_URL,
     DEFAULT_AUTO_OFF,
+    DEFAULT_AUTO_OFF_DELAY,
     DEFAULT_CLOSE_MINUTES,
     DEFAULT_DOWN_MINUTES,
     DEFAULT_INTEGRATION_METHOD,
@@ -118,12 +124,15 @@ from .const import (
     DOMAIN,
     EVENT_PRINT_FINISHED,
     EVENT_PRINT_MARKED,
+    FORCE_OFF_PRESSES,
+    FORCE_OFF_WINDOW,
     HISTORY_LIMIT,
     HTTP_TIMEOUT,
     KLIPPER_POLL_INTERVAL,
     MAX_SAMPLE_GAP,
     METER_SETTLE_POLL,
     METER_SETTLE_TIMEOUT,
+    MOBILE_ACTION_EVENT,
     PAUSED_STATES,
     SAFE_POWER_COOL_TEMP,
     SAFE_POWER_COOL_TIMEOUT,
@@ -137,11 +146,33 @@ from .const import (
 )
 from .filament import FilamentSlot, bambu_slots, klipper_slots
 from .finish import async_run_end_actions
+from .finish_notify import async_send_finish, finish_message, finish_targets, keep_on_action, panel_options
 from .firmware import COSMOS_RELEASES_URL, Firmware, firmware_from_system_info
-from .identity import KIND_MACHINE, KIND_SSH, KIND_TLS, PrinterIdentity
-from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult
+from .identity import KIND_CAMERA_TLS, KIND_MACHINE, KIND_SSH, KIND_TLS, PrinterIdentity
+from .materials import (
+    MATERIALS,
+    SOURCE_FILE_NAME,
+    SOURCE_SPOOL,
+    generic_prices,
+    material_from_file_name,
+    normalize_material,
+    price_note,
+    resolve_price,
+    set_row_material,
+)
+from .models import ElectricityAccumulator, JobPhase, PrintJob, PrintResult, filament_price
+from .naming import bambu_model
 from .outcome import MARKABLE, mark_history
-from .sheets import CORRECTION_KEY, SheetsLog, correction_note, mark_pending_row, queue_row, sheet_row
+from .sheets import (
+    CORRECTION_KEY,
+    MATERIAL_CELLS,
+    SheetsLog,
+    correct_pending_row,
+    correction_note,
+    mark_pending_row,
+    queue_row,
+    sheet_row,
+)
 from .storage import JobStore, StoredState
 from .tracker import (
     PrinterActivity,
@@ -158,7 +189,21 @@ _LOGGER = logging.getLogger(__name__)
 # Results of a power off that left the plug on (the card says why until the plug is switched again).
 # no_contact: the printer did not answer; identity: it does not look like the same printer;
 # print_open: a print is still open (never finished).
-LEFT_ON_RESULTS: Final = frozenset({"hot", "still_on", "no_shutdown", "no_contact", "identity", "print_open"})
+# kept_on (0.15.0): "Keep on" cancelled the auto-off.
+LEFT_ON_RESULTS: Final = frozenset(
+    {"hot", "still_on", "no_shutdown", "no_contact", "identity", "print_open", "kept_on"}
+)
+# After "Power off now", a printer still reporting "printing" for a moment (the plug is cut, the state not
+# updated yet) must not start a new print.
+FORCE_OFF_QUIET: Final = timedelta(seconds=90)
+# Seconds to read Moonraker's history or a file's metadata when a print ends.
+FILAMENT_READ_TIMEOUT: Final = 15
+
+
+def _remark(job: PrintJob, text: str) -> None:
+    """Add a note to the print once."""
+    if text not in job.remarks:
+        job.remarks.append(text)
 
 
 class PowerRefused(HomeAssistantError):
@@ -282,6 +327,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 on_auth_failed=self._on_bambu_auth_failed,
                 check_identity=self._check_bambu_identity,
             )
+        # Bambu LAN camera: A1 / P1 send JPEGs on port 6000 (X1 / H2 use RTSP: not supported yet).
+        self.bambu_camera: BambuCamera | None = None
+        if self.bambu_lan is not None and has_jpeg_camera(bambu_model(self.conf.get(CONF_PRINTER_SERIAL))):
+            self.bambu_camera = BambuCamera(
+                self.conf[CONF_HOST],
+                self.conf[CONF_ACCESS_CODE],
+                lambda coro: entry.async_create_background_task(hass, coro, f"{DOMAIN}_bambu_camera"),
+                check_identity=self._check_bambu_camera_identity,
+            )
         self._last_bambu_process: float = 0.0
         self._last_bambu_state: str | None = None
         self._polling = False
@@ -293,6 +347,13 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         # How the last power off ended: power_off, aborted, hot (nozzle stayed hot), still_on (computer kept running)
         self.power_result: str | None = None
         self._power_task: asyncio.Task | None = None
+        # 0.15.0: when the auto-off starts (a wait after the print, CONF_AUTO_OFF_DELAY); "Keep on" pressed
+        # during a print (that print does not turn the printer off); the presses of "Power off now".
+        self.auto_off_at: datetime | None = None
+        self._keep_on_job: str | None = None
+        self.force_presses = 0
+        self._force_last: datetime | None = None
+        self._quiet_until: datetime | None = None
         # Firmware reported by Moonraker (Klipper only; None until read).
         self.firmware: Firmware | None = None
         # Klipper camera found through Moonraker (None: no camera, or not checked yet).
@@ -357,6 +418,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self.bambu_lan.start(
                 lambda coro: self.config_entry.async_create_background_task(self.hass, coro, f"{DOMAIN}_bambu_lan")
             )
+        self._unsubs.append(self.hass.bus.async_listen(MOBILE_ACTION_EVENT, self._on_mobile_action))
         interval = timedelta(seconds=int(self.conf.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)))
         self._unsubs.append(async_track_time_interval(self.hass, self._on_tick, interval))
 
@@ -446,6 +508,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         if self._power_task is not None:
             self._power_task.cancel()
         self.power_result = None  # a new power action: the last "not turned off" no longer applies
+        self._quiet_until = None
         await self.hass.services.async_call(
             "homeassistant", "turn_on", {"entity_id": self.switch_entity}, blocking=True
         )
@@ -456,23 +519,47 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         return bool(self.conf.get(CONF_AUTO_OFF, DEFAULT_AUTO_OFF))
 
     @property
+    def auto_off_delay(self) -> int:
+        """Minutes to wait after a successful print before the safe power off starts (0: right away)."""
+        try:
+            return max(0, int(self.conf.get(CONF_AUTO_OFF_DELAY) or DEFAULT_AUTO_OFF_DELAY))
+        except (TypeError, ValueError):
+            return DEFAULT_AUTO_OFF_DELAY
+
+    @property
+    def keep_on_pending(self) -> bool:
+        """Keep on was pressed during the running print: it will not turn the printer off."""
+        job = self.tracker.active_job
+        return job is not None and self._keep_on_job == job.job_id
+
+    @property
     def plug_is_on(self) -> bool:
         """The smart plug is on."""
         state = self.hass.states.get(self.switch_entity) if self.switch_entity else None
         return state is not None and state.state == STATE_ON
 
     @callback
-    def _start_auto_off(self, job: PrintJob) -> None:
-        """A print ended well: start the safe power off now (it waits for the nozzle to drop below 80 °C).
+    def _start_auto_off(self, job: PrintJob) -> str | None:
+        """A print ended well: start the safe power off (after the wait of the options, if any).
 
         Only after a successful print. Failed, cancelled, interrupted or unknown:
-        the printer stays on so it can be looked at.
+        the printer stays on so it can be looked at. Returns ``None`` when the
+        power off was started, else why the printer stays on (for the notification).
         """
         if job.result is not PrintResult.SUCCESS:
             _LOGGER.info("%s: print ended as %s, no auto-off", self.printer_name, job.result)
-            return
-        if not self.auto_off or self.power_phase is not None or self._power_task is not None or not self.plug_is_on:
-            return
+            return "Stays on so you can look at it."
+        if self._keep_on_job == job.job_id:
+            _LOGGER.info("%s: Keep on was pressed during the print, no auto-off", self.printer_name)
+            self._keep_on_job = None
+            self.power_result = "kept_on"
+            return "Stays on: Keep on was pressed during the print."
+        if not self.switch_entity:
+            return ""
+        if not self.auto_off:
+            return "Stays on (auto-off is turned off)."
+        if self.power_phase is not None or self._power_task is not None or not self.plug_is_on:
+            return ""
         _LOGGER.info("%s: print ended well, turning the printer off once the nozzle is cool", self.printer_name)
         self.power_result = None
         task = self.config_entry.async_create_background_task(self.hass, self._async_auto_off(), f"{DOMAIN}_auto_off")
@@ -480,6 +567,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         # overwrite it, or "turned on by hand" / "a new print" would cancel the wrong task.
         if self._power_task is None and not task.done():
             self._power_task = task
+        return None
 
     @callback
     def _check_auto_off(self) -> None:
@@ -488,7 +576,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         Losing contact or another printer answering are handled by the cooling loop and
         ``_on_identity_changed``: the plug is left on.
         """
-        if self.power_phase != "cooling" or self._power_task is None:
+        if self.power_phase not in ("cooling", "waiting") or self._power_task is None:
             return
         if self.is_printing:
             self._cancel_cooling("a new print started")
@@ -501,8 +589,156 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self._power_task.cancel()
         self._end_power_off(result, why)
 
+    # ------------------------------------------------------------------ #
+    # 0.15.0: the end of a print on the phone, "Keep on", "Power off now"
+    # ------------------------------------------------------------------ #
+    @callback
+    def _on_print_ended(self, job: PrintJob, *, forced: bool = False) -> None:
+        """A print ended (or was closed): store it; start the auto-off and tell the phone, unless forced off."""
+        self.state.finalizing.append(job)
+        self._spawn(self._async_finalize(job, capture_image=True))
+        if forced:
+            return
+        why_on = self._start_auto_off(job)
+        self._send_finish_notice(job, why_on)
+
+    @callback
+    def _send_finish_notice(self, job: PrintJob, why_on: str | None) -> None:
+        """Notification to the chosen phones: printer, file, result, duration, when it turns off by itself."""
+        services = finish_targets(self.conf, panel_options(self.hass))
+        if not services:
+            return
+        pending = why_on is None
+        title, message = finish_message(
+            self.printer_name,
+            job.name,
+            str(job.result) if job.result else None,
+            job.duration_s(),
+            off_at=dt_util.as_local(self.auto_off_at) if pending and self.auto_off_at else None,
+            off_pending=pending,
+            cool_to=SAFE_POWER_COOL_TEMP,
+            why_on=why_on or None,
+        )
+        self.hass.async_create_task(
+            async_send_finish(
+                self.hass,
+                services,
+                entry_id=self.config_entry.entry_id,
+                printer=self.printer_name,
+                title=title,
+                message=message,
+                keep_on=pending,
+            ),
+            f"{DOMAIN}_finish_notify",
+            eager_start=False,
+        )
+
+    @callback
+    def _on_mobile_action(self, event: Event) -> None:
+        """The "Keep on" button of the end-of-print notification was tapped on a phone."""
+        if event.data.get("action") != keep_on_action(self.config_entry.entry_id):
+            return
+        _LOGGER.info("%s: Keep on tapped on the phone", self.printer_name)
+        self.hass.async_create_task(self._async_keep_on_quietly(), f"{DOMAIN}_keep_on", eager_start=False)
+
+    async def _async_keep_on_quietly(self) -> None:
+        try:
+            await self.async_keep_on()
+        except HomeAssistantError as err:
+            _LOGGER.warning("%s: Keep on: %s", self.printer_name, err)
+
+    async def async_keep_on(self) -> str:
+        """Keep the printer on: cancel the auto-off (waiting or cooling), or skip it for the running print.
+
+        The next print turns the printer off again as usual. Returns what was done:
+        ``cancelled`` (an auto-off was waiting), ``after_print`` (the running print
+        will not turn it off) or ``nothing``.
+        """
+        if not self.switch_entity:
+            raise HomeAssistantError(f"{self.printer_name} has no smart plug")
+        if self.power_phase == "shutting_down":
+            raise HomeAssistantError(f"{self.printer_name} is already shutting down: it cannot be kept on")
+        if self.power_phase in ("waiting", "cooling"):
+            self._cancel_cooling("kept on by the user", result="kept_on")
+            return "cancelled"
+        if (job := self.tracker.active_job) is not None:
+            self._keep_on_job = job.job_id
+            _LOGGER.info("%s: stays on after the print '%s'", self.printer_name, job.name)
+            self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+            return "after_print"
+        return "nothing"
+
+    async def async_force_off_press(self) -> int:
+        """One press of the "Power off now" button: the plug is cut at the FORCE_OFF_PRESSES-th press in a row.
+
+        Each press must come within FORCE_OFF_WINDOW seconds of the one before,
+        or the count starts again. Returns the presses counted (0 after the cut).
+        """
+        now = dt_util.utcnow()
+        if self._force_last is None or (now - self._force_last).total_seconds() > FORCE_OFF_WINDOW:
+            self.force_presses = 0
+        self.force_presses += 1
+        self._force_last = now
+        if self.force_presses < FORCE_OFF_PRESSES:
+            _LOGGER.info("%s: Power off now %s of %s", self.printer_name, self.force_presses, FORCE_OFF_PRESSES)
+            self._publish(now, self.reader.price_per_kwh())
+            return self.force_presses
+        await self.async_force_power_off(confirm=True)
+        return 0
+
+    async def async_force_power_off(self, *, confirm: bool) -> None:
+        """Cut the plug now: no cooling, no shutdown of the computer. For a printer or Moonraker that hangs.
+
+        Refused without ``confirm``. A print still open is closed as failed by
+        the user, with a note; a pending auto-off is cancelled.
+        """
+        if not confirm:
+            raise HomeAssistantError(f"{self.printer_name}: Power off now needs confirm: true")
+        if not self.switch_entity:
+            raise HomeAssistantError(f"{self.printer_name} has no smart plug")
+        self.force_presses = 0
+        self._force_last = None
+        self._keep_on_job = None
+        if self._power_task is not None:
+            self._power_task.cancel()
+            self._power_task = None
+        self.power_phase = None
+        self.power_cut_at = None
+        self.auto_off_at = None
+        now = dt_util.utcnow()
+        if self.tracker.active_job is not None:
+            snap = self.build_snapshot(now)
+            self._last_snapshot = snap
+            self._count(now, snap)
+            if (transition := self.tracker.close(snap, PrintResult.FAILED)) is not None:
+                job = transition.job
+                job.result_by = "user"
+                _remark(job, "Stopped by the user: the plug was cut with Power off now (no cooling, no shutdown)")
+                _LOGGER.warning("%s: print '%s' cut by Power off now", self.printer_name, job.name)
+                self._on_print_ended(job, forced=True)
+                self._sync_state()
+                await self.store.async_save(self.state)
+        _LOGGER.warning("%s: Power off now: cutting the plug without shutting down", self.printer_name)
+        await self.hass.services.async_call(
+            "homeassistant", "turn_off", {"entity_id": self.switch_entity}, blocking=True
+        )
+        self.power_result = "forced"
+        self._quiet_until = dt_util.utcnow() + FORCE_OFF_QUIET
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
     async def _async_auto_off(self) -> None:
-        """The usual safe power off (cool, shut the computer down, cut once it is off)."""
+        """Wait the minutes of the options (if any), then the usual safe power off (cool, shut down, cut)."""
+        if (delay := self.auto_off_delay) > 0:
+            until = dt_util.utcnow() + timedelta(minutes=delay)
+            self.power_phase = "waiting"
+            self.auto_off_at = until
+            self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+            try:
+                while (left := (until - dt_util.utcnow()).total_seconds()) > 0:
+                    await asyncio.sleep(min(SAFE_POWER_POLL, left))
+            finally:
+                self.power_phase = None
+                self.auto_off_at = None
         self._power_task = None
         try:
             await self.async_power_off()
@@ -517,6 +753,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self.power_result = result
         self.power_phase = None
         self.power_cut_at = None
+        self.auto_off_at = None
         self._power_task = None
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
 
@@ -775,6 +1012,8 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             task.cancel()
         if self.bambu_lan is not None:
             await self.bambu_lan.stop()
+        if self.bambu_camera is not None:
+            await self.bambu_camera.stop()
         self._sync_state()
         await self.store.async_save(self.state)
 
@@ -981,6 +1220,11 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         return self._learn_identity(KIND_TLS, fingerprint)
 
     @callback
+    def _check_bambu_camera_identity(self, fingerprint: str | None) -> bool:
+        """Bambu LAN camera, before logging in: its own certificate (port 6000), and the printer still the known one."""
+        return self._learn_identity(KIND_CAMERA_TLS, fingerprint) and not self.identity.changed
+
+    @callback
     def _learn_identity(self, kind: str, seen: str | None) -> bool:
         """Compare (or remember at first contact) one identity value. False: not the same printer."""
         was_changed = self.identity.changed
@@ -1034,13 +1278,15 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
 
     @property
     def camera_entity(self) -> str | None:
-        """Camera the panel shows: ours for Klipper, ha-bambulab's own for Bambu (never a second one)."""
+        """Camera the panel shows: ours for Klipper and Bambu LAN, ha-bambulab's own for Bambu (never a second one)."""
         if self.klipper is not None:
             if self.webcam is None:
                 return None
             return er.async_get(self.hass).async_get_entity_id("camera", DOMAIN, f"{self.config_entry.entry_id}_camera")
         if self.printer_type is PrinterType.BAMBU:
             return self._bambu_entity("camera", _BAMBU_CAMERA_KEYS) or self._bambu_entity("image", _BAMBU_CAMERA_KEYS)
+        if self.bambu_camera is not None:
+            return er.async_get(self.hass).async_get_entity_id("camera", DOMAIN, f"{self.config_entry.entry_id}_camera")
         return None
 
     # ------------------------------------------------------------------ #
@@ -1180,6 +1426,58 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         self._process(dt_util.utcnow())
 
     @property
+    def material_prices(self) -> dict[str, Decimal]:
+        """Generic prices per kg of each material (defaults, changed in the options of FDM Printers)."""
+        return generic_prices(panel_options(self.hass))
+
+    def _loaded_material(self) -> str | None:
+        """Material of the spool feeding the nozzle now (AFC lane, Happy Hare gate, Spoolman, AMS tray)."""
+        # Only the slot the unit says is feeding the nozzle (Spoolman's active spool counts as such).
+        active = [slot for slot in self.filament_slots if slot.active and slot.material]
+        names = {normalize_material(slot.material) for slot in active}
+        return names.pop() if len(names) == 1 else None
+
+    async def async_set_material(self, job_id: str, material: str) -> None:
+        """Set the material of a finished print by hand; its filament cost is worked out again."""
+        if material not in MATERIALS:
+            raise HomeAssistantError(f"Unknown material {material}: one of {', '.join(MATERIALS)}")
+        rows = [row for row in self.state.history if row.get("job_id") == job_id]
+        last = self.state.last_job if self.state.last_job and self.state.last_job.job_id == job_id else None
+        if not rows and last is None:
+            raise HomeAssistantError(f"{self.printer_name}: print {job_id} not found")
+        table = self.material_prices
+        printer_price = filament_price(self.conf.get(CONF_FILAMENT_PRICE))
+        for row in rows:
+            set_row_material(row, material, printer_price, table, self.currency)
+        if last is not None:
+            summary = {**last.summary(), "notes": list(last.remarks)}
+            set_row_material(summary, material, printer_price, table, self.currency)
+            last.filament_type = material
+            last.filament_type_source = summary["filament_type_source"]
+            last.filament_price_per_kg = filament_price(summary["filament_price_per_kg"])
+            last.filament_price_source = summary["filament_price_source"]
+            last.remarks = summary["notes"]
+        row = rows[0] if rows else last.summary()
+        # Google Sheets: a row still in the queue is changed there; else the row in the sheet is changed in place.
+        values = {key: row.get(key) for key in MATERIAL_CELLS}
+        if self.sheets.enabled and not correct_pending_row(self.state.sheets_pending, job_id, values):
+            queue_row(
+                self.state.sheets_pending,
+                {
+                    **sheet_row(
+                        {"printer": self.printer_name, "currency": self.currency, **row},
+                        dt_util.get_default_time_zone(),
+                        correction=f"Correction: material set to {material} by hand",
+                    ),
+                    CORRECTION_KEY: list(MATERIAL_CELLS),
+                },
+            )
+        await self.store.async_save(self.state)
+        _LOGGER.info("%s: print %s set to %s", self.printer_name, job_id, material)
+        self._send_sheet_rows()
+        self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    @property
     def filament_slots(self) -> list[FilamentSlot]:
         """Filaments of a multi-material unit (AFC, Happy Hare, AMS), or Spoolman's active spool."""
         if self.klipper is not None and self.klipper.available:
@@ -1238,6 +1536,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             )
         if self.klipper is not None:
             reading = self.klipper.reading
+            meta = self.klipper.file_meta
             return PrinterSnapshot(
                 timestamp=now,
                 status=reading.state,
@@ -1245,6 +1544,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 job_name=reading.filename,
                 progress=reading.progress,
                 remaining_min=self.klipper.remaining_min,
+                filament_mm=reading.filament_mm,
+                filament_g_per_mm=meta.filament_g_per_mm if meta else None,
+                filament_type=meta.filament_type if meta else None,
             )
         hass = self.hass
         return PrinterSnapshot(
@@ -1259,6 +1561,13 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
     @callback
     def _process(self, now: datetime) -> None:
         snap = self.build_snapshot(now)
+        if self._quiet_until is not None:
+            if now < self._quiet_until:
+                # The plug was just cut by "Power off now": a state still saying "printing" is old news
+                # (turning the plug on again through this integration ends this at once).
+                snap = replace(snap, status=None)
+            else:
+                self._quiet_until = None
         self._last_snapshot = snap
         self._count(now, snap)
         transitions = self.tracker.process(snap)
@@ -1271,9 +1580,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
                 save_now = True
             elif transition.kind is TransitionKind.ENDED:
                 save_now = True
-                self.state.finalizing.append(job)
-                self._spawn(self._async_finalize(job, capture_image=True))
-                self._start_auto_off(job)
+                self._on_print_ended(job)
+        if (job := self.tracker.active_job) is not None and job.filament_type is None:
+            job.set_material_seen(self._loaded_material(), SOURCE_SPOOL)
         self._check_auto_off()
 
         self._sync_state()
@@ -1455,6 +1764,7 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         if job.electricity.awaiting_meter:
             await self._async_wait_meter_step(job)
             job.electricity.flush()
+        await self._async_filament_end(job)
         job.phase = JobPhase.COMPLETED
         if job in self.state.finalizing:
             self.state.finalizing.remove(job)
@@ -1484,6 +1794,63 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self.currency,
         )
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    async def _async_filament_end(self, job: PrintJob) -> None:
+        """The filament of the finished print, whatever its result: final value, price, and what is unknown."""
+        if self.klipper is not None and job.name:
+            await self._async_klipper_filament_end(job)
+        # Material: slicer, else the spool loaded while printing (both set during the print), else the file name.
+        job.set_material_seen(material_from_file_name(job.name), SOURCE_FILE_NAME)
+        # Price: the printer's own price, else the generic price of the material (FDM Printers options).
+        price, source = resolve_price(
+            filament_price(self.conf.get(CONF_FILAMENT_PRICE)), job.filament_type, self.material_prices
+        )
+        job.filament_price_per_kg = price
+        job.filament_price_source = source
+        if job.filament_g is not None and (note := price_note(job.filament_type, price, source, self.currency)):
+            _remark(job, note)
+        if job.filament_mm is None:
+            _remark(
+                job,
+                "Filament used unknown: the printer did not report it"
+                if self.klipper is not None
+                else "Filament used unknown: Bambu Lab printers do not report the filament a print used",
+            )
+        elif job.filament_g_per_mm is None:
+            _remark(job, "Filament weight unknown: the slicer did not write the filament weight in the file")
+
+    async def _async_klipper_filament_end(self, job: PrintJob) -> None:
+        """Klipper: the final length from Moonraker's history, and the file's grams per mm if still missing.
+
+        The history only ever raises what was seen during the print: after a
+        Klipper restart or disconnection it says 0 mm, and the length seen is kept.
+        """
+        client = self.klipper.client
+        seen = job.filament_seen_mm
+        try:
+            async with asyncio.timeout(FILAMENT_READ_TIMEOUT):
+                jobs = await client.history()
+        except Exception as err:  # noqa: BLE001 - the history only completes what was seen
+            _LOGGER.debug("%s: Moonraker history not readable: %s", self.printer_name, err)
+            jobs = None
+        final = history_filament(
+            jobs,
+            job.name,
+            job.started_at.timestamp(),
+            job.finished_at.timestamp() if job.finished_at else None,
+        )
+        job.record_final_filament(final)
+        if seen is not None and seen > 0 and final is None and isinstance(jobs, list) and jobs:
+            _remark(job, "Filament used as seen during the print: Moonraker's history has no length for it")
+        if job.filament_g_per_mm is None:
+            try:
+                async with asyncio.timeout(FILAMENT_READ_TIMEOUT):
+                    meta = await client.metadata(job.name)
+            except Exception as err:  # noqa: BLE001 - the weight stays unknown, with a note
+                _LOGGER.debug("%s: no metadata for %s: %s", self.printer_name, job.name, err)
+                meta = None
+            if isinstance(meta, FileMetadata):
+                job.set_filament_file(meta.filament_g_per_mm, meta.filament_type)
 
     async def _async_wait_meter_step(self, job: PrintJob) -> None:
         """Wait for the plug's energy meter to step, so the end of the print is measured, not estimated.

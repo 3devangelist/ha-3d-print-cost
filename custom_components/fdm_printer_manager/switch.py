@@ -87,8 +87,9 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
     (Moonraker, else SSH) and the plug is cut once the computer stops
     answering (phase ``shutting_down``; still answering after 5 minutes, the
     plug is left on); other printers are cut right away.
-    After a successful print, the same starts by itself right away when ``auto_off``
-    is on (it waits in phase ``cooling`` until the nozzle is below 80 °C); a failed,
+    After a successful print, the same starts by itself when ``auto_off`` is on: after
+    ``auto_off_delay`` minutes (phase ``waiting``, 0.15.0; 0 = right away), then it waits in
+    phase ``cooling`` until the nozzle is below 80 °C. "Keep on" cancels it; a failed,
     cancelled or unknown print leaves the printer on so it can be looked at.
     Can be put on any dashboard and used in automations.
     """
@@ -143,6 +144,13 @@ class SafePowerSwitch(PrintCostEntity, SwitchEntity):
             "phase": coordinator.power_phase or ("on" if self.is_on else "off"),
             "cut_at": cut_at.isoformat() if cut_at else None,
             "auto_off": coordinator.auto_off,
+            # 0.15.0: minutes waited after a successful print before turning off, and until when (phase "waiting")
+            "auto_off_delay": coordinator.auto_off_delay,
+            "waiting_until": coordinator.auto_off_at.isoformat() if coordinator.auto_off_at else None,
+            # "Keep on" pressed during the running print: it will not turn the printer off
+            "keep_on": coordinator.keep_on_pending,
+            # "Power off now": presses counted so far (the plug is cut at the third)
+            "force_presses": coordinator.force_presses,
             "last_result": coordinator.power_result,
             "ssh": coordinator.ssh_login is not None,
             "cool_to": SAFE_POWER_COOL_TEMP,

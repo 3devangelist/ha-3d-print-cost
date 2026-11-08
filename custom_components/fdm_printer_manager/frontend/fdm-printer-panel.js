@@ -105,6 +105,9 @@ td.n{font-family:var(--mono);text-align:right}
 .mini{width:90px;height:5px;border-radius:3px;background:var(--surface-2);overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px}
 .mini i{display:block;height:100%;background:var(--run)}
 .filters{display:flex;gap:8px;align-items:center}
+select.matsel{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:3px 4px;font:inherit;font-size:.85rem;max-width:8.5em}
+select.matsel.unknown{border-color:var(--warn,#e0a030)}
+.btn.force{margin-left:4px}
 .filters select{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:6px 8px;font:inherit}
 .more{display:flex;justify-content:center;padding:10px}
 .wiz{max-width:660px}
@@ -302,6 +305,17 @@ function fmtWhen(iso) {
 }
 const money = (v, unit) => (v == null ? "—" : `${Number(v).toFixed(2)} ${esc(unit || "")}`.trim());
 const kwh = (v, d = 2) => (v == null ? "—" : `${Number(v).toFixed(d)} kWh`);
+// 0.15.0: filament as "112,2 m · 281 g · ASA" (metres first; grams only when the slicer gave the weight).
+const filamentText = (mm, g, type, lang) => {
+  const parts = [];
+  if (mm != null) parts.push(`${(Number(mm) / 1000).toLocaleString(lang || undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} m`);
+  if (g != null) parts.push(`${Math.round(Number(g))} g`);
+  if (parts.length && type) parts.push(type);
+  return parts.join(" · ");
+};
+// "Power off now": taps needed, and how long a tap waits for the next one.
+const FORCE_TAPS = 3;
+const FORCE_WINDOW_MS = 5000;
 
 class FdmPrinterPanel extends HTMLElement {
   constructor() {
@@ -646,6 +660,7 @@ class FdmPrinterPanel extends HTMLElement {
       this._history.rows = res.rows || [];
       this._history.total = res.total || 0;
       this._history.stats = res.stats || null;
+      this._history.materials = res.materials || [];
     } catch (err) {
       console.error("FDM Printers: cannot load history", err);
     }
@@ -745,9 +760,15 @@ class FdmPrinterPanel extends HTMLElement {
     const where = attrs.host ? ` · ${esc(attrs.host)}` : "";
     const fileShown = file && !["unknown", "unavailable"].includes(file) ? file : "";
     const lastResult = s("last_print_result")?.state;
+    // 0.15.0: the filament (metres first) before the cost; the cost is electricity + filament when both are known.
+    const fil = s("last_print_filament");
+    const fa = fil?.attributes || {};
+    const lastM = num(fil); // the sensor is in metres
+    const lastFil = filamentText(lastM != null ? lastM * 1000 : null, fa.filament_g, fa.filament_type, this._hass?.locale?.language);
+    const lastCost = fa.print_cost != null ? fa.print_cost : num(s("last_print_cost"));
     const lastLine =
       lastResult && !["unknown", "unavailable"].includes(lastResult)
-        ? `Last: ${RESULT_ICON[lastResult] || ""} ${lastResult} · ${money(num(s("last_print_cost")), unit)}`
+        ? `Last: ${RESULT_ICON[lastResult] || ""} ${lastResult}${lastFil ? ` · ${lastFil}` : ""} · ${money(lastCost, unit)}`
         : "";
     const eid = p.entry.entry_id;
     // The printer's verdict can be wrong (a "finished" print that came off the plate): mark the last print by hand.
@@ -789,8 +810,7 @@ class FdmPrinterPanel extends HTMLElement {
       const waiting = phase === "shutting_down";
       // Cooling: the nozzle has to drop below cool_to before the plug is cut; a tap keeps the printer on.
       const cooling = phase === "cooling";
-      // Auto-off (0.12.3): starts as soon as a print ends well, so it shows as "cooling" (no timer any more).
-      // "waiting" is kept only for a Home Assistant still running an older version of the integration.
+      // Auto-off: "waiting" while the minutes of Edit → Advanced run (0.15.0; 0 min goes straight to "cooling").
       const autoOff = phase === "waiting";
       const keepable = cooling || autoOff;
       // Asked: the "Turn off?" box is open under the card. Sent: "Turn off" tapped, the new phase not here yet
@@ -803,14 +823,14 @@ class FdmPrinterPanel extends HTMLElement {
       const coolTo = power.attributes?.cool_to ?? 80;
       const label = cooling
         ? `Cooling nozzle — ${nozzle != null ? `${Math.round(nozzle)}°` : "…"} → ${coolTo}°, then off`
-        : autoOff ? "Turning off after the print…"
+        : autoOff ? `Auto off at ${hhmm(power.attributes?.waiting_until)}`
         : waiting ? `Shutting down… waiting for it to go off (until ${hhmm(power.attributes?.cut_at)})`
         : sent ? "Turning off…"
         : asking ? "Turning off? Confirm below"
         : on ? "Power on" : power.state === "off" ? "Power off" : "Plug unavailable";
       const disabled = waiting || sent || power.state === "unavailable" || (on && active && !keepable);
       const title = cooling ? `Waiting for the nozzle to drop below ${coolTo} °C, then it turns off. Tap to keep the printer on`
-        : autoOff ? "Turns off by itself after the print. Tap to keep the printer on"
+        : autoOff ? "Turns off by itself after the print. Tap (or Keep on) to keep the printer on"
         : asking ? "Tap to keep the printer on"
         : on && active ? "Not while printing" : "";
       // Why the last power off left the plug on (also sent as a notification); the phase reads "on" when idle.
@@ -823,9 +843,26 @@ class FdmPrinterPanel extends HTMLElement {
         no_contact: "Not turned off: no contact with the printer. Use the plug directly if you are sure.",
         identity: "Not turned off: this does not look like the same printer",
         print_open: "Not turned off: a print is still open",
+        kept_on: "Kept on: no auto-off until the next print",
       }[power.attributes?.last_result] || (otherPrinter ? "Does not look like the same printer: power off blocked (see Repairs)"
         : noContact ? "No contact with the printer: it will not be turned off from here" : null)) : null;
-      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !keepable ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || keepable || asking || sent ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>${problem ? `<span class="sub warn">${esc(problem)}</span>` : ""}`;
+      // 0.15.0 Keep on: cancels the auto-off (waiting / cooling), or during a print keeps the printer on after it.
+      const keepOnAttr = power.attributes?.keep_on;
+      const keepOnBtn = p.ents.keep_on && on && (keepable || (active && power.attributes?.auto_off && !keepOnAttr))
+        ? `<button class="btn sm" data-act="keepon" data-entry="${esc(eid)}" title="${keepable ? "Cancel the auto-off: the printer stays on" : "Do not turn the printer off after this print"}">Keep on</button>`
+        : "";
+      const keptNote = active && keepOnAttr ? `<span class="sub">Stays on after this print</span>` : "";
+      // 0.15.0 Power off now: cuts the plug at once (no cooling, no shutdown). Three taps, each within 5 s.
+      let forceHtml = "";
+      if (p.ents.power_off_now && power.state !== "unavailable" && (on || waiting)) {
+        const f = this._force?.entry === eid && Date.now() - this._force.at < FORCE_WINDOW_MS ? this._force.taps : 0;
+        const fLabel = f === 0 ? "⚡ Power off now" : f === 1 ? `Are you sure? (2 of ${FORCE_TAPS})` : `Last confirmation (3 of ${FORCE_TAPS})`;
+        const fWarn = f > 0
+          ? `<span class="sub warn">${active ? "A print is running: cutting the power now ruins it. " : ""}Cuts the plug at once: no cooling, no shutdown.</span>`
+          : "";
+        forceHtml = `<button class="btn sm danger force" data-act="forceoff" data-entry="${esc(eid)}" title="Cut the plug now, without cooling the nozzle or shutting the computer down (printer or Moonraker frozen). Tap ${FORCE_TAPS} times.">${esc(fLabel)}</button>${fWarn}`;
+      }
+      powerHtml = `<button class="sw" data-act="power" data-entry="${esc(eid)}" data-on="${on && !keepable ? 1 : 0}" ${disabled ? "disabled" : ""} title="${title}"><span class="tg ${waiting || keepable || asking || sent ? "wait" : on ? "on" : ""}"></span>${esc(label)}</button>${keepOnBtn}${forceHtml}${keptNote}${problem ? `<span class="sub warn">${esc(problem)}</span>` : ""}`;
     }
 
     // Camera: only when the printer has one (Klipper webcam found by the integration, or ha-bambulab's own).
@@ -947,11 +984,40 @@ class FdmPrinterPanel extends HTMLElement {
       r.result !== result && r.job_id
         ? `<button class="linkbtn" data-act="mark" data-entry="${esc(r.entry_id)}" data-job="${esc(r.job_id)}" data-result="${result}" title="${title}">${label}</button>`
         : "";
+    // 0.15.0: filament in metres (and grams), then the material (a list to choose or correct it), then the cost:
+    // electricity + filament, each part under the total. "generic" marks a filament cost at a generic price.
+    const lang = this._hass?.locale?.language;
+    const mats = h.materials || [];
+    const filament = (r) => {
+      const text = filamentText(r.filament_mm, r.filament_g, null, lang) || "—";
+      return `<td class="n">${text}</td>`;
+    };
+    const material = (r) => {
+      const cur = r.filament_type || "";
+      const known = mats.some((m) => m.name === cur);
+      const opts = [`<option value="" ${cur ? "" : "selected"} disabled>?</option>`]
+        .concat(cur && !known ? [`<option value="" selected disabled>${esc(cur)}</option>`] : [])
+        .concat(mats.map((m) => `<option value="${esc(m.name)}" ${m.name === cur ? "selected" : ""}>${esc(m.label)}</option>`))
+        .join("");
+      const how = { slicer: "from the slicer", spool: "from the loaded spool", file_name: "from the file name", user: "chosen by hand" }[r.filament_type_source] || "unknown";
+      return r.job_id
+        ? `<td><select class="matsel ${cur ? "" : "unknown"}" data-entry="${esc(r.entry_id)}" data-job="${esc(r.job_id)}" aria-label="Material" title="Material ${esc(how)}">${opts}</select></td>`
+        : `<td>${esc(cur || "?")}</td>`;
+    };
+    const cost = (r) => {
+      const total = r.print_cost != null ? r.print_cost : r.electricity_cost;
+      const parts = [
+        r.electricity_cost != null ? `⚡ ${money(r.electricity_cost, "")}` : null,
+        r.filament_cost != null ? `🧵 ${money(r.filament_cost, "")}${r.filament_price_source === "generic" ? "*" : ""}` : null,
+      ].filter(Boolean);
+      const tip = r.filament_price_source === "generic" ? ` title="* filament at the generic price of ${esc(r.filament_type || "")}${r.filament_price_per_kg != null ? ` (${Number(r.filament_price_per_kg)} ${esc(r.currency || "")}/kg)` : ""}"` : "";
+      return `<td class="n"${tip}>${money(total, r.currency)}${parts.length > 1 ? `<div class="sub">${parts.join(" + ")}</div>` : ""}</td>`;
+    };
     const rows = h.rows
       .map(
         (r) => `<tr><td>${RESULT_ICON[r.result] || "❔"} ${esc(r.result || "")}${r.result_by === "user" ? ` <span class="sub" title="Marked by hand">✎</span>` : ""}</td><td>${esc(r.printer)}</td><td class="m">${esc(r.name || "—")}</td>
           <td>${fmtWhen(r.finished_at)}</td><td class="n">${fmtMin((r.duration_s || 0) / 60)}</td>
-          <td class="n">${kwh(r.energy_kwh)}</td><td class="n">${money(r.electricity_cost, r.currency)}</td>
+          <td class="n">${kwh(r.energy_kwh)}</td>${filament(r)}${material(r)}${cost(r)}
           <td class="fix"><span class="rmark">${markBtn(r, "success", "✓", "Mark as a success")}${markBtn(r, "failed", "✗", "Mark as failed")}</span></td></tr>`,
       )
       .join("");
@@ -961,12 +1027,12 @@ class FdmPrinterPanel extends HTMLElement {
       st && st.prints
         ? `<div class="stats sub">${st.prints} prints · ${st.success_rate != null ? `${st.success_rate}% successful` : "no verdicts yet"} · ${st.counts.failed} failed${
             st.counts.cancelled ? ` · ${st.counts.cancelled} cancelled` : ""
-          } · failed and cancelled prints cost ${money(st.wasted_cost, cur)}</div>`
+          } · failed and cancelled prints cost ${money(st.wasted_cost, cur)}${st.wasted_filament_cost ? ` + ${money(st.wasted_filament_cost, cur)} of filament` : ""}</div>`
         : "";
     const more = h.total > h.rows.length ? `<div class="more"><button class="btn sm" data-act="more">Show more (${h.total - h.rows.length})</button></div>` : "";
     return `<h2>Recent prints <span class="filters"><select id="hfilter" aria-label="Filter by printer">${opts}</select></span></h2>${statsHtml}${
       h.rows.length
-        ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Cost</th><th class="fix" aria-label="Correct the result"></th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
+        ? `<div class="tablewrap"><table><thead><tr><th>Result</th><th>Printer</th><th>File</th><th>Ended</th><th>Time</th><th>Energy</th><th>Filament</th><th>Material</th><th>Cost</th><th class="fix" aria-label="Correct the result"></th></tr></thead><tbody>${rows}</tbody></table>${more}</div>`
         : `<p class="empty" style="padding:4px 0">No finished prints yet. They appear here as soon as a print ends.</p>`
     }`;
   }
@@ -1562,6 +1628,9 @@ class FdmPrinterPanel extends HTMLElement {
       this._history.limit = 10;
       this._loadHistory();
     });
+    root.querySelectorAll("select.matsel").forEach((el) =>
+      el.addEventListener("change", () => el.value && this._setMaterial(el.dataset.entry, el.dataset.job, el.value)),
+    );
     root.getElementById("sheetsentry")?.addEventListener("change", (ev) => (this._sheets.entry = ev.target.value));
     root.getElementById("sheetsws")?.addEventListener("input", (ev) => (this._sheets.worksheet = ev.target.value));
     // A wheel over a number field must scroll the page, not change the value.
@@ -1669,6 +1738,8 @@ class FdmPrinterPanel extends HTMLElement {
       return this._call("button", "press", el.dataset.entity, what === "cancel" ? "Cancelling the print…" : what === "pause" ? "Pausing…" : "Resuming…");
     }
     if (act === "mark") return this._mark(el.dataset.entry, el.dataset.result, el.dataset.job);
+    if (act === "keepon") return this._service("keep_on", { entry_id: el.dataset.entry }, "Keeping the printer on");
+    if (act === "forceoff") return this._forceTap(el.dataset.entry);
     if (act === "light") return this._call("light", "toggle", el.dataset.entity, "Switching the light…");
     if (act === "zsize") {
       this._zstep = { ...(this._zstep || {}), [el.dataset.entry]: Number(el.dataset.step) };
@@ -1692,6 +1763,34 @@ class FdmPrinterPanel extends HTMLElement {
     this._flash(message);
     try {
       await this._hass.callService(DOMAIN, service, data);
+    } catch (err) {
+      this._flash(String(err?.message || err), 10000);
+    }
+  }
+
+  // "Power off now": the third tap within 5 s of the one before cuts the plug (the service needs confirm: true).
+  async _forceTap(entryId) {
+    const now = Date.now();
+    const same = this._force?.entry === entryId && now - this._force.at < FORCE_WINDOW_MS;
+    const taps = same ? this._force.taps + 1 : 1;
+    clearTimeout(this._forceTimer);
+    if (taps >= FORCE_TAPS) {
+      this._force = null;
+      return this._service("force_power_off", { entry_id: entryId, confirm: true }, "Cutting the power now…");
+    }
+    this._force = { entry: entryId, taps, at: now };
+    this._forceTimer = setTimeout(() => {
+      this._force = null;
+      if (this._view === "list") this._render();
+    }, FORCE_WINDOW_MS);
+    return this._render();
+  }
+
+  async _setMaterial(entryId, jobId, material) {
+    this._flash(`Material: ${material}`);
+    try {
+      await this._hass.callService(DOMAIN, "set_material", { entry_id: entryId, job_id: jobId, material });
+      await this._loadHistory();
     } catch (err) {
       this._flash(String(err?.message || err), 10000);
     }

@@ -95,12 +95,23 @@ CONF_INTEGRATION_METHOD: Final = "integration_method"
 # Behaviour
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_CURRENCY: Final = "currency"
+# Price of the filament (currency per kg, optional): gives each print its filament cost.
+CONF_FILAMENT_PRICE: Final = "filament_price_per_kg"
 # Turn the printer off safely as soon as a print ends well (it still waits for the nozzle to cool).
 CONF_AUTO_OFF: Final = "auto_off"
 DEFAULT_AUTO_OFF: Final = True
 # Before 0.12.3: minutes to wait after the print (0 = never). Config entry migration 1.1 -> 1.2 turns it into
 # CONF_AUTO_OFF (more than 0 -> on, 0 -> off).
 LEGACY_AUTO_OFF_MINUTES: Final = "auto_off_minutes"
+# 0.15.0: minutes to wait after a successful print before the safe power off starts (time to say "Keep on" and
+# start another print). 0 = start right away, as in 0.12.3-0.14.0.
+CONF_AUTO_OFF_DELAY: Final = "auto_off_delay"
+DEFAULT_AUTO_OFF_DELAY: Final = 0
+MAX_AUTO_OFF_DELAY: Final = 240
+# 0.15.0: "Power off now" cuts the plug at once (no cooling, no shutdown). It needs this many presses of its
+# button, each within FORCE_OFF_WINDOW seconds of the last one, or the service with confirm: true.
+FORCE_OFF_PRESSES: Final = 3
+FORCE_OFF_WINDOW: Final = 5  # seconds
 # Klipper: SSH login used to shut the computer down when Moonraker cannot (optional)
 CONF_SSH_USERNAME: Final = "ssh_username"
 CONF_SSH_PASSWORD: Final = "ssh_password"
@@ -134,6 +145,9 @@ EVENT_PRINT_MARKED: Final = f"{DOMAIN}_print_marked"  # a finished print was mar
 SERVICE_MARK_PRINT: Final = "mark_print"
 SERVICE_BABYSTEP: Final = "babystep"
 SERVICE_SHEETS_SETUP: Final = "sheets_setup"
+SERVICE_KEEP_ON: Final = "keep_on"
+SERVICE_FORCE_POWER_OFF: Final = "force_power_off"
+SERVICE_SET_MATERIAL: Final = "set_material"
 
 # Watching a running print (printer down, stuck or interrupted print, no progress)
 EVENT_ALERT: Final = f"{DOMAIN}_alert"
@@ -142,6 +156,14 @@ CONF_DOWN_MINUTES: Final = "down_minutes"
 CONF_CLOSE_MINUTES: Final = "close_minutes"
 CONF_STALL_MINUTES: Final = "stall_minutes"  # 0: no "no progress" warning
 CONF_NOTIFY: Final = "notify_services"  # "notify.mobile_app_x, notify.mobile_app_y"
+# 0.15.0: a notification on the phone when a print ends, with a "Keep on" action (mobile app).
+CONF_FINISH_NOTIFY: Final = "finish_notify"  # on / off (per printer)
+CONF_FINISH_NOTIFY_SERVICES: Final = "finish_notify_services"  # per printer; empty: the FDM Printers default
+# Event of the Home Assistant mobile app when an action of a notification is tapped, and our action id prefix.
+MOBILE_ACTION_EVENT: Final = "mobile_app_notification_action"
+KEEP_ON_ACTION: Final = "FDM_KEEP_ON_"  # + entry_id
+# 0.15.0: generic filament prices per material (currency per kg), in the options of the FDM Printers entry.
+CONF_MATERIAL_PRICES: Final = "material_prices"
 DEFAULT_DOWN_MINUTES: Final = 2
 DEFAULT_CLOSE_MINUTES: Final = 10
 DEFAULT_STALL_MINUTES: Final = 60

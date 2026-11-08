@@ -119,13 +119,21 @@ Para uma impressora escrever noutro separador: **Edit → When a print ends** ne
 | `electricity_cost`, `currency` | Custo da eletricidade |
 | `notes` | Notas (por exemplo, uma correção) |
 | `job_id` | Identificador da impressão |
+| `filament_mm` | Filamento gasto de verdade, em mm (desde a 0.14.0; também nas impressões canceladas e falhadas). Vazio quando a impressora não o diz (Bambu Lab) |
+| `filament_g` | O mesmo em gramas: `filament_mm` x o peso por mm do ficheiro, dado pelo slicer. Vazio sem esse peso |
+| `filament_type` | Tipo de filamento escrito pelo slicer (por exemplo `ASA`) |
+| `filament_cost` | `filament_g` x o preço por kg: o **Filament price per kg** da impressora (Edit → Advanced) ou, desde a 0.15.0, o preço genérico do material (FDM Printers → Configure). Vazio sem preço ou sem material conhecido |
+| `filament_m` | O mesmo comprimento em metros (desde a 0.15.0) |
+| `filament_price_per_kg` | O preço por kg usado em `filament_cost` |
+| `filament_price_source` | `printer` (preço da própria impressora) ou `generic` (preço genérico do material) |
+| `print_cost` | `electricity_cost` + `filament_cost` (só a parte conhecida quando uma está vazia) |
 
 ## Limites
 
 | Limite | O que quer dizer |
 |---|---|
 | **Só a folha criada pela integração** | O Google Sheets do Home Assistant só escreve na folha que criou quando o ligaste. Não escreve numa folha feita por ti. Queres uma folha à parte? Usa **Add another spreadsheet**: junta outra entrada do Google Sheets, com uma folha nova. |
-| **Uma linha por impressão** | Se marcares depois uma impressão ("Wrong? Mark as failed / Mark as OK" no cartão) e o resultado mudar, a linha dessa impressão é **alterada no sítio**: `result` e `result_by` = `user`, encontrada pelo `job_id` (uma linha ainda à espera de ser enviada é alterada antes de ir). Só quando essa linha não se encontra ou não se pode alterar é que se junta uma **linha de correção**, com o mesmo `job_id` e uma nota; aí, ao contar, fica com a última linha de cada `job_id`. |
+| **Uma linha por impressão** | Se marcares depois uma impressão ("Wrong? Mark as failed / Mark as OK" no cartão) e o resultado mudar, a linha dessa impressão é **alterada no sítio**: `result` e `result_by` = `user`, encontrada pelo `job_id`. O mesmo ao escolher o material à mão (0.15.0): mudam as células do material e do custo (uma linha ainda à espera de ser enviada é alterada antes de ir). Só quando essa linha não se encontra ou não se pode alterar é que se junta uma **linha de correção**, com o mesmo `job_id` e uma nota; aí, ao contar, fica com a última linha de cada `job_id`. |
 | **Colunas pelo nome** | Cada valor vai para a coluna com o mesmo nome na linha 1. Uma coluna que falte é juntada no fim. |
 | **Sem rede** | A linha fica à espera (até 200 linhas) e é enviada antes da seguinte: na próxima impressão ou quando o Home Assistant arranca. Recebes uma notificação. |
 

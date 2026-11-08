@@ -55,3 +55,16 @@ so Tesseract.js never falls back to its default CDN addresses.
 1. `npm pack tesseract.js@<v> tesseract.js-core@<v> @tesseract.js-data/eng@<v>`
 2. Copy the files listed above, regenerate `SHA256SUMS`, update this file.
 3. Test "Read from photo" in a browser, then release.
+
+## ha-bambulab (reference for the Bambu Lab camera protocol)
+
+`adapters/bambu_camera.py` (0.13.0) talks to the camera of Bambu Lab A1 / P1 printers
+on port 6000. No code was copied: the client is our own (asyncio, with a timeout on every
+read). The packet layout was learned from reading the open implementation in ha-bambulab
+(`pybambu/bambu_client.py`, `ChamberImageThread`): the 80-byte login packet (`0x40, 0x3000,
+0, 0`, then `bblp` and the access code padded to 32 bytes) and the 16-byte frame header
+(little-endian JPEG size first).
+
+| Project | License | Source |
+|---|---|---|
+| ha-bambulab | MIT, © 2023 ha-bambulab contributors | <https://github.com/greghesp/ha-bambulab> |

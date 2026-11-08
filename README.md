@@ -96,6 +96,8 @@ survives the reload.
 | Currency                 | HA currency                          | used for units only, no conversion                                   |
 | Power integration method | left                                 | `left` suits step-like plug sensors, `trapezoidal` smooth ones       |
 | Turn off after a print   | on                                   | needs a smart plug; off when the nozzle is below 80 °C (see below)   |
+| Wait before turning off  | 0 min                                | minutes after a successful print before the auto-off starts          |
+| Filament price per kg    | empty                                | this printer's price; empty: the generic price of the material       |
 | SSH login (Klipper)      | empty                                | advanced: only for printers whose Moonraker cannot shut down         |
 
 ## Turning a printer off safely
@@ -115,13 +117,35 @@ The **Power** button on the card (`switch.<printer>_safe_power`) and the
    check): 3 checks in a row 5 s apart, then 10 s more. Still answering after
    5 minutes, the plug is left on and a notification says so.
 
-Auto-off starts only after a **successful** print, right away: there is no
-timer, it turns off as soon as the nozzle is below 80 °C (on/off in
-Configure → Advanced). A failed, cancelled, interrupted or unknown print
-leaves the printer on, so you can look at it. A new print, turning the plug
-off by hand, or tapping Power on the card while it shows "Cooling nozzle …"
-cancels it. Losing contact with the printer while the nozzle cools leaves the
-plug on.
+Auto-off starts only after a **successful** print (on/off in Configure →
+Advanced). With **Wait before turning off** at 0 it starts right away and turns
+off as soon as the nozzle is below 80 °C; with, say, 10 min the card shows
+"Auto off at HH:MM" first, so there is time to take the part off and start
+another print. A failed, cancelled, interrupted or unknown print leaves the
+printer on, so you can look at it. A new print, turning the plug off by hand,
+tapping Power on the card, or **Keep on** cancels it. Losing contact with the
+printer while the nozzle cools leaves the plug on.
+
+**Keep on** (0.15.0): the card's **Keep on** button, `button.<printer>_keep_on`,
+the action `fdm_printer_manager.keep_on`, or the button of the phone notification
+below. While the auto-off waits or the nozzle cools, it cancels it; during a print,
+that print will not turn the printer off. The next print turns it off as usual.
+
+**Notification when a print ends** (0.15.0, **Edit → When a print ends**): printer,
+file, result, duration and when the printer turns itself off, sent to the notify
+actions you choose (e.g. `notify.mobile_app_phone`). A printer without its own list
+uses the one of **FDM Printers → Configure**; with none, nothing is sent. With the
+Home Assistant app the notification has a **Keep on** button.
+
+**⚡ Power off now** (0.15.0): for a printer, Moonraker or OctoPrint that hangs. It
+cuts the plug **at once**: no cooling, no shutdown of the computer, no contact
+needed. On the card it needs **3 taps** ("Are you sure? (2 of 3)", "Last
+confirmation (3 of 3)"), each within 5 s of the last, and warns when a print is
+running. `button.<printer>_power_off_now` also needs 3 presses within 5 s each;
+the action `fdm_printer_manager.force_power_off` needs `confirm: true`. A running
+print is recorded as **failed by the user**, with a note, and the auto-off is
+cancelled. Every printer with a smart plug has it (Klipper, Bambu Lab; the
+integration does not talk to OctoPrint yet).
 
 **Elegoo Centauri Carbon**: its Moonraker cannot shut down (HTTP 500 "Error
 running shell command"). **OpenCentauri Cosmos 26.10 and later** shut down cleanly from Moonraker, so
@@ -173,6 +197,20 @@ The card only shows what the printer really has (read once, read-only:
   colour, type and % left; the active slot is outlined. AFC / Box Turtle /
   Elegoo CANVAS (Centauri Carbon, "cosmos" firmware), Happy Hare, Spoolman's
   active spool, Bambu Lab AMS (LAN). Also `sensor.<printer>_filaments`.
+- **Filament of each print** (0.15.0): "Recent prints" and the card's last line
+  show the metres (and grams) before the cost, e.g. "112,2 m · 281 g · ASA", and
+  the cost is electricity + filament. The **material** comes from the slicer
+  (`filament_type`), else the spool loaded while printing (AFC / CANVAS lane,
+  Happy Hare gate, Spoolman, Bambu AMS tray), else the file name (`…_ASA_….gcode`).
+  Names are made the same (PLA, PETG, ABS, ASA, TPU, PC, PA, PP, PPA, PPS, PET,
+  PLA-CF, PETG-CF, PET-CF). Not found: "?" and a list in "Recent prints" to choose
+  it (or to correct a wrong one; action `fdm_printer_manager.set_material`).
+- **Filament price**: the printer's own price per kg (Edit → Advanced), else a
+  **generic price per material** from **FDM Printers → Configure** (starting
+  values in €/kg: PLA 20, PLA-CF 35, PETG 20, PETG-CF 35, PET 25, PET-CF 50, ABS 20,
+  ASA 25, TPU 30, PC 35, PA 40, PP 35, PPA 60, PPS 80), else no cost and a note.
+  A cost from a generic price says so in the notes ("generic price") and has a `*`
+  in "Recent prints".
 
 ## Watching prints
 
@@ -222,7 +260,11 @@ One printer on its own tab: **Edit → When a print ends** (**Google Sheets log*
 
 Columns: `created` (added by Google Sheets), `printer`, `file`, `result` (`success`, `failed`,
 `cancelled`, `unknown`), `result_by` (`printer`, `watchdog` or `user`), `started`, `finished`
-(local time), `duration_min`, `energy_kwh`, `electricity_cost`, `currency`, `notes`, `job_id`.
+(local time), `duration_min`, `energy_kwh`, `electricity_cost`, `currency`, `notes`, `job_id`,
+then (0.14.0) `filament_mm`, `filament_g`, `filament_type`, `filament_cost`: the filament really used,
+then (0.15.0) `filament_m`, `filament_price_per_kg`, `filament_price_source` (`printer` or `generic`)
+and `print_cost` (electricity + filament). Choosing a material by hand changes the material and cost
+cells of the print's row in place, like marking a result.
 Missing headers are added by Google Sheets on the first row.
 
 - **One row per print.** If you later mark a print ("Wrong? Mark as failed / Mark as OK" on
@@ -288,7 +330,11 @@ _Ender 6_ gets `sensor.ender_6_…`.
 **Last print** (kept across restarts)
 
 `sensor.x2d_last_print_cost` (full summary in attributes), `…_energy`,
-`…_duration`, `…_result` (`success` / `cancelled` / `failed` / `unknown`).
+`…_duration`, `…_result` (`success` / `cancelled` / `failed` / `unknown`),
+`…_filament` (metres; grams, material and costs in the attributes).
+
+**Buttons** (with a smart plug): `button.x2d_keep_on`, `button.x2d_power_off_now`
+(3 presses within 5 s each).
 
 **Last print image**
 
@@ -405,6 +451,8 @@ restart recovery, last print, `print_finished` event.
 - ✅ **0.11.0** — one row per print in a Google Sheet (Google Sheets integration)
 - ✅ **0.12.0** — "Google Sheets" button in the FDM Printers page: connect, create the tab and
   log every printer in one click; guide in English and Portuguese
+- ✅ **0.13.0** — camera of Bambu Lab A1, A1 mini, P1P and P1S in LAN mode (no other
+  integration needed) on the printer's card; X1 / H2 / P2S (RTSP) not supported yet
 
 ## License
 

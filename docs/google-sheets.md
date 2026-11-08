@@ -118,13 +118,21 @@ To log one printer to another tab: **Edit → When a print ends** on that printe
 | `electricity_cost`, `currency` | Cost of the electricity |
 | `notes` | Notes (e.g. a correction) |
 | `job_id` | The print's ID |
+| `filament_mm` | Filament really used, in mm (since 0.14.0; also for cancelled and failed prints). Empty when the printer does not report it (Bambu Lab) |
+| `filament_g` | The same in grams: `filament_mm` x the slicer's weight per mm of the file. Empty without that weight |
+| `filament_type` | Filament type written by the slicer (e.g. `ASA`) |
+| `filament_cost` | `filament_g` x the price per kg: the printer's **Filament price per kg** (Edit → Advanced), else (0.15.0) the generic price of the material (FDM Printers → Configure). Empty without a price or a known material |
+| `filament_m` | The same length in metres (since 0.15.0) |
+| `filament_price_per_kg` | The price per kg used for `filament_cost` |
+| `filament_price_source` | `printer` (the printer's own price) or `generic` (the generic price of the material) |
+| `print_cost` | `electricity_cost` + `filament_cost` (only the known part when one is empty) |
 
 ## Limits
 
 | Limit | What it means |
 |---|---|
 | **Only the spreadsheet the integration created** | Google Sheets in Home Assistant can only write to the spreadsheet it created when you connected it. It cannot write to a spreadsheet you made yourself. Want a separate spreadsheet? Use **Add another spreadsheet**: it adds a second Google Sheets entry with a new spreadsheet. |
-| **One row per print** | If you later mark a print ("Wrong? Mark as failed / Mark as OK" on the card) and the result changes, the print's row is **changed in place**: `result` and `result_by` = `user`, found by `job_id` (a row still waiting to be sent is changed before it goes). Only when that row cannot be found or changed is a **correction row** added, with the same `job_id` and a note; then keep the last row of each `job_id` when you count. |
+| **One row per print** | If you later mark a print ("Wrong? Mark as failed / Mark as OK" on the card) and the result changes, the print's row is **changed in place**: `result` and `result_by` = `user`, found by `job_id`. The same when its material is chosen by hand (0.15.0): the material and cost cells change (a row still waiting to be sent is changed before it goes). Only when that row cannot be found or changed is a **correction row** added, with the same `job_id` and a note; then keep the last row of each `job_id` when you count. |
 | **Columns by header name** | Rows are matched to the header row by name. A missing column is added at the end of the header. |
 | **No network** | The row waits (up to 200 rows) and is sent before the next one, at the next print or when Home Assistant starts. You get one notification. |
 

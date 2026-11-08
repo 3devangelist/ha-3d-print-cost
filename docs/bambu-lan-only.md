@@ -32,6 +32,7 @@ What works with **LAN Only alone** (tested on an A1 mini):
 | Nozzle temperature | Chamber light button |
 | Safe power: wait below 80 °C, then cut the plug | Any other command sent to the printer |
 | Print history and cost in FDM | |
+| Camera on the card — A1, A1 mini, P1P, P1S (since 0.13.0) | |
 
 Since the January 2025 firmware, commands from other software need **Developer Mode**.
 Without it, FDM shows a clear notice — "requires Developer Mode" — and nothing breaks.
@@ -180,7 +181,8 @@ These ports come from Bambu Lab's official port list.
 | **Bambu Studio can't see the printer** | Same network? Select the printer with the lock icon and enter the access code. |
 | **Notice "requires Developer Mode"** | You pressed pause, stop or the light. Turn on Developer Mode ([Step 2](#step-2--developer-mode-optional)), or ignore it: the rest works. |
 | **Connected, but no status** | Check the **serial number** (the printer only answers its own). Turn LAN Only off and on, then update the code. |
-| **No camera on X1 / H2** | Turn on **LAN mode liveview** on the LAN Only page. |
+| **No camera on A1 / P1** | The camera shows only while the printer is connected (status works). Port **6000** must be open from Home Assistant. Close Bambu Studio's camera view and try again: the printer may serve only a few viewers at once. |
+| **No camera on X1 / H2 / P2S** | Not supported yet in FDM (these use RTSP on port 322). With ha-bambulab, turn on **LAN mode liveview** on the LAN Only page. |
 | **Cover image or print weight missing (newer H2 / P2S firmware)** | Turn on **Store sent files on external storage** in the printer's print options and insert a USB drive or SD card. **(not confirmed for FDM — reported by ha-bambulab)** |
 
 For a bug report, attach the **diagnostics** file (device page → **Download diagnostics**)

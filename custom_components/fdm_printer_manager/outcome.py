@@ -33,6 +33,7 @@ def history_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     counts = {str(r): 0 for r in PrintResult}
     costs = {str(r): 0.0 for r in PrintResult}
     energy = {str(r): 0.0 for r in PrintResult}
+    filament = {str(r): 0.0 for r in PrintResult}
     for row in rows:
         result = row.get("result") or str(PrintResult.UNKNOWN)
         if result not in counts:
@@ -40,6 +41,7 @@ def history_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
         counts[result] += 1
         costs[result] += float(row.get("electricity_cost") or 0)
         energy[result] += float(row.get("energy_kwh") or 0)
+        filament[result] += float(row.get("filament_cost") or 0)
     judged = counts["success"] + counts["failed"]
     return {
         "prints": len(rows),
@@ -48,4 +50,6 @@ def history_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "energy_kwh": {k: round(v, 4) for k, v in energy.items()},
         "success_rate": round(100 * counts["success"] / judged, 1) if judged else None,
         "wasted_cost": round(costs["failed"] + costs["cancelled"], 4),
+        # 0.15.0: the filament of failed and cancelled prints (only where its cost is known)
+        "wasted_filament_cost": round(filament["failed"] + filament["cancelled"], 4),
     }

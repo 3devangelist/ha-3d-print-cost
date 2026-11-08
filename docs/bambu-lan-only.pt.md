@@ -32,6 +32,7 @@ O que funciona **só com o LAN Only** (testado numa A1 mini):
 | Temperatura do bico | Botão da luz da câmara |
 | Tomada segura: espera abaixo de 80 °C e corta a tomada | Qualquer outro comando mandado à impressora |
 | Histórico e custo na FDM | |
+| Câmara no cartão — A1, A1 mini, P1P, P1S (desde a 0.13.0) | |
 
 Desde o firmware de janeiro de 2025, os comandos de outros programas precisam do **Developer Mode**.
 Sem ele, a FDM mostra um aviso claro — "requires Developer Mode" — e nada se estraga.
@@ -180,7 +181,8 @@ Estas portas vêm da lista oficial da Bambu Lab.
 | **O Bambu Studio não vê a impressora** | Mesma rede? Escolhe a impressora com o cadeado e escreve o código de acesso. |
 | **Aviso "requires Developer Mode"** | Carregaste em pausar, parar ou na luz. Liga o Developer Mode ([Passo 2](#passo-2--developer-mode-opcional)) ou ignora: o resto funciona. |
 | **Ligada, mas sem estado** | Confirma o **número de série** (a impressora só responde ao seu). Desliga e liga o LAN Only e atualiza o código. |
-| **Sem câmara na X1 / H2** | Liga o **LAN mode liveview** na página LAN Only. |
+| **Sem câmara na A1 / P1** | A câmara só aparece com a impressora ligada (o estado funciona). A porta **6000** tem de estar aberta a partir do Home Assistant. Fecha a câmara no Bambu Studio e tenta de novo: a impressora pode servir poucos ecrãs ao mesmo tempo. |
+| **Sem câmara na X1 / H2 / P2S** | Ainda não é suportada na FDM (usam RTSP na porta 322). Com o ha-bambulab, liga o **LAN mode liveview** na página LAN Only. |
 | **Falta a imagem da peça ou o peso (firmware novo H2 / P2S)** | Liga **Store sent files on external storage** nas opções de impressão e põe uma pen USB ou cartão SD. **(não confirmado na FDM — relatado pelo ha-bambulab)** |
 
 Para reportar um erro, junta o ficheiro de **diagnóstico** (página do aparelho → **Download diagnostics**)

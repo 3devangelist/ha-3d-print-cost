@@ -42,6 +42,8 @@ from .const import (
     PrinterType,
 )
 from .coordinator import PrintCostConfigEntry, PrintCostCoordinator, own_device
+from .finish_notify import panel_options
+from .materials import LABELS, MATERIALS, generic_prices
 from .naming import bambu_model, bambu_name, friendly_name, is_generic
 from .outcome import history_stats
 from .scanner import async_scan_network, async_start_scanning
@@ -290,8 +292,18 @@ async def ws_history(hass: HomeAssistant, connection: websocket_api.ActiveConnec
         rows.extend({"entry_id": entry.entry_id, "currency": currency, **h} for h in coordinator.state.history)
     rows.sort(key=lambda r: r.get("finished_at") or "", reverse=True)
     start = msg["offset"]
+    prices = generic_prices(panel_options(hass))
+    materials = [
+        {"name": m, "label": LABELS.get(m, m), "price": float(prices[m]) if m in prices else None} for m in MATERIALS
+    ]
     connection.send_result(
-        msg["id"], {"total": len(rows), "rows": rows[start : start + msg["limit"]], "stats": history_stats(rows)}
+        msg["id"],
+        {
+            "total": len(rows),
+            "rows": rows[start : start + msg["limit"]],
+            "stats": history_stats(rows),
+            "materials": materials,
+        },
     )
 
 

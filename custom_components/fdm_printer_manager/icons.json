@@ -74,6 +74,9 @@
       },
       "cost_today": {
         "default": "mdi:cash"
+      },
+      "last_print_filament": {
+        "default": "mdi:printer-3d-nozzle-outline"
       }
     },
     "event": {
@@ -115,12 +118,29 @@
       },
       "cancel_print": {
         "default": "mdi:stop"
+      },
+      "keep_on": {
+        "default": "mdi:power-plug"
+      },
+      "power_off_now": {
+        "default": "mdi:power-plug-off"
       }
     },
     "light": {
       "printer_light": {
         "default": "mdi:lightbulb"
       }
+    }
+  },
+  "services": {
+    "keep_on": {
+      "service": "mdi:power-plug"
+    },
+    "force_power_off": {
+      "service": "mdi:power-plug-off"
+    },
+    "set_material": {
+      "service": "mdi:printer-3d-nozzle-outline"
     }
   }
 }

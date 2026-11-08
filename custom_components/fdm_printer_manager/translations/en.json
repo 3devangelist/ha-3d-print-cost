@@ -156,22 +156,26 @@
         "data": {
           "update_interval": "Sampling interval while printing",
           "currency": "Currency",
+          "filament_price_per_kg": "Filament price per kg",
           "auto_off": "Turn the printer off after a successful print",
           "babystep": "Z offset buttons while printing",
           "babystep_save": "Allow saving the Z offset",
           "ssh_username": "SSH user name",
           "ssh_password": "SSH password",
           "ssh_private_key": "SSH private key",
-          "ssh_command": "SSH shutdown command"
+          "ssh_command": "SSH shutdown command",
+          "auto_off_delay": "Wait before turning off"
         },
         "data_description": {
-          "auto_off": "As soon as a print ends well, the printer is turned off safely: it waits for the nozzle to drop below 80 °C, shuts its computer down, and cuts the plug once it stops answering. A new print, or the plug turned on or off by hand, cancels it. A failed, cancelled or unknown print leaves it on so you can look at it, and so does losing contact with the printer. Needs a smart plug.",
+          "filament_price_per_kg": "Optional, in the currency above. Gives each print its filament cost (filament used x this price), whatever the material. Leave empty to use the generic price of the print's material (FDM Printers → Configure).",
+          "auto_off": "After a print ends well, the printer is turned off safely: after the wait below, it waits for the nozzle to drop below 80 °C, shuts its computer down, and cuts the plug once it stops answering. \"Keep on\" (card, button entity or the phone notification), a new print, or the plug turned on or off by hand cancels it. A failed, cancelled or unknown print leaves it on so you can look at it, and so does losing contact with the printer. Needs a smart plug.",
           "babystep": "Baby steps: the card shows buttons that move the nozzle up or down while printing (SET_GCODE_OFFSET Z_ADJUST, like Mainsail and Fluidd), at most 1 mm from 0 when the current offset is known. Only when Klipper knows the command.",
           "babystep_save": "Adds a Save button that keeps the offset (Z_OFFSET_APPLY_PROBE or Z_OFFSET_APPLY_ENDSTOP). Run SAVE_CONFIG yourself when the printer is idle. Off by default.",
           "ssh_username": "Advanced: only for a printer whose Moonraker cannot shut its computer down. The Elegoo Centauri Carbon needs nothing here: it is recognised and shut down over SSH as root by itself. Leave empty to not use SSH.",
           "ssh_password": "Optional. Leave empty to keep the stored one (or for a login without a password).",
           "ssh_private_key": "Optional, instead of the password (OpenSSH format). Leave empty to keep the stored one.",
-          "ssh_command": "Run on the printer to shut it down, for example poweroff or sudo poweroff."
+          "ssh_command": "Run on the printer to shut it down, for example poweroff or sudo poweroff.",
+          "auto_off_delay": "Minutes between the end of a successful print and the start of the safe power off: time to take the part off and start another print, or to tap Keep on. 0: right away."
         }
       },
       "klipper": {
@@ -228,12 +232,16 @@
         "title": "When a print ends",
         "description": "Optional. Besides the event `fdm_printer_manager_print_finished`. Google Sheets only writes to a spreadsheet created by its own integration.",
         "data": {
+          "finish_notify": "Notify my phone",
+          "finish_notify_services": "Send to",
           "todo_entity": "To-do list",
           "end_script": "Script",
           "sheets_config_entry": "Google Sheets log",
           "sheets_worksheet": "Worksheet"
         },
         "data_description": {
+          "finish_notify": "A notification when a print ends (finished, cancelled or failed): file, result, time, and when the printer turns itself off, with a Keep on button (Home Assistant app).",
+          "finish_notify_services": "Notify actions, separated by commas, e.g. notify.mobile_app_phone. Empty: the ones set in FDM Printers → Configure. None anywhere: nothing is sent.",
           "todo_entity": "Adds \"Remove the print from [printer name]\" with the file name and the result, so a part is not forgotten on the plate.",
           "end_script": "Started with the print summary as variables: printer, name, result, duration_s, energy_kwh, electricity_cost, currency.",
           "sheets_config_entry": "Adds one row per finished, failed or cancelled print to the spreadsheet of this Google Sheets integration entry. Empty: off.",
@@ -245,6 +253,30 @@
         "description": "{name} does not look like the same printer: {what} changed. Commands and power off are blocked until you decide. This happens after a firmware reinstall or a new board, but also when another device took the printer's IP address. Check the printer, then tick the box only if it is yours.",
         "data": {
           "accept_identity": "Yes, this is my printer: trust it from now on"
+        }
+      },
+      "panel": {
+        "title": "FDM Printers",
+        "description": "Shared by every printer. Generic filament prices give a first idea of the filament cost when a printer has no price of its own (Edit → Advanced). Clear a price for no generic price of that material.",
+        "data": {
+          "finish_notify_services": "Notify my phone when a print ends",
+          "price_pla": "PLA per kg",
+          "price_pla_cf": "PLA-CF per kg",
+          "price_petg": "PETG per kg",
+          "price_petg_cf": "PETG-CF per kg",
+          "price_pet": "PET per kg",
+          "price_pet_cf": "PET-CF per kg",
+          "price_abs": "ABS per kg",
+          "price_asa": "ASA per kg",
+          "price_tpu": "TPU per kg",
+          "price_pc": "PC per kg",
+          "price_pa": "PA (Nylon) per kg",
+          "price_pp": "PP per kg",
+          "price_ppa": "PPA per kg",
+          "price_pps": "PPS per kg"
+        },
+        "data_description": {
+          "finish_notify_services": "For every printer that has no phone of its own (Edit → When a print ends). Notify actions, separated by commas, e.g. notify.mobile_app_phone. Empty: no notification."
         }
       }
     },
@@ -353,6 +385,9 @@
       },
       "z_offset": {
         "name": "Z offset"
+      },
+      "last_print_filament": {
+        "name": "Last print filament"
       }
     },
     "event": {
@@ -394,6 +429,12 @@
       },
       "cancel_print": {
         "name": "Cancel print"
+      },
+      "keep_on": {
+        "name": "Keep on"
+      },
+      "power_off_now": {
+        "name": "Power off now"
       }
     },
     "light": {
@@ -462,6 +503,48 @@
         "entry_id": {
           "name": "Printer",
           "description": "Optional. Only this printer. Empty: every printer."
+        }
+      }
+    },
+    "keep_on": {
+      "name": "Keep on",
+      "description": "Keep the printer on: cancels the auto-off that is waiting or cooling the nozzle, or, during a print, the one after it. The next print turns it off as usual.",
+      "fields": {
+        "entry_id": {
+          "name": "Printer",
+          "description": "The printer."
+        }
+      }
+    },
+    "force_power_off": {
+      "name": "Power off now",
+      "description": "Cuts the printer's plug at once, without cooling the nozzle or shutting its computer down. For a printer or Moonraker that hangs. A running print is closed as failed.",
+      "fields": {
+        "entry_id": {
+          "name": "Printer",
+          "description": "The printer."
+        },
+        "confirm": {
+          "name": "Confirm",
+          "description": "Must be on: the plug is cut without any safety step."
+        }
+      }
+    },
+    "set_material": {
+      "name": "Set the material of a print",
+      "description": "Choose the material of a finished print (when it was not found, or was wrong). Its filament cost is worked out again.",
+      "fields": {
+        "entry_id": {
+          "name": "Printer",
+          "description": "The printer."
+        },
+        "job_id": {
+          "name": "Print ID",
+          "description": "The job_id of the print history."
+        },
+        "material": {
+          "name": "Material",
+          "description": "PLA, PETG, ASA…"
         }
       }
     }

@@ -10,6 +10,8 @@ What is remembered (one value per kind):
 
 * ``tls_cert`` — Bambu Lab LAN: SHA-256 of the MQTT broker's TLS certificate,
   checked before the access code is sent;
+* ``camera_tls_cert`` — Bambu Lab LAN (A1 / P1): SHA-256 of the camera's TLS
+  certificate (port 6000), checked before the access code is sent;
 * ``machine`` — Klipper: who Moonraker says the computer is (CPU serial
   number, else the network cards' MAC addresses, else the host name);
 * ``ssh_host_key`` — the SSH host key used for the shutdown fallback, checked
@@ -24,12 +26,14 @@ from dataclasses import dataclass
 from typing import Any
 
 KIND_TLS = "tls_cert"
+KIND_CAMERA_TLS = "camera_tls_cert"
 KIND_MACHINE = "machine"
 KIND_SSH = "ssh_host_key"
 
 # What the admin reads in the repair issue and the options flow.
 KIND_LABELS = {
     KIND_TLS: "its TLS certificate",
+    KIND_CAMERA_TLS: "its camera's TLS certificate",
     KIND_MACHINE: "its computer (Moonraker machine identity)",
     KIND_SSH: "its SSH host key",
 }

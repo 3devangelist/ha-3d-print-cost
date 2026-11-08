@@ -31,7 +31,7 @@ async def test_first_add_integration_creates_the_panel_in_one_click(hass: HomeAs
 
     # Gone when nothing of the integration is loaded any more.
     entry = hass.config_entries.async_entries(DOMAIN)[0]
-    assert not entry.supports_options
+    assert entry.supports_options  # 0.15.0: notifications and generic filament prices
     await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
     assert PANEL_URL_PATH not in hass.data[DATA_PANELS]
