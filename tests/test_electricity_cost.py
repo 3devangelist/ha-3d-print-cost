@@ -64,11 +64,11 @@ def test_energy_meter_preferred_over_power():
     assert acc.cost == pytest.approx(expected, abs=Decimal("1e-9"))
 
 
-def test_meter_reset_falls_back_to_power():
+def test_meter_reset_books_only_the_meter():
     acc = ElectricityAccumulator()
     acc.add_sample(ElectricitySample(at(0), power_w=600, energy_kwh=5.0, price_per_kwh=HP))
     acc.add_sample(ElectricitySample(at(30), power_w=600, energy_kwh=0.01, price_per_kwh=HP))  # plug reboot
-    assert acc.energy_kwh == pytest.approx(0.3)
+    assert acc.energy_kwh == pytest.approx(0.01)  # what the meter counted since the reboot, no estimate
     assert acc.meter_resets == 1
     assert acc.notes
 
@@ -151,15 +151,19 @@ def test_meter_outage_is_not_double_counted():
     assert acc.pending_kwh == 0
 
 
-def test_meter_lost_until_the_end_uses_power_estimate():
+def test_meter_lost_until_the_end_books_no_estimate():
     acc = ElectricityAccumulator()
     acc.add_sample(ElectricitySample(at(0), power_w=600, energy_kwh=10.0, price_per_kwh=HP))
     acc.add_sample(ElectricitySample(at(30), power_w=600, energy_kwh=None, price_per_kwh=HP))
     acc.add_sample(ElectricitySample(at(60), power_w=600, energy_kwh=None, price_per_kwh=HP))
-    assert acc.energy_kwh == 0
+    assert acc.awaiting_meter
     acc.flush()
-    assert acc.energy_kwh == pytest.approx(0.6)
-    assert acc.notes
+    assert acc.energy_kwh == 0
+    assert acc.cost == 0
+    assert acc.unmetered_kwh == pytest.approx(0.6)
+    assert acc.notes == [
+        "energy meter did not report the end of the print: about 600.0 Wh not measured and not counted"
+    ]
 
 
 def test_stale_meter_shows_power_estimate_until_it_steps():
@@ -178,14 +182,54 @@ def test_stale_meter_shows_power_estimate_until_it_steps():
     assert acc.total_energy_kwh == pytest.approx(0.10)
 
 
-def test_meter_frozen_for_the_whole_print_uses_power():
+def test_meter_frozen_for_the_whole_print_books_nothing():
     acc = ElectricityAccumulator()
     for minute in range(0, 61, 5):
         acc.add_sample(ElectricitySample(at(minute), power_w=120, energy_kwh=17.57, price_per_kwh=HC))
     acc.flush()
-    assert acc.energy_kwh == pytest.approx(0.12)
-    assert acc.cost == pytest.approx(Decimal(repr(0.12)) * HC, abs=Decimal("1e-9"))
-    assert "energy meter did not report the last part of the print, power estimate used" in acc.notes
+    assert acc.energy_kwh == 0
+    assert acc.cost == 0
+    assert acc.unmetered_kwh == pytest.approx(0.12)
+    assert "not measured and not counted" in acc.notes[0]
+
+
+def test_end_waits_for_the_next_meter_step():
+    """Plug counting in steps: the step after "finished" books the real end of the print."""
+    acc = ElectricityAccumulator()
+    acc.add_sample(ElectricitySample(at(0), power_w=300, energy_kwh=10.00, price_per_kwh=HC))
+    acc.add_sample(ElectricitySample(at(30), power_w=300, energy_kwh=10.15, price_per_kwh=HC))
+    acc.add_sample(ElectricitySample(at(31), power_w=300, energy_kwh=10.15, price_per_kwh=HC))  # printer: finished
+    assert acc.awaiting_meter
+    assert not acc.meter_stepped(10.15)
+    assert acc.meter_stepped(10.156)
+    acc.add_sample(ElectricitySample(at(32), power_w=40, energy_kwh=10.156, price_per_kwh=HC))  # next plug step
+    assert not acc.awaiting_meter
+    acc.flush()
+    assert acc.energy_kwh == pytest.approx(0.156)  # meter only
+    assert acc.cost == pytest.approx(Decimal(repr(0.156)) * HC, abs=Decimal("1e-9"))
+    assert acc.unmetered_kwh == 0
+    assert acc.notes == []
+
+
+def test_power_only_setup_still_uses_power():
+    acc = ElectricityAccumulator()
+    acc.add_sample(ElectricitySample(at(0), power_w=600, price_per_kwh=HP))
+    acc.add_sample(ElectricitySample(at(60), power_w=600, price_per_kwh=HP))
+    assert not acc.has_meter
+    assert not acc.awaiting_meter
+    acc.flush()
+    assert acc.energy_kwh == pytest.approx(0.6)
+    assert acc.notes == []
+
+
+def test_unmetered_survives_a_restart():
+    acc = ElectricityAccumulator()
+    acc.add_sample(ElectricitySample(at(0), power_w=600, energy_kwh=10.0, price_per_kwh=HP))
+    acc.add_sample(ElectricitySample(at(10), power_w=600, energy_kwh=10.0, price_per_kwh=HP))
+    acc.flush()
+    restored = ElectricityAccumulator.from_dict(acc.as_dict())
+    assert restored.unmetered_kwh == pytest.approx(0.1)
+    assert restored.energy_kwh == 0
 
 
 def test_meter_hole_note_only_once_the_meter_is_back():

@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.6]
+
+### Fixed
+
+- **The end of a print is measured by the plug, never estimated.** A smart plug counts energy
+  in small steps every one or two minutes. When the printer said "finished", the energy since
+  the plug's last step was not in its meter yet, so the integration booked a power estimate for
+  it and almost every print got the note "energy meter did not report the last part of the
+  print, power estimate used". The print now stays in `finalizing` until the plug's meter steps
+  (up to 5 minutes; a restart resumes the wait) and books that real step. With an energy meter,
+  a power estimate is never turned into energy any more.
+- **If the plug never reports the end** (it went offline), the missing part is not estimated:
+  the print keeps only the measured energy and its note says how many Wh were not measured
+  (`unmetered_kwh`).
+- **A plug that restarts its energy counter from zero** now books only what it counted since
+  the restart, never a power estimate.
+- Setups with a power sensor only (no energy meter) are unchanged: the power integral is the value.
+
 ## [0.12.5]
 
 ### Fixed

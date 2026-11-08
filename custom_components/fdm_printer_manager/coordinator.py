@@ -122,6 +122,8 @@ from .const import (
     HTTP_TIMEOUT,
     KLIPPER_POLL_INTERVAL,
     MAX_SAMPLE_GAP,
+    METER_SETTLE_POLL,
+    METER_SETTLE_TIMEOUT,
     PAUSED_STATES,
     SAFE_POWER_COOL_TEMP,
     SAFE_POWER_COOL_TIMEOUT,
@@ -1450,6 +1452,9 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
         already show another job, so a resumed finalisation keeps none.
         """
         image = await self._async_read_cover_image() if capture_image else None
+        if job.electricity.awaiting_meter:
+            await self._async_wait_meter_step(job)
+            job.electricity.flush()
         job.phase = JobPhase.COMPLETED
         if job in self.state.finalizing:
             self.state.finalizing.remove(job)
@@ -1479,6 +1484,25 @@ class PrintCostCoordinator(DataUpdateCoordinator[PrintCostData]):
             self.currency,
         )
         self._publish(dt_util.utcnow(), self.reader.price_per_kwh())
+
+    async def _async_wait_meter_step(self, job: PrintJob) -> None:
+        """Wait for the plug's energy meter to step, so the end of the print is measured, not estimated.
+
+        A plug counts in small steps every one or two minutes: when the printer
+        says "finished", the energy since the last step is not in the meter yet.
+        The next step (or ``METER_SETTLE_TIMEOUT``) closes the account. The job
+        stays in ``finalizing`` (saved), so a restart resumes the wait.
+        """
+        acc = job.electricity
+        deadline = dt_util.utcnow() + timedelta(seconds=METER_SETTLE_TIMEOUT)
+        while dt_util.utcnow() < deadline:
+            sample = self.reader.sample(dt_util.utcnow())
+            if acc.meter_stepped(sample.energy_kwh):
+                acc.add_sample(sample)
+                _LOGGER.debug("Print '%s': energy meter stepped, end of the print measured", job.name)
+                return
+            await asyncio.sleep(METER_SETTLE_POLL)
+        _LOGGER.info("Print '%s': energy meter did not step within %s s", job.name, METER_SETTLE_TIMEOUT)
 
     async def _async_read_cover_image(self) -> bytes | None:
         """Bytes of the ha-bambulab cover image, ``None`` if there is none."""

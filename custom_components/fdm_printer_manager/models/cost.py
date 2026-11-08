@@ -15,8 +15,13 @@ Rules
   so intervals never straddle a tariff change by more than one sample.
 * While the meter is momentarily unavailable the power estimate is kept
   *pending*; the next meter reading books the exact delta for the whole hole
-  (priced like the estimate). ``flush()`` books the estimate if the meter
-  never comes back before the end of the print.
+  (priced like the estimate).
+* With a meter, only the meter is booked: a power estimate is never turned
+  into energy. At the end of the print the coordinator waits for the next
+  meter step (``awaiting_meter``) before ``flush()``. If the meter never steps,
+  ``flush()`` books nothing for that tail: it is kept in ``unmetered_kwh`` and
+  a note says how much was not measured. Without a meter (power sensor only)
+  the power integral is the value, as before.
 * An interval with an unknown price adds energy but no cost; that energy is
   tracked in ``uncosted_energy_kwh`` and ``cost_complete`` becomes ``False``.
   Unknown is never silently turned into zero.
@@ -67,6 +72,8 @@ class ElectricityAccumulator:
     energy_end_kwh: float | None = None  # meter value at the last sample
     gap_seconds: float = 0.0  # time integrated across long holes
     meter_resets: int = 0
+    # Power estimate the meter never confirmed (meter gone at the end): not booked.
+    unmetered_kwh: float = 0.0
 
     last_timestamp: datetime | None = None
     last_power_w: float | None = None
@@ -120,6 +127,20 @@ class ElectricityAccumulator:
     def _remember_shown(self) -> None:
         self.shown_energy_kwh = self.reported_energy_kwh
         self.shown_cost = self.reported_cost
+
+    @property
+    def has_meter(self) -> bool:
+        """An energy meter reading has been seen: only the meter is booked."""
+        return self.energy_start_kwh is not None
+
+    @property
+    def awaiting_meter(self) -> bool:
+        """Energy since the last meter step is not measured yet (the meter has not stepped)."""
+        return self.has_meter and (self.pending_kwh > 0 or self.pending_uncosted_kwh > 0 or self.meter_hole)
+
+    def meter_stepped(self, energy_kwh: float | None) -> bool:
+        """``energy_kwh`` is a new meter value (a step up, or a reset) compared with the last one."""
+        return energy_kwh is not None and self.last_energy_kwh is not None and energy_kwh != self.last_energy_kwh
 
     @property
     def total_uncosted_energy_kwh(self) -> float:
@@ -198,24 +219,31 @@ class ElectricityAccumulator:
             pass
         else:
             # Meter reset (plug rebooted, daily counter...): it counts again
-            # from zero. Book what it counted since (its new value), or the
-            # power estimate of the interval when that is larger (the part
-            # before the reset is not in the meter any more).
+            # from zero. Book what it counted since (its new value): the part
+            # before the reset is lost by the meter and is not estimated.
             self.meter_resets += 1
-            since_reset = max(meter_now, 0.0)
-            if since_reset > self.pending_kwh:
-                self._note("energy meter restarted from zero, its new count used for that interval")
-                self._commit_meter(since_reset)
-            else:
-                self._note("energy meter decreased during the print, power used for that interval")
-                self._commit_pending()
+            self._note("energy meter restarted from zero, only its new count was booked for that interval")
+            self._commit_meter(max(meter_now, 0.0))
 
         self._store(sample)
 
     def flush(self) -> None:
-        """Commit a pending estimate (meter never came back before the end)."""
-        if self.pending_kwh or self.pending_uncosted_kwh:
-            self._note("energy meter did not report the last part of the print, power estimate used")
+        """Close the print.
+
+        Without a meter the pending power integral is the value. With a meter,
+        energy the meter never confirmed is not booked: it goes to
+        ``unmetered_kwh`` with a note (the coordinator waits for the meter
+        first, so this only happens when the plug stopped reporting).
+        """
+        if self.has_meter:
+            if self.pending_kwh > 0:
+                self.unmetered_kwh += self.pending_kwh
+                self._note(
+                    f"energy meter did not report the end of the print: about {self.unmetered_kwh * 1000:.1f} Wh"
+                    " not measured and not counted"
+                )
+            self._clear_pending()
+        elif self.pending_kwh or self.pending_uncosted_kwh:
             self._commit_pending()
         self._remember_shown()
 
@@ -300,6 +328,7 @@ class ElectricityAccumulator:
             "energy_end_kwh": self.energy_end_kwh,
             "gap_seconds": self.gap_seconds,
             "meter_resets": self.meter_resets,
+            "unmetered_kwh": self.unmetered_kwh,
             "last_timestamp": self.last_timestamp.isoformat() if self.last_timestamp else None,
             "last_power_w": self.last_power_w,
             "last_energy_kwh": self.last_energy_kwh,
@@ -329,6 +358,7 @@ class ElectricityAccumulator:
             energy_end_kwh=data.get("energy_end_kwh"),
             gap_seconds=float(data.get("gap_seconds", 0.0)),
             meter_resets=int(data.get("meter_resets", 0)),
+            unmetered_kwh=float(data.get("unmetered_kwh", 0.0)),
             last_timestamp=datetime.fromisoformat(last_ts) if last_ts else None,
             last_power_w=data.get("last_power_w"),
             last_energy_kwh=data.get("last_energy_kwh"),
